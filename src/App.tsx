@@ -182,10 +182,55 @@ export default function App() {
     }
   }, [fetchKelasList, fetchMasterData, loadHistoryData, addToast]);
 
+  // Load app customization from Google Spreadsheet & local storage cache
+  const loadCustomization = useCallback(async () => {
+    // 1. First read local storage for immediate layout paint
+    const savedCustomization = localStorage.getItem('absensi_app_customization');
+    if (savedCustomization) {
+      try {
+        const parsed = JSON.parse(savedCustomization);
+        setCustomization((prev) => ({ ...prev, ...parsed }));
+      } catch (e) {
+        console.error('Error loading customization cache:', e);
+      }
+    }
+
+    // 2. Fetch background live values from Google Spreadsheet
+    try {
+      const res = await apiClient.getCustomization();
+      if (res.status === 'success' && res.customization) {
+        setCustomization(res.customization);
+        localStorage.setItem('absensi_app_customization', JSON.stringify(res.customization));
+      }
+    } catch (err) {
+      console.error('Background load customization error:', err);
+    }
+  }, []);
+
   // Handle Init App
   useEffect(() => {
     initializeStorage();
-    fetchKelasList();
+
+    // Check if there is gas_url in query parameters for instant setup
+    const params = new URLSearchParams(window.location.search);
+    const gasUrlParam = params.get('gas_url');
+    if (gasUrlParam) {
+      apiClient.setBackendUrl(gasUrlParam);
+      setWebAppUrl(gasUrlParam);
+      setIsDemoMode(false);
+      addToast('🎉 Berhasil menyinkronkan database & pengaturan via QR Code!', 'success');
+
+      // Clean up URL parameters
+      const newUrl = window.location.pathname + window.location.hash;
+      window.history.replaceState({}, document.title, newUrl);
+
+      // Force fetch customization & lists immediately
+      loadCustomization();
+      fetchKelasList();
+    } else {
+      fetchKelasList();
+    }
+
     fetchMasterData();
 
     // Auto load session
@@ -199,7 +244,7 @@ export default function App() {
         localStorage.removeItem('absensi_user');
       }
     }
-  }, [fetchKelasList, fetchMasterData]);
+  }, [addToast, fetchKelasList, fetchMasterData, loadCustomization]);
 
   // Load master data once logged in
   useEffect(() => {
@@ -208,33 +253,10 @@ export default function App() {
     }
   }, [isLoggedIn, fetchMasterData]);
 
-  // Load app customization from Google Spreadsheet & local storage cache
+  // Load app customization on mount and when loadCustomization is available
   useEffect(() => {
-    async function loadCustomization() {
-      // 1. First read local storage for immediate layout paint
-      const savedCustomization = localStorage.getItem('absensi_app_customization');
-      if (savedCustomization) {
-        try {
-          const parsed = JSON.parse(savedCustomization);
-          setCustomization((prev) => ({ ...prev, ...parsed }));
-        } catch (e) {
-          console.error('Error loading customization cache:', e);
-        }
-      }
-
-      // 2. Fetch background live values from Google Spreadsheet
-      try {
-        const res = await apiClient.getCustomization();
-        if (res.status === 'success' && res.customization) {
-          setCustomization(res.customization);
-          localStorage.setItem('absensi_app_customization', JSON.stringify(res.customization));
-        }
-      } catch (err) {
-        console.error('Background load customization error:', err);
-      }
-    }
     loadCustomization();
-  }, []);
+  }, [loadCustomization]);
 
   // Load history data once logged in
   useEffect(() => {
@@ -272,12 +294,27 @@ export default function App() {
   };
 
   // SAVE BACKEND SETTINGS
-  const handleSaveSettings = (url: string) => {
+  const handleSaveSettings = async (url: string) => {
     apiClient.setBackendUrl(url);
     setWebAppUrl(url);
     setIsDemoMode(!url.trim());
     setShowConfigModal(false);
     addToast(url.trim() ? 'Berhasil menghubungkan database Cloud!' : 'Beralih ke mode offline (Demo)', 'success');
+    
+    // Fetch customization from the new URL immediately!
+    if (url.trim()) {
+      try {
+        const res = await apiClient.getCustomization();
+        if (res.status === 'success' && res.customization) {
+          setCustomization(res.customization);
+          localStorage.setItem('absensi_app_customization', JSON.stringify(res.customization));
+          addToast('Pengaturan identitas berhasil disinkronkan dari database!', 'success');
+        }
+      } catch (err) {
+        console.error('Failed to sync customization on save:', err);
+      }
+    }
+    
     // Reload data
     fetchKelasList();
     loadHistoryData();

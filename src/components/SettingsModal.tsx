@@ -4,7 +4,7 @@
  */
 
 import React, { useState } from 'react';
-import { X, Globe, HelpCircle, Save, ToggleLeft, ToggleRight } from 'lucide-react';
+import { X, Globe, HelpCircle, Save } from 'lucide-react';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -62,8 +62,8 @@ export function SettingsModal({ onClose, currentUrl, onSave }: SettingsModalProp
             />
           </div>
 
-          <div className="flex items-center justify-between pt-2">
-            <span className="text-xs font-semibold text-slate-400">
+          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+            <span className="text-[10px] font-bold text-slate-400 uppercase">
               Status: {urlInput.trim() ? '🔌 Siap Menghubungkan' : '🏠 Offline (Mode Demo)'}
             </span>
             <div className="flex justify-end gap-2">
