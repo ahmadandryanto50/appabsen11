@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { User, AttendanceRecord, AppCustomization } from '../types';
-import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3 } from 'lucide-react';
+import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, ExternalLink } from 'lucide-react';
 
 interface DashboardViewProps {
   currentUser: User | null;
@@ -25,6 +25,7 @@ export function DashboardView({
   customization
 }: DashboardViewProps) {
   const [photoError, setPhotoError] = useState(false);
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const userPhoto = currentUser && customization?.userPhotos?.[currentUser.username];
 
   // Helper to normalize and check student gender
@@ -804,6 +805,7 @@ export function DashboardView({
                 <th className="p-3 text-center w-12 text-amber-700">Sakit</th>
                 <th className="p-3 text-center w-12 text-blue-700">Izin</th>
                 <th className="p-3 text-center w-12 text-rose-700">Alpa</th>
+                <th className="p-3 text-center w-24">Bukti Foto</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -837,6 +839,19 @@ export function DashboardView({
                       <span className="inline-block px-2.5 py-1 bg-rose-50 text-rose-700 font-extrabold rounded-lg border border-rose-100/80 text-[10px]">
                         {log.alpa}
                       </span>
+                    </td>
+                    <td className="p-3 text-center whitespace-nowrap">
+                      {log.photo ? (
+                        <button
+                          onClick={() => setSelectedPhoto(log.photo || null)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-[10px] font-bold cursor-pointer transition-all"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Lihat Foto</span>
+                        </button>
+                      ) : (
+                        <span className="text-slate-400 text-[10px] font-medium">Tidak Ada</span>
+                      )}
                     </td>
                   </tr>
                 ))
@@ -880,6 +895,67 @@ export function DashboardView({
           </div>
         </div>
       </div>
+
+      {/* Lightbox / Photo Viewer Modal */}
+      {selectedPhoto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" id="photo-viewer-modal">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h4 className="font-extrabold text-slate-800 text-sm">Foto Bukti Kelas / Pembelajaran</h4>
+              <button
+                onClick={() => setSelectedPhoto(null)}
+                className="text-slate-400 hover:text-slate-600 font-extrabold text-sm p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="py-4 flex-1 flex flex-col items-center justify-center overflow-hidden bg-slate-50 rounded-xl mt-3 min-h-[250px]">
+              {selectedPhoto.startsWith('http') ? (
+                <div className="flex flex-col items-center gap-3 w-full p-2">
+                  <img
+                    src={
+                      selectedPhoto.includes('drive.google.com')
+                        ? (selectedPhoto.match(/\/file\/d\/([a-zA-Z0-9_-]+)/)?.[1]
+                          ? `https://drive.google.com/uc?export=view&id=${selectedPhoto.match(/\/file\/d\/([a-zA-Z0-9_-]+)/)?.[1]}`
+                          : selectedPhoto)
+                        : selectedPhoto
+                    }
+                    alt="Bukti Absensi"
+                    className="max-w-full max-h-[50vh] object-contain rounded-lg shadow-sm border border-slate-200"
+                    referrerPolicy="no-referrer"
+                  />
+                  <a
+                    href={selectedPhoto}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-blue-650 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md transition-all cursor-pointer"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Buka di Google Drive</span>
+                  </a>
+                </div>
+              ) : (
+                <img
+                  src={selectedPhoto}
+                  alt="Bukti Absensi"
+                  className="max-w-full max-h-[55vh] object-contain rounded-lg shadow-sm"
+                  referrerPolicy="no-referrer"
+                />
+              )}
+            </div>
+            
+            <div className="mt-4 pt-3 border-t border-slate-100 flex justify-end">
+              <button
+                onClick={() => setSelectedPhoto(null)}
+                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

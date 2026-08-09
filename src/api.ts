@@ -266,6 +266,7 @@ export const apiClient = {
       alpa: payload.countAlpa,
       keterangan: payload.keterangan,
       guru: payload.guruPengampu,
+      photo: payload.photoBase64 || "",
     };
 
     history.unshift(newRecord);
@@ -505,9 +506,19 @@ export const apiClient = {
     }
 
     try {
+      // Try direct action first (new Apps Script)
+      const directRes = await callGAS(url, 'getCustomization', {});
+      if (directRes && directRes.status === 'success') {
+        return directRes;
+      }
+    } catch (e) {
+      console.warn('Direct getCustomization not supported by Apps Script, using fallback:', e);
+    }
+
+    try {
+      // Fallback: read via legacy getCrud (old Apps Script)
       const res = await callGAS(url, 'getCrud', { sheetName: 'Pengaturan' });
       if (res.status === 'success' && res.rows) {
-        // Find row with Kunci === "customization"
         const customRow = res.rows.find((row: any) => row.data && row.data[0] === 'customization');
         if (customRow && customRow.data[1]) {
           try {
@@ -519,7 +530,6 @@ export const apiClient = {
         }
         return { status: 'success' };
       } else {
-        // If sheet is missing or other issue, return sheet_not_found error
         const isSheetMissing = res.message && (res.message.includes('tidak ditemukan') || res.message.includes('not found') || res.message.includes('Tabel'));
         return {
           status: 'error',
@@ -541,6 +551,17 @@ export const apiClient = {
     }
 
     try {
+      // Try direct action first (new Apps Script)
+      const directRes = await callGAS(url, 'saveCustomization', { customization });
+      if (directRes && directRes.status === 'success') {
+        return directRes;
+      }
+    } catch (e) {
+      console.warn('Direct saveCustomization not supported by Apps Script, using fallback:', e);
+    }
+
+    try {
+      // Fallback: write via legacy saveCrud (old Apps Script)
       const getRes = await callGAS(url, 'getCrud', { sheetName: 'Pengaturan' });
       if (getRes.status === 'success' && getRes.rows) {
         const customRow = getRes.rows.find((row: any) => row.data && row.data[0] === 'customization');
@@ -557,7 +578,6 @@ export const apiClient = {
       } else {
         const isSheetMissing = getRes.message && (getRes.message.includes('tidak ditemukan') || getRes.message.includes('not found') || getRes.message.includes('Tabel'));
         if (isSheetMissing) {
-          // Fallback to saving to local storage anyway so it works immediately
           localStorage.setItem('absensi_app_customization', JSON.stringify(customization));
           return {
             status: 'error',

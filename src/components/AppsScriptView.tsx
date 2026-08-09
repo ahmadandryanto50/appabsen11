@@ -116,6 +116,12 @@ function doPost(e) {
       case "setup":
         result = setupDatabase();
         break;
+      case "getCustomization":
+        result = getCustomization();
+        break;
+      case "saveCustomization":
+        result = saveCustomization(contents.customization);
+        break;
       default:
         result = { status: "error", message: "Aksi '" + action + "' tidak didukung." };
     }
@@ -305,6 +311,31 @@ function submitStudentAttendance(payload) {
     let countAlpa = payload.countAlpa !== undefined ? payload.countAlpa : 0;
     let keteranganDetail = payload.keterangan || "";
 
+    let finalPhoto = payload.photoBase64 || "";
+    if (finalPhoto && finalPhoto.indexOf("data:image") === 0) {
+      try {
+        let folder;
+        const folders = DriveApp.getFoldersByName("Absensi_Foto_Bukti");
+        if (folders.hasNext()) {
+          folder = folders.next();
+        } else {
+          folder = DriveApp.createFolder("Absensi_Foto_Bukti");
+        }
+
+        const splitData = finalPhoto.split(",");
+        const contentType = splitData[0].match(/:(.*?);/)[1];
+        const rawData = splitData[1];
+        const decoded = Utilities.base64Decode(rawData);
+        const blob = Utilities.newBlob(decoded, contentType, "Bukti_Absen_" + (payload.kelas || "Kelas") + "_" + rowIndex + ".jpg");
+
+        const file = folder.createFile(blob);
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        finalPhoto = file.getUrl();
+      } catch (driveErr) {
+        // Fallback to storing raw base64 or message
+      }
+    }
+
     sheet.appendRow([
       rowIndex,
       tanggal,
@@ -317,7 +348,7 @@ function submitStudentAttendance(payload) {
       countAlpa,
       keteranganDetail,
       payload.guruPengampu || "",
-      payload.photoBase64 || ""
+      finalPhoto
     ]);
 
     return { status: "success", message: "Absensi kelas " + payload.kelas + " jam " + waktu + " berhasil disimpan!" };
@@ -522,7 +553,8 @@ function getAttendanceHistory(tanggal, kelas) {
           izin: Number(values[i][7]) || 0,
           alpa: Number(values[i][8]) || 0,
           keterangan: values[i][9] ? values[i][9].toString() : "",
-          guru: values[i][10] ? values[i][10].toString() : ""
+          guru: values[i][10] ? values[i][10].toString() : "",
+          photo: values[i][11] ? values[i][11].toString() : ""
         });
       }
     }
@@ -605,6 +637,66 @@ function deleteTeacherAbsenceRecord(rowIndex) {
       }
     }
     return { status: "error", message: "RowIndex '" + rowIndex + "' tidak ditemukan." };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function getCustomization() {
+  try {
+    const ss = getDb();
+    let sheet = ss.getSheetByName("Pengaturan");
+    if (!sheet) {
+      sheet = ss.insertSheet("Pengaturan");
+      sheet.appendRow(["Kunci", "Nilai"]);
+      sheet.appendRow(["customization", "{}"]);
+      return { status: "success", customization: {} };
+    }
+
+    const values = sheet.getDataRange().getValues();
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][0] && values[i][0].toString() === "customization") {
+        try {
+          const parsed = JSON.parse(values[i][1].toString());
+          return { status: "success", customization: parsed };
+        } catch (e) {
+          return { status: "success", customization: {} };
+        }
+      }
+    }
+    sheet.appendRow(["customization", "{}"]);
+    return { status: "success", customization: {} };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function saveCustomization(customizationObj) {
+  try {
+    const ss = getDb();
+    let sheet = ss.getSheetByName("Pengaturan");
+    if (!sheet) {
+      sheet = ss.insertSheet("Pengaturan");
+      sheet.appendRow(["Kunci", "Nilai"]);
+    }
+
+    const jsonString = typeof customizationObj === "string" ? customizationObj : JSON.stringify(customizationObj);
+    const values = sheet.getDataRange().getValues();
+    let foundIndex = -1;
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][0] && values[i][0].toString() === "customization") {
+        foundIndex = i + 1;
+        break;
+      }
+    }
+
+    if (foundIndex !== -1) {
+      sheet.getRange(foundIndex, 2).setValue(jsonString);
+    } else {
+      sheet.appendRow(["customization", jsonString]);
+    }
+
+    return { status: "success", message: "Pengaturan berhasil disinkronkan ke Spreadsheet!" };
   } catch (err) {
     return { status: "error", message: err.message };
   }

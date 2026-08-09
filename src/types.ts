@@ -34,6 +34,7 @@ export interface AttendanceRecord {
   alpa: number;
   keterangan: string;
   guru: string;
+  photo?: string;
 }
 
 export interface TeacherAbsenceRecord {
