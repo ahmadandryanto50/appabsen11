@@ -1,0 +1,945 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useState, useEffect, useCallback } from 'react';
+import {
+  GraduationCap,
+  LayoutDashboard,
+  ClipboardList,
+  CalendarRange,
+  History,
+  ShieldAlert,
+  UserCheck,
+  School,
+  BookOpen,
+  Settings,
+  LogOut,
+  Menu,
+  X,
+  Loader2,
+  Sparkles,
+  Code,
+  RefreshCw,
+} from 'lucide-react';
+
+import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization } from './types';
+import { apiClient, initializeStorage } from './api';
+
+// Components
+import { ToastContainer } from './components/ToastContainer';
+import { LoginView } from './components/LoginView';
+import { DashboardView } from './components/DashboardView';
+import { AttendanceView } from './components/AttendanceView';
+import { TeacherPermitView } from './components/TeacherPermitView';
+import { HistoryView } from './components/HistoryView';
+import { CrudView } from './components/CrudView';
+import { SettingsModal } from './components/SettingsModal';
+import { CustomizationView } from './components/CustomizationView';
+import { AppsScriptView } from './components/AppsScriptView';
+
+export default function App() {
+  // Authentication & Navigation
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [activeView, setActiveView] = useState<ViewType>('dashboard');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Connection config
+  const [webAppUrl, setWebAppUrl] = useState(apiClient.getBackendUrl());
+  const [isDemoMode, setIsDemoMode] = useState(apiClient.isDemoMode());
+  const [showConfigModal, setShowConfigModal] = useState(false);
+
+  // Global Lists
+  const [kelasList, setKelasList] = useState<string[]>(['X-A', 'X-B', 'XI-A', 'XI-B', 'XII-A', 'XII-B']);
+  const [historyList, setHistoryList] = useState<AttendanceRecord[]>([]);
+  const [teacherHistoryList, setTeacherHistoryList] = useState<TeacherAbsenceRecord[]>([]);
+  const [allStudents, setAllStudents] = useState<any[]>([]);
+  const [allTeachers, setAllTeachers] = useState<any[]>([]);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Master Data CRUD list states
+  const [currentCrudSheet, setCurrentCrudSheet] = useState<string>('Master_Guru');
+  const [crudHeaders, setCrudHeaders] = useState<string[]>([]);
+  const [crudRows, setCrudRows] = useState<CrudRow[]>([]);
+  const [crudLoading, setCrudLoading] = useState(false);
+
+  // Digital ticking clock
+  const [currentTimeString, setCurrentTimeString] = useState('00:00:00');
+
+  // Customization state
+  const [customization, setCustomization] = useState<AppCustomization>({
+    appName: 'E-ABSENSI',
+    appSubtitle: 'Sekolah Digital',
+    logoEmoji: '🎓',
+    logoColor: 'bg-blue-600',
+    fullAccessUsernames: [],
+    userPhotos: {},
+  });
+
+  // Track failed user photos for fallback to initials
+  const [failedUserPhotos, setFailedUserPhotos] = useState<Record<string, boolean>>({});
+
+  // Permission Check Helper
+  const hasFullAccess = useCallback((user: User | null): boolean => {
+    if (!user) return false;
+    if (user.role === 'Admin') return true;
+    return customization.fullAccessUsernames.includes(user.username) || (user.nip ? customization.fullAccessUsernames.includes(user.nip) : false);
+  }, [customization]);
+
+  // TOAST TRIGGER
+  const addToast = useCallback((message: string, type: ToastMessage['type'] = 'info') => {
+    const id = Date.now();
+    setToasts((prev) => [...prev, { id, message, type }]);
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
+
+  const removeToast = (id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  // Clock ticks
+  useEffect(() => {
+    const updateClock = () => {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      setCurrentTimeString(`${hh}:${mm}:${ss}`);
+    };
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch classes dynamically
+  const fetchKelasList = useCallback(async () => {
+    try {
+      const res = await apiClient.getCrud('Master_Kelas');
+      if (res && res.status === 'success' && res.rows && res.rows.length > 0) {
+        const list = res.rows.map((r) => r.data[1]).filter(Boolean);
+        if (list.length > 0) {
+          setKelasList([...new Set(list)]);
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching kelas list:', e);
+    }
+  }, []);
+
+  // Fetch student & teacher master data dynamically for stats
+  const fetchMasterData = useCallback(async () => {
+    try {
+      const studentRes = await apiClient.getCrud('Master_Siswa');
+      if (studentRes && studentRes.status === 'success' && studentRes.rows) {
+        setAllStudents(studentRes.rows);
+      }
+      const teacherRes = await apiClient.getCrud('Master_Guru');
+      if (teacherRes && teacherRes.status === 'success' && teacherRes.rows) {
+        setAllTeachers(teacherRes.rows);
+      }
+    } catch (e) {
+      console.error('Error fetching master data for stats:', e);
+    }
+  }, []);
+
+  // Load lists when view changes
+  const loadHistoryData = useCallback(async () => {
+    setIsLoading(true);
+    const todayStr = new Date().toISOString().split('T')[0];
+    try {
+      const classRes = await apiClient.getAttendanceHistory(todayStr, '');
+      if (classRes.status === 'success') {
+        setHistoryList(classRes.history);
+      }
+      const teachRes = await apiClient.getTeacherAbsenceHistory(todayStr);
+      if (teachRes.status === 'success') {
+        setTeacherHistoryList(teachRes.history);
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal sinkronisasi data riwayat', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [addToast]);
+
+  const handleRefreshAll = useCallback(async () => {
+    setIsLoading(true);
+    addToast('Menyinkronkan data dengan database...', 'info');
+    try {
+      await fetchKelasList();
+      await fetchMasterData();
+      await loadHistoryData();
+      addToast('Sinkronisasi data berhasil!', 'success');
+    } catch (err: any) {
+      addToast(err.message || 'Gagal menyinkronkan data', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchKelasList, fetchMasterData, loadHistoryData, addToast]);
+
+  // Handle Init App
+  useEffect(() => {
+    initializeStorage();
+    fetchKelasList();
+    fetchMasterData();
+
+    // Auto load session
+    const savedUser = localStorage.getItem('absensi_user');
+    if (savedUser) {
+      try {
+        const parsed = JSON.parse(savedUser);
+        setCurrentUser(parsed);
+        setIsLoggedIn(true);
+      } catch (e) {
+        localStorage.removeItem('absensi_user');
+      }
+    }
+  }, [fetchKelasList, fetchMasterData]);
+
+  // Load master data once logged in
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchMasterData();
+    }
+  }, [isLoggedIn, fetchMasterData]);
+
+  // Load app customization from Google Spreadsheet & local storage cache
+  useEffect(() => {
+    async function loadCustomization() {
+      // 1. First read local storage for immediate layout paint
+      const savedCustomization = localStorage.getItem('absensi_app_customization');
+      if (savedCustomization) {
+        try {
+          const parsed = JSON.parse(savedCustomization);
+          setCustomization((prev) => ({ ...prev, ...parsed }));
+        } catch (e) {
+          console.error('Error loading customization cache:', e);
+        }
+      }
+
+      // 2. Fetch background live values from Google Spreadsheet
+      try {
+        const res = await apiClient.getCustomization();
+        if (res.status === 'success' && res.customization) {
+          setCustomization(res.customization);
+          localStorage.setItem('absensi_app_customization', JSON.stringify(res.customization));
+        }
+      } catch (err) {
+        console.error('Background load customization error:', err);
+      }
+    }
+    loadCustomization();
+  }, []);
+
+  // Load history data once logged in
+  useEffect(() => {
+    if (isLoggedIn) {
+      loadHistoryData();
+    }
+  }, [isLoggedIn, loadHistoryData]);
+
+  // LOGIN FUNCTION
+  const handleLogin = async (username: string, passwordInput: string) => {
+    setIsLoading(true);
+    try {
+      const res = await apiClient.login(username, passwordInput);
+      if (res.status === 'success' && res.user) {
+        setCurrentUser(res.user);
+        setIsLoggedIn(true);
+        localStorage.setItem('absensi_user', JSON.stringify(res.user));
+        addToast(`Selamat datang, ${res.user.nama}! Berhasil masuk ke portal.`, 'success');
+      } else {
+        addToast(res.message || 'Gagal login. Periksa username dan password.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal login.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // LOGOUT FUNCTION
+  const handleLogout = () => {
+    setIsLoggedIn(false);
+    setCurrentUser(null);
+    localStorage.removeItem('absensi_user');
+    addToast('Anda telah berhasil keluar dari sesi.', 'info');
+  };
+
+  // SAVE BACKEND SETTINGS
+  const handleSaveSettings = (url: string) => {
+    apiClient.setBackendUrl(url);
+    setWebAppUrl(url);
+    setIsDemoMode(!url.trim());
+    setShowConfigModal(false);
+    addToast(url.trim() ? 'Berhasil menghubungkan database Cloud!' : 'Beralih ke mode offline (Demo)', 'success');
+    // Reload data
+    fetchKelasList();
+    loadHistoryData();
+  };
+
+  // SAVE APP CUSTOMIZATION SETTINGS
+  const handleSaveCustomization = async (newCust: AppCustomization) => {
+    setCustomization(newCust);
+    localStorage.setItem('absensi_app_customization', JSON.stringify(newCust));
+    
+    try {
+      const res = await apiClient.saveCustomization(newCust);
+      if (res.status === 'success') {
+        addToast('Pengaturan identitas & hak akses berhasil disimpan dan disinkronkan ke Spreadsheet!', 'success');
+      } else if (res.errorType === 'sheet_not_found') {
+        addToast('Pengaturan disimpan lokal! Buat Sheet bernama "Pengaturan" di Google Sheets Anda untuk mengaktifkan Cloud Sync.', 'warning');
+      } else {
+        addToast(res.message || 'Pengaturan disimpan lokal (gagal sinkronisasi cloud).', 'warning');
+      }
+    } catch (err: any) {
+      addToast('Pengaturan disimpan lokal (koneksi cloud terputus).', 'warning');
+    }
+    
+    setActiveView('dashboard');
+  };
+
+  // LOAD STUDENT ROSTER FOR CLASS
+  const handleLoadStudentsForAttendance = useCallback(async (kelas: string): Promise<Student[]> => {
+    const res = await apiClient.getStudents(kelas);
+    if (res.status === 'success') {
+      return res.students;
+    }
+    return [];
+  }, []);
+
+  // SUBMIT CLASS ATTENDANCE
+  const handleSubmitAttendance = async (payload: any) => {
+    try {
+      const res = await apiClient.submitAttendance(payload);
+      if (res.status === 'success') {
+        addToast(`Absensi kelas ${payload.kelas} (${payload.mapel}) berhasil disimpan!`, 'success');
+        // Reload history list immediately
+        await loadHistoryData();
+      } else {
+        addToast(res.message || 'Gagal menyimpan absensi.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Terjadi kesalahan saat menyimpan.', 'error');
+    }
+  };
+
+  // SUBMIT TEACHER ABSENCE / PERMIT
+  const handleSubmitTeacherPermit = async (payload: any) => {
+    try {
+      const res = await apiClient.submitTeacherAbsence(payload);
+      if (res.status === 'success') {
+        addToast('Permohonan izin Anda berhasil dikirim ke Kepala Sekolah.', 'success');
+        await loadHistoryData();
+      } else {
+        addToast(res.message || 'Gagal mengirim formulir izin.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal memproses permohonan.', 'error');
+    }
+  };
+
+  // FILTER LOGS VIA DATE AND CLASS (HISTORY VIEW)
+  const handleFilterHistory = async (tanggal: string, kelas: string) => {
+    try {
+      const res = await apiClient.getAttendanceHistory(tanggal, kelas);
+      if (res.status === 'success') {
+        setHistoryList(res.history);
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal mengambil rekap data.', 'error');
+    }
+  };
+
+  // FILTER TEACHER LOGS VIA DATE
+  const handleFilterTeacher = async (tanggal: string) => {
+    try {
+      const res = await apiClient.getTeacherAbsenceHistory(tanggal);
+      if (res.status === 'success') {
+        setTeacherHistoryList(res.history);
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal mengambil rekap izin guru.', 'error');
+    }
+  };
+
+  // UPDATE RECORD INDIVIDUAL
+  const handleUpdateRecord = async (rowIndex: string | number, newStatus: string, newKeterangan: string) => {
+    try {
+      const res = await apiClient.updateAttendanceRecord(rowIndex, newStatus, newKeterangan);
+      if (res.status === 'success') {
+        addToast('Log presensi berhasil diperbarui.', 'success');
+      } else {
+        addToast(res.message || 'Gagal merubah data.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal mengedit.', 'error');
+    }
+  };
+
+  // DELETE STUDENT ATTENDANCE RECORD
+  const handleDeleteAttendanceRecord = async (rowIndex: string | number) => {
+    try {
+      const res = await apiClient.deleteAttendanceRecord(rowIndex);
+      if (res.status === 'success') {
+        addToast('Log presensi berhasil dihapus.', 'info');
+      } else {
+        addToast(res.message || 'Gagal menghapus data.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal menghapus.', 'error');
+    }
+  };
+
+  // UPDATE TEACHER RECORD INDIVIDUAL
+  const handleUpdateTeacherRecord = async (rowIndex: string | number, status: string, alasan: string) => {
+    try {
+      const res = await apiClient.updateTeacherAbsenceRecord(rowIndex, status, alasan);
+      if (res.status === 'success') {
+        addToast('Izin guru berhasil diperbarui.', 'success');
+      } else {
+        addToast(res.message || 'Gagal merubah data.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal mengedit.', 'error');
+    }
+  };
+
+  // DELETE TEACHER RECORD INDIVIDUAL
+  const handleDeleteTeacherRecord = async (rowIndex: string | number) => {
+    try {
+      const res = await apiClient.deleteTeacherAbsenceRecord(rowIndex);
+      if (res.status === 'success') {
+        addToast('Izin guru berhasil dihapus.', 'info');
+      } else {
+        addToast(res.message || 'Gagal menghapus data.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal menghapus.', 'error');
+    }
+  };
+
+  // MASTER CRUD ACTIONS
+  const loadCrudTable = useCallback(async (sheetName: string) => {
+    setCrudLoading(true);
+    setCurrentCrudSheet(sheetName);
+    try {
+      const res = await apiClient.getCrud(sheetName);
+      if (res.status === 'success') {
+        setCrudHeaders(res.headers);
+        setCrudRows(res.rows);
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal memuat tabel master.', 'error');
+    } finally {
+      setCrudLoading(false);
+    }
+  }, [addToast]);
+
+  const handleAddCrudRow = async (rowData: string[]) => {
+    try {
+      const res = await apiClient.saveCrud(currentCrudSheet, rowData, null);
+      if (res.status === 'success') {
+        addToast('Data baru berhasil ditambahkan.', 'success');
+        await loadCrudTable(currentCrudSheet);
+        await fetchMasterData();
+        if (currentCrudSheet === 'Master_Kelas') {
+          await fetchKelasList();
+        }
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal menambahkan data.', 'error');
+    }
+  };
+
+  const handleEditCrudRow = async (rowIndex: number, rowData: string[]) => {
+    try {
+      const res = await apiClient.saveCrud(currentCrudSheet, rowData, rowIndex);
+      if (res.status === 'success') {
+        addToast('Data berhasil diperbarui.', 'success');
+        await loadCrudTable(currentCrudSheet);
+        await fetchMasterData();
+        if (currentCrudSheet === 'Master_Kelas') {
+          await fetchKelasList();
+        }
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal memperbarui data.', 'error');
+    }
+  };
+
+  const handleDeleteCrudRow = async (rowIndex: number) => {
+    try {
+      const res = await apiClient.deleteCrud(currentCrudSheet, rowIndex);
+      if (res.status === 'success') {
+        addToast('Data berhasil dihapus.', 'info');
+        await loadCrudTable(currentCrudSheet);
+        await fetchMasterData();
+        if (currentCrudSheet === 'Master_Kelas') {
+          await fetchKelasList();
+        }
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal menghapus data.', 'error');
+    }
+  };
+
+  const getViewTitle = () => {
+    const titles: Record<ViewType, string> = {
+      dashboard: 'Dashboard & Ringkasan Presensi',
+      'absen-siswa': 'Presensi Siswa di Kelas',
+      'izin-guru': 'Formulir Permohonan Izin Guru',
+      riwayat: 'Riwayat Presensi Siswa',
+      'crud-guru': 'Kelola Data Master Guru',
+      'crud-siswa': 'Kelola Data Master Siswa',
+      'crud-kelas': 'Kelola Data Master Kelas',
+      'crud-mapel': 'Kelola Data Master Mata Pelajaran',
+      customization: 'Pengaturan Identitas & Hak Akses',
+      'apps-script': 'Kode & Integrasi Google Apps Script',
+    };
+    return titles[activeView] || `${customization.appName} ${customization.appSubtitle}`;
+  };
+
+  const getFormattedDate = () => {
+    const options: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    return new Date().toLocaleDateString('id-ID', options);
+  };
+
+  return (
+    <div className="min-h-screen md:h-screen flex flex-col md:flex-row md:overflow-hidden bg-slate-100 text-slate-800 antialiased font-sans">
+      {/* Toast Manager */}
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+
+      {/* SIDEBAR NAVIGATION (Desktop & Mobile Drawer) */}
+      {isLoggedIn && (
+        <aside className="bg-slate-900 text-slate-300 w-full md:w-64 flex-shrink-0 flex flex-col justify-between z-20 border-r border-slate-800 md:h-full md:overflow-y-auto">
+          <div>
+            {/* Header / Brand Logo */}
+            <div className="p-5 flex items-center justify-between border-b border-slate-800">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-xl ${customization.logoColor || 'bg-blue-600'} flex items-center justify-center text-white font-bold text-xl shadow-md shadow-blue-600/10 overflow-hidden`}>
+                  {customization.logoUrl?.trim() ? (
+                    <img
+                      src={customization.logoUrl.trim()}
+                      alt="Logo"
+                      className="w-full h-full object-cover"
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      }}
+                    />
+                  ) : (
+                    <span className="text-xl">{customization.logoEmoji || '🎓'}</span>
+                  )}
+                </div>
+                <div className="overflow-hidden">
+                  <h1 className="font-extrabold text-white text-sm leading-tight tracking-tight uppercase truncate max-w-[130px]" title={customization.appName || 'E-ABSENSI'}>
+                    {customization.appName || 'E-ABSENSI'}
+                  </h1>
+                  <p className="text-[10px] text-slate-400 font-bold tracking-wider uppercase truncate max-w-[130px]">
+                    {customization.appSubtitle || 'Sekolah Digital'}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="md:hidden text-slate-400 hover:text-white p-2 focus:outline-none cursor-pointer"
+              >
+                {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+              </button>
+            </div>
+
+            {/* Logged in user detail box */}
+            <div className="p-4 bg-slate-850/40 border-b border-slate-800 flex items-center gap-3">
+              <div className={`w-9 h-9 rounded-full ${customization.logoColor || 'bg-blue-700'} text-white flex items-center justify-center font-extrabold text-sm shadow-inner uppercase overflow-hidden flex-shrink-0`}>
+                {currentUser && customization.userPhotos?.[currentUser.username]?.trim() && !failedUserPhotos[currentUser.username] ? (
+                  <img
+                    src={customization.userPhotos[currentUser.username].trim()}
+                    alt={currentUser.nama}
+                    className="w-full h-full object-cover"
+                    referrerPolicy="no-referrer"
+                    onError={() => {
+                      setFailedUserPhotos((prev) => ({
+                        ...prev,
+                        [currentUser.username]: true,
+                      }));
+                    }}
+                  />
+                ) : (
+                  currentUser?.nama ? currentUser.nama.charAt(0) : 'U'
+                )}
+              </div>
+              <div className="overflow-hidden">
+                <p className="text-xs font-bold text-white truncate" title={currentUser?.nama}>
+                  {currentUser?.nama || 'Pengguna'}
+                </p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <p className="text-[10px] text-slate-400 font-bold capitalize tracking-wide">
+                    {currentUser?.role === 'Admin' ? 'Admin Utama' : (hasFullAccess(currentUser) ? 'Guru (Akses Full)' : 'Guru')}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Sidebar Navigation Items */}
+            <nav className={`p-3 space-y-1 ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+              <button
+                onClick={() => {
+                  setActiveView('dashboard');
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeView === 'dashboard'
+                    ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                    : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
+                <span>Dashboard & Rekap</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveView('absen-siswa');
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeView === 'absen-siswa'
+                    ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                    : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <ClipboardList className="w-4 h-4 flex-shrink-0" />
+                <span>Presensi Siswa</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveView('izin-guru');
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeView === 'izin-guru'
+                    ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                    : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <CalendarRange className="w-4 h-4 flex-shrink-0" />
+                <span>Form Izin Guru</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveView('riwayat');
+                  loadHistoryData();
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeView === 'riwayat'
+                    ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                    : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <History className="w-4 h-4 flex-shrink-0" />
+                <span>Riwayat Absensi</span>
+              </button>
+
+              {/* Master CRUD Lists Folders (Strictly for Administrator or Full Access Role) */}
+              {hasFullAccess(currentUser) && (
+                <div className="pt-4 pb-2 border-t border-slate-800/80 mt-2">
+                  <p className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Manajemen Master Data
+                  </p>
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => {
+                        setActiveView('crud-guru');
+                        loadCrudTable('Master_Guru');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeView === 'crud-guru'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <UserCheck className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                      <span>Data Guru</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setActiveView('crud-siswa');
+                        loadCrudTable('Master_Siswa');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeView === 'crud-siswa'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <School className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                      <span>Data Siswa</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setActiveView('crud-kelas');
+                        loadCrudTable('Master_Kelas');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeView === 'crud-kelas'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <ShieldAlert className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                      <span>Data Kelas</span>
+                    </button>
+
+                    <button
+                      onClick={() => {
+                        setActiveView('crud-mapel');
+                        loadCrudTable('Master_Mapel');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeView === 'crud-mapel'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <BookOpen className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                      <span>Data Mapel</span>
+                    </button>
+
+                    {/* App Customization View (Strictly for Full Access) */}
+                    <button
+                      onClick={() => {
+                        setActiveView('customization');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeView === 'customization'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Sparkles className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                      <span>Pengaturan Aplikasi</span>
+                    </button>
+
+                    {/* Apps Script Code View */}
+                    <button
+                      onClick={() => {
+                        setActiveView('apps-script');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeView === 'apps-script'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Code className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                      <span>Kode Apps Script (.gs)</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </nav>
+          </div>
+
+          {/* Sidebar Footer Settings & Logout */}
+          <div className={`p-3 border-t border-slate-800 space-y-1 ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+            <button
+              onClick={() => {
+                setShowConfigModal(true);
+                setMobileMenuOpen(false);
+              }}
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-850 transition-colors cursor-pointer"
+            >
+              <Settings className="w-4 h-4 flex-shrink-0 text-slate-500" />
+              <span>Set Database URL</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors cursor-pointer"
+            >
+              <LogOut className="w-4 h-4 flex-shrink-0 text-rose-500" />
+              <span>Keluar / Logout</span>
+            </button>
+          </div>
+        </aside>
+      )}
+
+      {/* MAIN LAYOUT CONTENT CONTAINER */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-y-auto h-full">
+        {/* TOP STATUS BAR */}
+        <header className="bg-white border-b border-slate-200/80 px-6 py-4 flex items-center justify-between shadow-sm sticky top-0 z-10">
+          <div>
+            <h2 className="text-base sm:text-lg font-extrabold text-slate-900 tracking-tight leading-none">
+              {isLoggedIn ? getViewTitle() : 'Akses E-Absensi Sekolah'}
+            </h2>
+            <p className="text-[11px] text-slate-500 mt-1.5 hidden sm:flex items-center gap-2 font-medium">
+              <span>{getFormattedDate()}</span>
+              <span className="font-bold text-slate-300">•</span>
+              <span className="font-mono text-blue-600 font-extrabold bg-blue-50/80 px-2.5 py-0.5 rounded-md border border-blue-150 flex items-center gap-1 shadow-inner">
+                <Clock className="w-3 h-3 text-blue-500 animate-pulse" />
+                <span>{currentTimeString}</span>
+              </span>
+              <span className="font-bold text-slate-300">•</span>
+              <button
+                type="button"
+                onClick={handleRefreshAll}
+                disabled={isLoading}
+                title="Sinkronisasikan / Refresh Data"
+                className="p-1 text-slate-400 hover:text-blue-600 hover:bg-slate-100 rounded-md transition-all cursor-pointer flex items-center justify-center disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-blue-600' : ''}`} />
+              </button>
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <span
+              className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border select-none ${
+                isDemoMode
+                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                  : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+              }`}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isDemoMode ? 'bg-amber-500' : 'bg-emerald-500'}`}
+              ></span>
+              <span>{isDemoMode ? 'Mode Demo Interaktif' : 'Terhubung Backend'}</span>
+            </span>
+
+            {!isLoggedIn && (
+              <button
+                onClick={() => setShowConfigModal(true)}
+                className="text-xs text-slate-600 hover:text-blue-600 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+              >
+                <Settings className="w-3.5 h-3.5 text-slate-500" />
+                <span>API Settings</span>
+              </button>
+            )}
+          </div>
+        </header>
+
+        {/* CONTAINER WORKSPACE FOR APP VIEWSTATES */}
+        <div className="p-4 sm:p-6 lg:p-8 flex-1 max-w-7xl w-full mx-auto">
+          {!isLoggedIn ? (
+            <LoginView onLogin={handleLogin} isLoading={isLoading} customization={customization} />
+          ) : (
+            <div>
+              {/* VIEW 1: DASHBOARD */}
+              {activeView === 'dashboard' && (
+                <DashboardView
+                  currentUser={currentUser}
+                  historyList={historyList}
+                  allStudents={allStudents}
+                  allTeachers={allTeachers}
+                  onNavigate={(view) => setActiveView(view)}
+                  customization={customization}
+                />
+              )}
+
+              {/* VIEW 2: PRESENSI SISWA */}
+              {activeView === 'absen-siswa' && (
+                <AttendanceView
+                  currentUser={currentUser}
+                  kelasList={kelasList}
+                  onLoadStudents={handleLoadStudentsForAttendance}
+                  onSubmit={handleSubmitAttendance}
+                  currentTimeString={currentTimeString}
+                />
+              )}
+
+              {/* VIEW 3: TEACHER PERMIT */}
+              {activeView === 'izin-guru' && (
+                <TeacherPermitView currentUser={currentUser} onSubmit={handleSubmitTeacherPermit} />
+              )}
+
+              {/* VIEW 4: ATTENDANCE HISTORY LIST */}
+              {activeView === 'riwayat' && (
+                <HistoryView
+                  currentUser={currentUser}
+                  kelasList={kelasList}
+                  historyList={historyList}
+                  teacherHistoryList={teacherHistoryList}
+                  onFilterHistory={handleFilterHistory}
+                  onFilterTeacher={handleFilterTeacher}
+                  onUpdateRecord={handleUpdateRecord}
+                  onDeleteRecord={handleDeleteAttendanceRecord}
+                  onUpdateTeacherRecord={handleUpdateTeacherRecord}
+                  onDeleteTeacherRecord={handleDeleteTeacherRecord}
+                />
+              )}
+
+              {/* VIEW 5: MASTER CRUD FOR ADMINS */}
+              {['crud-guru', 'crud-siswa', 'crud-kelas', 'crud-mapel'].includes(activeView) && (
+                <CrudView
+                  currentCrudSheet={currentCrudSheet}
+                  headers={crudHeaders}
+                  rows={crudRows}
+                  onAddRow={handleAddCrudRow}
+                  onEditRow={handleEditCrudRow}
+                  onDeleteRow={handleDeleteCrudRow}
+                  isLoading={crudLoading}
+                />
+              )}
+
+              {/* VIEW 6: APP CUSTOMIZATION */}
+              {activeView === 'customization' && (
+                <CustomizationView
+                  customization={customization}
+                  onSave={handleSaveCustomization}
+                  currentUser={currentUser}
+                />
+              )}
+
+              {/* VIEW 7: APPS SCRIPT CODE & GUIDE */}
+              {activeView === 'apps-script' && (
+                <AppsScriptView customization={customization} />
+              )}
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* SETTINGS BACKEND DIALOG POPUP */}
+      {showConfigModal && (
+        <SettingsModal
+          onClose={() => setShowConfigModal(false)}
+          currentUrl={webAppUrl}
+          onSave={handleSaveSettings}
+        />
+      )}
+    </div>
+  );
+}
+
+// Low-level helper to trigger live ticking
+function Clock({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={2.5}
+      stroke="currentColor"
+      className={className}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+    </svg>
+  );
+}

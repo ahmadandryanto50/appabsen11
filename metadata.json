@@ -1,0 +1,6 @@
+{
+  "name": "E-Absensi Sekolah",
+  "description": "Aplikasi E-Absensi Sekolah Digital modern untuk mencatat kehadiran siswa dan guru secara presisi dengan integrasi kamera dan manajemen data master.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
