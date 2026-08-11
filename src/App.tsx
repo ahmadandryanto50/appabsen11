@@ -33,6 +33,8 @@ import { LoginView } from './components/LoginView';
 import { DashboardView } from './components/DashboardView';
 import { AttendanceView } from './components/AttendanceView';
 import { TeacherPermitView } from './components/TeacherPermitView';
+import { TendikAttendanceView } from './components/TendikAttendanceView';
+import { TendikPermitView } from './components/TendikPermitView';
 import { HistoryView } from './components/HistoryView';
 import { CrudView } from './components/CrudView';
 import { SettingsModal } from './components/SettingsModal';
@@ -381,6 +383,36 @@ export default function App() {
     }
   };
 
+  // SUBMIT TENDIK ATTENDANCE
+  const handleSubmitTendikAttendance = async (payload: any) => {
+    try {
+      const res = await apiClient.submitTendikAttendance(payload);
+      if (res.status === 'success') {
+        addToast('Presensi hadir Tendik berhasil disimpan.', 'success');
+        await loadHistoryData();
+      } else {
+        addToast(res.message || 'Gagal menyimpan presensi.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal menyimpan presensi.', 'error');
+    }
+  };
+
+  // SUBMIT TENDIK PERMIT
+  const handleSubmitTendikPermit = async (payload: any) => {
+    try {
+      const res = await apiClient.submitTendikPermit(payload);
+      if (res.status === 'success') {
+        addToast('Formulir izin/sakit Tendik berhasil dikirim.', 'success');
+        await loadHistoryData();
+      } else {
+        addToast(res.message || 'Gagal mengirim formulir izin.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal memproses permohonan.', 'error');
+    }
+  };
+
   // FILTER LOGS VIA DATE AND CLASS (HISTORY VIEW)
   const handleFilterHistory = async (tanggal: string, kelas: string) => {
     try {
@@ -532,12 +564,14 @@ export default function App() {
       'absen-siswa': 'Presensi Siswa di Kelas',
       'izin-guru': 'Formulir Permohonan Izin Guru',
       riwayat: 'Riwayat Presensi Siswa',
-      'crud-guru': 'Kelola Data Master Guru',
+      'crud-guru': 'Kelola Data Master Guru & Tendik',
       'crud-siswa': 'Kelola Data Master Siswa',
       'crud-kelas': 'Kelola Data Master Kelas',
       'crud-mapel': 'Kelola Data Master Mata Pelajaran',
       customization: 'Pengaturan Identitas & Hak Akses',
       'apps-script': 'Kode & Integrasi Google Apps Script',
+      'absen-tendik': 'Formulir Presensi Mandiri Tendik',
+      'izin-tendik': 'Formulir Permohonan Izin Tendik',
     };
     return titles[activeView] || `${customization.appName} ${customization.appSubtitle}`;
   };
@@ -618,7 +652,13 @@ export default function App() {
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                   <p className="text-[10px] text-slate-400 font-bold capitalize tracking-wide">
-                    {currentUser?.role === 'Admin' ? 'Admin Utama' : (hasFullAccess(currentUser) ? 'Guru (Akses Full)' : 'Guru')}
+                    {currentUser?.role === 'Admin'
+                      ? 'Admin Utama'
+                      : currentUser?.role === 'Tendik'
+                      ? 'Tendik'
+                      : hasFullAccess(currentUser)
+                      ? 'Guru (Akses Full)'
+                      : 'Guru'}
                   </p>
                 </div>
               </div>
@@ -641,35 +681,73 @@ export default function App() {
                 <span>Dashboard & Rekap</span>
               </button>
 
-              <button
-                onClick={() => {
-                  setActiveView('absen-siswa');
-                  setMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeView === 'absen-siswa'
-                    ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                    : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <ClipboardList className="w-4 h-4 flex-shrink-0" />
-                <span>Presensi Siswa</span>
-              </button>
+              {currentUser?.role !== 'Tendik' && (
+                <>
+                  <button
+                    onClick={() => {
+                      setActiveView('absen-siswa');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeView === 'absen-siswa'
+                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <ClipboardList className="w-4 h-4 flex-shrink-0" />
+                    <span>Presensi Siswa</span>
+                  </button>
 
-              <button
-                onClick={() => {
-                  setActiveView('izin-guru');
-                  setMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeView === 'izin-guru'
-                    ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                    : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <CalendarRange className="w-4 h-4 flex-shrink-0" />
-                <span>Form Izin Guru</span>
-              </button>
+                  <button
+                    onClick={() => {
+                      setActiveView('izin-guru');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeView === 'izin-guru'
+                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <CalendarRange className="w-4 h-4 flex-shrink-0" />
+                    <span>Form Izin Guru</span>
+                  </button>
+                </>
+              )}
+
+              {(currentUser?.role === 'Tendik' || hasFullAccess(currentUser)) && (
+                <>
+                  <button
+                    onClick={() => {
+                      setActiveView('absen-tendik');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeView === 'absen-tendik'
+                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <ClipboardList className="w-4 h-4 flex-shrink-0" />
+                    <span>Absen Tendik</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setActiveView('izin-tendik');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeView === 'izin-tendik'
+                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <CalendarRange className="w-4 h-4 flex-shrink-0" />
+                    <span>Form Izin Tendik</span>
+                  </button>
+                </>
+              )}
 
               <button
                 onClick={() => {
@@ -694,21 +772,23 @@ export default function App() {
                     Manajemen Master Data
                   </p>
                   <div className="space-y-1">
-                    <button
-                      onClick={() => {
-                        setActiveView('crud-guru');
-                        loadCrudTable('Master_Guru');
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'crud-guru'
-                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <UserCheck className="w-4 h-4 flex-shrink-0 text-slate-500" />
-                      <span>Data Guru</span>
-                    </button>
+                    {currentUser?.role === 'Admin' && (
+                      <button
+                        onClick={() => {
+                          setActiveView('crud-guru');
+                          loadCrudTable('Master_Guru');
+                          setMobileMenuOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                          activeView === 'crud-guru'
+                            ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                            : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <UserCheck className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                        <span>Data Guru & Tendik</span>
+                      </button>
+                    )}
 
                     <button
                       onClick={() => {
@@ -757,8 +837,17 @@ export default function App() {
                       <BookOpen className="w-4 h-4 flex-shrink-0 text-slate-500" />
                       <span>Data Mapel</span>
                     </button>
+                  </div>
+                </div>
+              )}
 
-                    {/* App Customization View (Strictly for Full Access) */}
+              {currentUser?.role === 'Admin' && (
+                <div className="pt-2 pb-2 mt-1">
+                  <p className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Konfigurasi Sistem
+                  </p>
+                  <div className="space-y-1">
+                    {/* App Customization View (Strictly for Admin) */}
                     <button
                       onClick={() => {
                         setActiveView('customization');
@@ -906,6 +995,24 @@ export default function App() {
                 <TeacherPermitView currentUser={currentUser} onSubmit={handleSubmitTeacherPermit} />
               )}
 
+              {/* VIEW 3.1: TENDIK ATTENDANCE */}
+              {activeView === 'absen-tendik' && (
+                <TendikAttendanceView
+                  currentUser={currentUser}
+                  onSubmit={handleSubmitTendikAttendance}
+                  currentTimeString={currentTimeString}
+                />
+              )}
+
+              {/* VIEW 3.2: TENDIK PERMIT */}
+              {activeView === 'izin-tendik' && (
+                <TendikPermitView
+                  currentUser={currentUser}
+                  onSubmit={handleSubmitTendikPermit}
+                  currentTimeString={currentTimeString}
+                />
+              )}
+
               {/* VIEW 4: ATTENDANCE HISTORY LIST */}
               {activeView === 'riwayat' && (
                 <HistoryView
@@ -919,6 +1026,7 @@ export default function App() {
                   onDeleteRecord={handleDeleteAttendanceRecord}
                   onUpdateTeacherRecord={handleUpdateTeacherRecord}
                   onDeleteTeacherRecord={handleDeleteTeacherRecord}
+                  customization={customization}
                 />
               )}
 
@@ -936,7 +1044,7 @@ export default function App() {
               )}
 
               {/* VIEW 6: APP CUSTOMIZATION */}
-              {activeView === 'customization' && (
+              {activeView === 'customization' && currentUser?.role === 'Admin' && (
                 <CustomizationView
                   customization={customization}
                   onSave={handleSaveCustomization}
@@ -945,7 +1053,7 @@ export default function App() {
               )}
 
               {/* VIEW 7: APPS SCRIPT CODE & GUIDE */}
-              {activeView === 'apps-script' && (
+              {activeView === 'apps-script' && currentUser?.role === 'Admin' && (
                 <AppsScriptView customization={customization} />
               )}
             </div>

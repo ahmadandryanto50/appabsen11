@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { AttendanceRecord, TeacherAbsenceRecord, User } from '../types';
+import { AttendanceRecord, TeacherAbsenceRecord, User, AppCustomization } from '../types';
 import {
   Calendar,
   Users,
@@ -42,6 +42,7 @@ interface HistoryViewProps {
   onDeleteRecord: (rowIndex: string | number) => Promise<void>;
   onUpdateTeacherRecord: (rowIndex: string | number, status: string, alasan: string) => Promise<void>;
   onDeleteTeacherRecord: (rowIndex: string | number) => Promise<void>;
+  customization?: AppCustomization;
 }
 
 export function HistoryView({
@@ -55,8 +56,11 @@ export function HistoryView({
   onDeleteRecord,
   onUpdateTeacherRecord,
   onDeleteTeacherRecord,
+  customization,
 }: HistoryViewProps) {
-  const [subTab, setSubTab] = useState<'siswa' | 'guru' | 'rekap-pdf'>('siswa');
+  const [subTab, setSubTab] = useState<'siswa' | 'guru' | 'tendik-absen' | 'tendik-izin' | 'rekap-pdf'>(
+    currentUser?.role === 'Tendik' ? 'tendik-absen' : 'siswa'
+  );
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
   // Filter States - Siswa
@@ -67,6 +71,12 @@ export function HistoryView({
   // Filter States - Guru
   const [filterGuruTanggal, setFilterGuruTanggal] = useState(new Date().toISOString().split('T')[0]);
   const [isLoadingGuru, setIsLoadingGuru] = useState(false);
+
+  // Filter States - Tendik
+  const [filterTendikTanggal, setFilterTendikTanggal] = useState(new Date().toISOString().split('T')[0]);
+  const [tendikAbsenHistory, setTendikAbsenHistory] = useState<any[]>([]);
+  const [tendikIzinHistory, setTendikIzinHistory] = useState<any[]>([]);
+  const [isLoadingTendik, setIsLoadingTendik] = useState(false);
 
   // Edit Modal States - Siswa
   const [showEditModal, setShowEditModal] = useState(false);
@@ -84,7 +94,7 @@ export function HistoryView({
   // Delete Confirm Modal States
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [deletingRowIndex, setDeletingRowIndex] = useState<string | number | null>(null);
-  const [deletingRecordType, setDeletingRecordType] = useState<'siswa' | 'guru' | null>(null);
+  const [deletingRecordType, setDeletingRecordType] = useState<'siswa' | 'guru' | 'tendik-absen' | 'tendik-izin' | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   // PDF Recap States
@@ -250,7 +260,37 @@ export function HistoryView({
     }
   };
 
-  const openDeleteConfirmModal = (rowIndex: string | number, type: 'siswa' | 'guru') => {
+  const handleApplyTendikFilter = async () => {
+    setIsLoadingTendik(true);
+    try {
+      const [resAbsen, resIzin] = await Promise.all([
+        apiClient.getTendikAttendanceHistory(filterTendikTanggal),
+        apiClient.getTendikPermitHistory(filterTendikTanggal)
+      ]);
+      if (resAbsen.status === 'success' && resAbsen.history) {
+        setTendikAbsenHistory(resAbsen.history);
+      } else {
+        setTendikAbsenHistory([]);
+      }
+      if (resIzin.status === 'success' && resIzin.history) {
+        setTendikIzinHistory(resIzin.history);
+      } else {
+        setTendikIzinHistory([]);
+      }
+    } catch (err) {
+      console.error('Failed to load Tendik history:', err);
+    } finally {
+      setIsLoadingTendik(false);
+    }
+  };
+
+  useEffect(() => {
+    if (subTab === 'tendik-absen' || subTab === 'tendik-izin') {
+      handleApplyTendikFilter();
+    }
+  }, [subTab, filterTendikTanggal]);
+
+  const openDeleteConfirmModal = (rowIndex: string | number, type: 'siswa' | 'guru' | 'tendik-absen' | 'tendik-izin') => {
     setDeletingRowIndex(rowIndex);
     setDeletingRecordType(type);
     setShowDeleteConfirmModal(true);
@@ -263,9 +303,15 @@ export function HistoryView({
       if (deletingRecordType === 'siswa') {
         await onDeleteRecord(deletingRowIndex);
         await onFilterHistory(filterSiswaTanggal, filterSiswaKelas);
-      } else {
+      } else if (deletingRecordType === 'guru') {
         await onDeleteTeacherRecord(deletingRowIndex);
         await onFilterTeacher(filterGuruTanggal);
+      } else if (deletingRecordType === 'tendik-absen') {
+        await apiClient.deleteTendikAttendanceRecord(deletingRowIndex);
+        await handleApplyTendikFilter();
+      } else if (deletingRecordType === 'tendik-izin') {
+        await apiClient.deleteTendikPermitRecord(deletingRowIndex);
+        await handleApplyTendikFilter();
       }
       setShowDeleteConfirmModal(false);
     } catch (e) {
@@ -516,13 +562,13 @@ export function HistoryView({
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
     doc.text('Mengetahui,', 20, currentY);
-    doc.text('Kepala Sekolah SMP Digital,', 20, currentY + 5);
+    doc.text('Kepala Sekolah,', 20, currentY + 5);
     
     doc.text('Guru Pengampu,', 140, currentY + 5);
 
     doc.setFont('Helvetica', 'normal');
-    doc.text('( ______________________ )', 20, currentY + 30);
-    doc.text('NIP. ..................................', 20, currentY + 35);
+    doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 20, currentY + 30);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 20, currentY + 35);
 
     doc.setFont('Helvetica', 'bold');
     doc.text(`( ${selectedGuru} )`, 140, currentY + 30);
@@ -640,14 +686,240 @@ export function HistoryView({
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
     doc.text('Mengetahui,', 140, currentY);
-    doc.text('Kepala Sekolah SMP Digital,', 140, currentY + 5);
+    doc.text('Kepala Sekolah,', 140, currentY + 5);
 
     doc.setFont('Helvetica', 'normal');
-    doc.text('( ______________________ )', 140, currentY + 30);
-    doc.text('NIP. ..................................', 140, currentY + 35);
+    doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
 
     // Save report
     doc.save(`Rekap_Izin_Guru_${filterGuruTanggal || 'Semua'}.pdf`);
+  };
+
+  // Download Tendik Presence PDF Report
+  const handleDownloadTendikAbsenPDF = () => {
+    if (tendikAbsenHistory.length === 0) return;
+
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const today = new Date();
+    const formattedDateStr = today.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    const primaryColor: [number, number, number] = [30, 41, 59]; // Slate 800
+
+    // Header
+    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.rect(0, 0, 210, 15, 'F'); // Top accent bar
+
+    // Title
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('LAPORAN REKAPITULASI PRESENSI HADIR TENDIK', 105, 30, { align: 'center' });
+    
+    // Subtitle / School Name
+    doc.setFontSize(11);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139); // Slate 500
+    doc.text('Sistem Informasi E-Absensi Sekolah Digital', 105, 36, { align: 'center' });
+
+    // Decorative underline
+    doc.setDrawColor(226, 232, 240); // Slate 200
+    doc.setLineWidth(1);
+    doc.line(15, 41, 195, 41);
+
+    // Metadata Grid
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('INFORMASI REKAPITULASI:', 15, 48);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(71, 85, 105); // Slate 600
+    doc.text(`Tanggal Rekap             :  ${filterTendikTanggal ? new Date(filterTendikTanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Semua Tanggal'}`, 15, 54);
+    doc.text(`Total Tendik Hadir       :  ${tendikAbsenHistory.length} Orang`, 15, 60);
+    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 66);
+
+    doc.line(15, 71, 195, 71);
+
+    let currentY = 78;
+
+    // Table
+    const tableHeaders = [['No', 'Tanggal', 'Waktu Presensi', 'NIP Tendik', 'Nama Lengkap', 'Status Kehadiran']];
+    const tableBody = tendikAbsenHistory.map((item, idx) => [
+      idx + 1,
+      item.tanggal,
+      item.waktu ? item.waktu.substring(0, 5) : '-',
+      item.nip || '-',
+      item.namaTendik,
+      'Hadir'
+    ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      head: tableHeaders,
+      body: tableBody,
+      theme: 'striped',
+      headStyles: {
+        fillColor: primaryColor,
+        textColor: [255, 255, 255],
+        fontSize: 9,
+        halign: 'center'
+      },
+      bodyStyles: {
+        fontSize: 9,
+        textColor: [51, 65, 85]
+      },
+      columnStyles: {
+        0: { cellWidth: 15, halign: 'center' },
+        1: { cellWidth: 35, halign: 'center' },
+        2: { cellWidth: 30, halign: 'center' },
+        3: { cellWidth: 35, halign: 'center' },
+        4: { cellWidth: 'auto' },
+        5: { cellWidth: 35, halign: 'center' }
+      },
+      margin: { left: 15, right: 15 },
+      styles: { overflow: 'linebreak' }
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 15;
+
+    // Signature Block
+    if (currentY > 230) {
+      doc.addPage();
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(0, 0, 210, 10, 'F');
+      currentY = 25;
+    }
+
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('Mengetahui,', 140, currentY);
+    doc.text('Kepala Sekolah,', 140, currentY + 5);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
+
+    doc.save(`Rekap_Presensi_Hadir_Tendik_${filterTendikTanggal || 'Semua'}.pdf`);
+  };
+
+  // Download Tendik Permits PDF Report
+  const handleDownloadTendikIzinPDF = () => {
+    if (tendikIzinHistory.length === 0) return;
+
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const today = new Date();
+    const formattedDateStr = today.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    const primaryColor: [number, number, number] = [79, 70, 229]; // Indigo 600
+
+    // Header
+    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.rect(0, 0, 210, 15, 'F'); // Top accent bar
+
+    // Title
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('LAPORAN REKAPITULASI IZIN & CUTI TENDIK', 105, 30, { align: 'center' });
+    
+    // Subtitle / School Name
+    doc.setFontSize(11);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139); // Slate 500
+    doc.text('Sistem Informasi E-Absensi Sekolah Digital', 105, 36, { align: 'center' });
+
+    // Decorative underline
+    doc.setDrawColor(226, 232, 240); // Slate 200
+    doc.setLineWidth(1);
+    doc.line(15, 41, 195, 41);
+
+    // Metadata Grid
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('INFORMASI REKAPITULASI:', 15, 48);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(71, 85, 105); // Slate 600
+    doc.text(`Tanggal Rekap             :  ${filterTendikTanggal ? new Date(filterTendikTanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Semua Tanggal'}`, 15, 54);
+    doc.text(`Total Tendik Izin/Cuti :  ${tendikIzinHistory.length} Orang`, 15, 60);
+    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 66);
+
+    doc.line(15, 71, 195, 71);
+
+    let currentY = 78;
+
+    // Table
+    const tableHeaders = [['No', 'Tanggal', 'Waktu', 'NIP Tendik', 'Nama Lengkap', 'Status', 'Keterangan / Alasan']];
+    const tableBody = tendikIzinHistory.map((item, idx) => [
+      idx + 1,
+      item.tanggal,
+      item.waktu ? item.waktu.substring(0, 5) : '-',
+      item.nip || '-',
+      item.namaTendik,
+      item.status,
+      item.alasan || '-'
+    ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      head: tableHeaders,
+      body: tableBody,
+      theme: 'striped',
+      headStyles: {
+        fillColor: primaryColor,
+        textColor: [255, 255, 255],
+        fontSize: 8.5,
+        halign: 'center'
+      },
+      bodyStyles: {
+        fontSize: 8.5,
+        textColor: [51, 65, 85]
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 22, halign: 'center' },
+        2: { cellWidth: 15, halign: 'center' },
+        3: { cellWidth: 25, halign: 'center' },
+        4: { cellWidth: 40 },
+        5: { cellWidth: 32 },
+        6: { cellWidth: 'auto' }
+      },
+      margin: { left: 15, right: 15 },
+      styles: { overflow: 'linebreak' }
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 15;
+
+    // Signature Block
+    if (currentY > 230) {
+      doc.addPage();
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(0, 0, 210, 10, 'F');
+      currentY = 25;
+    }
+
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('Mengetahui,', 140, currentY);
+    doc.text('Kepala Sekolah,', 140, currentY + 5);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
+
+    doc.save(`Rekap_Izin_Tendik_${filterTendikTanggal || 'Semua'}.pdf`);
   };
 
   return (
@@ -655,45 +927,83 @@ export function HistoryView({
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
         {/* Sub tab buttons */}
         <div className="flex items-center gap-2 border-b border-slate-100 pb-4 flex-wrap">
-          <button
-            type="button"
-            onClick={() => setSubTab('siswa')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
-              subTab === 'siswa'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            <span>Riwayat Presensi Siswa</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setSubTab('guru');
-              handleApplyGuruFilter();
-            }}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
-              subTab === 'guru'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Riwayat Izin Guru</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setSubTab('rekap-pdf')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
-              subTab === 'rekap-pdf'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            }`}
-          >
-            <Download className="w-4 h-4" />
-            <span>Unduh Rekap PDF</span>
-          </button>
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+            <button
+              type="button"
+              onClick={() => setSubTab('siswa')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'siswa'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Riwayat Presensi Siswa</span>
+            </button>
+          )}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSubTab('guru');
+                handleApplyGuruFilter();
+              }}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'guru'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Riwayat Izin Guru</span>
+            </button>
+          )}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSubTab('tendik-absen');
+              }}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'tendik-absen'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Clock className="w-4 h-4" />
+              <span>Riwayat Absen Tendik</span>
+            </button>
+          )}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSubTab('tendik-izin');
+              }}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'tendik-izin'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              <span>Riwayat Izin Tendik</span>
+            </button>
+          )}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+            <button
+              type="button"
+              onClick={() => setSubTab('rekap-pdf')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'rekap-pdf'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Download className="w-4 h-4" />
+              <span>Unduh Rekap PDF</span>
+            </button>
+          )}
         </div>
 
         {/* SUB TAB 1: RIWAYAT SISWA */}
@@ -959,6 +1269,234 @@ export function HistoryView({
                       <td colSpan={6} className="p-12 text-center text-slate-400">
                         <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                         <p className="text-xs font-semibold">Tidak ada riwayat permohonan izin guru pada tanggal ini.</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* SUB TAB 2.1: RIWAYAT ABSEN TENDIK */}
+        {subTab === 'tendik-absen' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800 tracking-tight">Riwayat Presensi Hadir Tendik</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Daftar log kehadiran harian Tenaga Kependidikan (Tendik) beserta bukti foto diri.
+              </p>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Tanggal Presensi</label>
+                <input
+                  type="date"
+                  value={filterTendikTanggal}
+                  onChange={(e) => setFilterTendikTanggal(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-700"
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleApplyTendikFilter}
+                  disabled={isLoadingTendik}
+                  className="flex-1 p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isLoadingTendik ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />}
+                  <span>Terapkan Filter</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadTendikAbsenPDF}
+                  disabled={tendikAbsenHistory.length === 0}
+                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  title="Unduh Rekap Presensi Hadir Tendik (PDF)"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Unduh Rekap PDF</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
+                  <tr>
+                    <th className="p-3.5 pl-4 w-40">Waktu Presensi</th>
+                    <th className="p-3.5 w-40">NIP</th>
+                    <th className="p-3.5 w-60">Nama Lengkap</th>
+                    <th className="p-3.5 text-center w-36">Bukti Foto</th>
+                    <th className="p-3.5 pr-4 text-center w-24">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {tendikAbsenHistory.length > 0 ? (
+                    tendikAbsenHistory.map((item) => (
+                      <tr key={item.rowIndex} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
+                          {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
+                        </td>
+                        <td className="p-3.5 font-mono text-slate-600 font-semibold">{item.nip || '-'}</td>
+                        <td className="p-3.5 font-bold text-slate-800 text-sm">{item.namaTendik}</td>
+                        <td className="p-3.5 text-center">
+                          {item.photo ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPhoto(item.photo)}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer border border-blue-200/40"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Lihat Foto</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 font-medium text-[10px]">Tanpa Foto</span>
+                          )}
+                        </td>
+                        <td className="p-3.5 pr-4 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openDeleteConfirmModal(item.rowIndex, 'tendik-absen')}
+                              className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
+                              title="Hapus presensi tendik"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="p-12 text-center text-slate-400">
+                        <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                        <p className="text-xs font-semibold">Tidak ada riwayat presensi hadir Tendik pada tanggal ini.</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* SUB TAB 2.2: RIWAYAT IZIN TENDIK */}
+        {subTab === 'tendik-izin' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800 tracking-tight">Riwayat Izin, Sakit & Cuti Tendik</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Daftar absensi, permohonan izin, sakit, dan cuti Tenaga Kependidikan (Tendik).
+              </p>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Tanggal Permohonan</label>
+                <input
+                  type="date"
+                  value={filterTendikTanggal}
+                  onChange={(e) => setFilterTendikTanggal(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-700"
+                />
+              </div>
+              <div className="flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleApplyTendikFilter}
+                  disabled={isLoadingTendik}
+                  className="flex-1 p-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isLoadingTendik ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />}
+                  <span>Terapkan Filter</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadTendikIzinPDF}
+                  disabled={tendikIzinHistory.length === 0}
+                  className="p-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  title="Unduh Rekap Izin Tendik (PDF)"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Unduh Rekap PDF</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
+                  <tr>
+                    <th className="p-3.5 pl-4 w-40">Waktu Kirim</th>
+                    <th className="p-3.5 w-32">NIP</th>
+                    <th className="p-3.5 w-52">Nama Lengkap</th>
+                    <th className="p-3.5 w-32">Status</th>
+                    <th className="p-3.5">Keterangan / Alasan</th>
+                    <th className="p-3.5 text-center w-32">Lampiran</th>
+                    <th className="p-3.5 pr-4 text-center w-24">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {tendikIzinHistory.length > 0 ? (
+                    tendikIzinHistory.map((item) => (
+                      <tr key={item.rowIndex} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
+                          {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
+                        </td>
+                        <td className="p-3.5 font-mono text-slate-600 font-semibold">{item.nip || '-'}</td>
+                        <td className="p-3.5 font-bold text-slate-800 text-sm">{item.namaTendik}</td>
+                        <td className="p-3.5">
+                          <span className={`inline-block px-2.5 py-1 rounded-full font-bold text-[10px] ${
+                            item.status.toLowerCase().includes('sakit')
+                              ? 'bg-rose-50 border border-rose-100 text-rose-700'
+                              : item.status.toLowerCase().includes('izin')
+                              ? 'bg-blue-50 border border-blue-100 text-blue-700'
+                              : 'bg-slate-50 border border-slate-150 text-slate-700'
+                          }`}>
+                            {item.status}
+                          </span>
+                        </td>
+                        <td className="p-3.5 text-slate-600 leading-relaxed font-medium">{item.alasan}</td>
+                        <td className="p-3.5 text-center">
+                          {item.photo ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPhoto(item.photo)}
+                              className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer border border-indigo-200/40"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Lihat Bukti</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 font-medium text-[10px]">Tanpa Lampiran</span>
+                          )}
+                        </td>
+                        <td className="p-3.5 pr-4 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => openDeleteConfirmModal(item.rowIndex, 'tendik-izin')}
+                              className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
+                              title="Hapus izin tendik"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="p-12 text-center text-slate-400">
+                        <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                        <p className="text-xs font-semibold">Tidak ada riwayat permohonan izin Tendik pada tanggal ini.</p>
                       </td>
                     </tr>
                   )}

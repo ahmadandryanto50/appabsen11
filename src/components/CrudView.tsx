@@ -38,6 +38,7 @@ export function CrudView({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const getFriendlySheetName = () => {
+    if (currentCrudSheet === 'Master_Guru') return 'Data Guru & Tendik';
     return currentCrudSheet.replace('Master_', 'Data ');
   };
 
@@ -272,14 +273,50 @@ export function CrudView({
               {headers.map((head, i) => (
                 <div key={head}>
                   <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1.5">{head}</label>
-                  <input
-                    type="text"
-                    value={formRowValues[i] || ''}
-                    onChange={(e) => handleInputChange(i, e.target.value)}
-                    required
-                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold"
-                    placeholder={`Masukkan ${head}...`}
-                  />
+                  {head.toLowerCase() === 'role' ? (
+                    <select
+                      value={formRowValues[i] || ''}
+                      onChange={(e) => handleInputChange(i, e.target.value)}
+                      required
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold bg-white cursor-pointer"
+                    >
+                      <option value="">-- Pilih Role --</option>
+                      <option value="Admin">Admin</option>
+                      <option value="Guru">Guru</option>
+                      <option value="Tendik">Tendik</option>
+                    </select>
+                  ) : head.toLowerCase() === 'status' ? (
+                    <select
+                      value={formRowValues[i] || ''}
+                      onChange={(e) => handleInputChange(i, e.target.value)}
+                      required
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold bg-white cursor-pointer"
+                    >
+                      <option value="">-- Pilih Status --</option>
+                      <option value="Aktif">Aktif</option>
+                      <option value="Nonaktif">Nonaktif</option>
+                    </select>
+                  ) : head.toLowerCase() === 'jenis kelamin' ? (
+                    <select
+                      value={formRowValues[i] || ''}
+                      onChange={(e) => handleInputChange(i, e.target.value)}
+                      required
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold bg-white cursor-pointer"
+                    >
+                      <option value="">-- Pilih Jenis Kelamin --</option>
+                      <option value="Laki-laki">Laki-laki</option>
+                      <option value="Perempuan">Perempuan</option>
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={formRowValues[i] || ''}
+                      onChange={(e) => handleInputChange(i, e.target.value)}
+                      required
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold"
+                      placeholder={`Masukkan ${head}...`}
+                    />
+                  )}
                 </div>
               ))}
             </div>

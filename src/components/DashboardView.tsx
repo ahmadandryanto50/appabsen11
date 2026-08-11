@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { User, AttendanceRecord, AppCustomization } from '../types';
-import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, ExternalLink } from 'lucide-react';
+import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, ExternalLink, ClipboardList } from 'lucide-react';
+import { apiClient } from '../api';
 
 interface DashboardViewProps {
   currentUser: User | null;
@@ -27,6 +28,67 @@ export function DashboardView({
   const [photoError, setPhotoError] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const userPhoto = currentUser && customization?.userPhotos?.[currentUser.username];
+
+  // State and hook for Tendik history inside Dashboard
+  const [tendikList, setTendikList] = useState<any[]>([]);
+  const [loadingTendik, setLoadingTendik] = useState(false);
+  const [guruHeaders, setGuruHeaders] = useState<string[]>([]);
+
+  useEffect(() => {
+    // Fetch Master_Guru headers to accurately resolve column indices dynamically
+    apiClient.getCrud('Master_Guru')
+      .then((res) => {
+        if (res.status === 'success' && res.headers) {
+          setGuruHeaders(res.headers.map((h) => h.toLowerCase().trim()));
+        }
+      })
+      .catch((err) => console.error('Failed to load Master_Guru headers in DashboardView:', err));
+
+    if (currentUser?.role === 'Tendik') {
+      setLoadingTendik(true);
+      apiClient.getTendikAttendanceHistory('')
+        .then(res => {
+          if (res.status === 'success' && res.history) {
+            setTendikList(res.history);
+          }
+        })
+        .catch(err => console.error(err))
+        .finally(() => setLoadingTendik(false));
+    }
+  }, [currentUser]);
+
+  // Dynamic index helpers based on headers with robust fallback based on array length
+  const getRoleIndex = (rowLength: number): number => {
+    if (guruHeaders.length > 0) {
+      const idx = guruHeaders.indexOf('role');
+      if (idx !== -1) return idx;
+    }
+    if (rowLength === 8) return 6;
+    if (rowLength === 7) return 5;
+    if (rowLength === 6) return 4;
+    return 5;
+  };
+
+  const getStatusIndex = (rowLength: number): number => {
+    if (guruHeaders.length > 0) {
+      const idx = guruHeaders.indexOf('status');
+      if (idx !== -1) return idx;
+    }
+    if (rowLength === 8) return 7;
+    if (rowLength === 7) return 6;
+    if (rowLength === 6) return 5;
+    return 6;
+  };
+
+  const getGenderIndex = (rowLength: number): number => {
+    if (guruHeaders.length > 0) {
+      const idx = guruHeaders.indexOf('jenis kelamin');
+      if (idx !== -1) return idx;
+    }
+    if (rowLength === 8) return 3;
+    if (rowLength === 7) return 3;
+    return -1;
+  };
 
   // Helper to normalize and check student gender
   const isMaleStudent = (gender: string): boolean => {
@@ -100,31 +162,32 @@ export function DashboardView({
   // 2. Filter active teachers (exclude headers, empty records, and roles like Admin, Administrasi, Tata Usaha, Staff)
   const activeTeachers = finalTeachers.filter((t) => {
     if (!t.data || !t.data[0] || t.data[0] === 'ID' || !t.data[2]) return false;
-    if (t.data[5] && t.data[5].trim() === 'Nonaktif') return false;
+    
+    const statusIdx = getStatusIndex(t.data.length);
+    if (t.data[statusIdx] && t.data[statusIdx].trim() === 'Nonaktif') return false;
 
-    const role = (t.data[4] || '').trim().toUpperCase();
-    const name = (t.data[2] || '').trim().toUpperCase();
+    const roleIdx = getRoleIndex(t.data.length);
+    const role = (t.data[roleIdx] || '').trim().toUpperCase();
 
-    // Filter out Admin, Administrasi, Tata Usaha, Staff, TU, Karyawan
-    if (
-      role.includes('ADMIN') || 
-      role.includes('TATA') || 
-      role.includes('TU') || 
-      role.includes('STAFF') || 
-      role.includes('STAF') ||
-      role.includes('PUSTAKA') ||
-      role.includes('KEBERSIHAN') ||
-      role.includes('KARYAWAN') ||
-      name.includes('ADMINISTRATOR') ||
-      name.includes('ADMINISTRASI')
-    ) {
-      return false;
-    }
-    return true;
+    // Strictly count as Guru only if the role is GURU
+    return role === 'GURU';
   });
 
   // Total Teachers Overall
   const totalTeachers = activeTeachers.length;
+
+  // Helper to get actual or guessed gender of a teacher
+  const getTeacherGender = (t: any): 'Laki-laki' | 'Perempuan' => {
+    if (t && t.data) {
+      const genderIdx = getGenderIndex(t.data.length);
+      if (genderIdx !== -1 && t.data[genderIdx]) {
+        const g = t.data[genderIdx].trim().toLowerCase();
+        if (g.startsWith('p') || g === 'perempuan') return 'Perempuan';
+        if (g.startsWith('l') || g === 'laki-laki') return 'Laki-laki';
+      }
+    }
+    return guessTeacherGender(t.data[2]);
+  };
 
   // Helper to guess gender of a teacher based on name & titles
   const guessTeacherGender = (name: string): 'Laki-laki' | 'Perempuan' => {
@@ -225,10 +288,10 @@ export function DashboardView({
 
   // Calculate with calibrated fallback matching the exact Indonesian school dataset distribution
   let totalTeachersMale = activeTeachers.filter(
-    (t) => guessTeacherGender(t.data[2]) === 'Laki-laki'
+    (t) => getTeacherGender(t) === 'Laki-laki'
   ).length;
   let totalTeachersFemale = activeTeachers.filter(
-    (t) => guessTeacherGender(t.data[2]) === 'Perempuan'
+    (t) => getTeacherGender(t) === 'Perempuan'
   ).length;
 
   // Calibration fallback to meet user's precise master database constraints:
@@ -237,6 +300,39 @@ export function DashboardView({
     totalTeachersMale = 9;
     totalTeachersFemale = 15;
   }
+
+  // 2.1 Filter active Tendik
+  const activeTendik = finalTeachers.filter((t) => {
+    if (!t.data || !t.data[0] || t.data[0] === 'ID' || !t.data[2]) return false;
+    
+    const statusIdx = getStatusIndex(t.data.length);
+    if (t.data[statusIdx] && t.data[statusIdx].trim() === 'Nonaktif') return false;
+
+    const roleIdx = getRoleIndex(t.data.length);
+    const role = (t.data[roleIdx] || '').trim().toUpperCase();
+    
+    // Explicitly exclude any admin roles and teacher roles from Tendik count
+    if (role === 'ADMIN') return false;
+    if (role === 'GURU') return false;
+    
+    return (
+      role === 'TENDIK' ||
+      role.includes('STAFF') ||
+      role.includes('STAF') ||
+      role.includes('TU') ||
+      role.includes('TATA') ||
+      role.includes('KARYAWAN') ||
+      role.includes('ADMINISTRASI')
+    );
+  });
+
+  const totalTendik = activeTendik.length;
+  const totalTendikMale = activeTendik.filter(
+    (t) => getTeacherGender(t) === 'Laki-laki'
+  ).length;
+  const totalTendikFemale = activeTendik.filter(
+    (t) => getTeacherGender(t) === 'Perempuan'
+  ).length;
 
   // Helper to resolve grade level from class name & description
   const getGradeLevel = (className: string, description: string = ''): 'VII' | 'VIII' | 'IX' | 'X' | 'XI' | 'XII' | 'Lainnya' => {
@@ -428,58 +524,87 @@ export function DashboardView({
         </div>
 
         {/* Bento Grid Top Level Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Card 1: Students overall */}
-          <div className="p-5 bg-blue-50/40 rounded-xl border border-blue-100/60 flex items-center justify-between">
-            <div className="space-y-1">
-              <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total Siswa Keseluruhan</span>
-              <h3 className="text-2xl font-extrabold text-slate-800">{totalStudents} <span className="text-xs font-semibold text-slate-400">Orang</span></h3>
-              <div className="flex items-center gap-3 text-xs text-slate-600 font-semibold mt-1">
-                <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                  Laki-laki: <strong className="text-slate-800">{totalStudentsMale}</strong>
-                </span>
-                <span className="text-slate-300">|</span>
-                <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
-                  Perempuan: <strong className="text-slate-800">{totalStudentsFemale}</strong>
-                </span>
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+            <div className="p-5 bg-blue-50/40 rounded-xl border border-blue-100/60 flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total Siswa Keseluruhan</span>
+                <h3 className="text-2xl font-extrabold text-slate-800">{totalStudents} <span className="text-xs font-semibold text-slate-400">Orang</span></h3>
+                <div className="flex items-center gap-3 text-xs text-slate-600 font-semibold mt-1">
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                    Laki-laki: <strong className="text-slate-800">{totalStudentsMale}</strong>
+                  </span>
+                  <span className="text-slate-300">|</span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                    Perempuan: <strong className="text-slate-800">{totalStudentsFemale}</strong>
+                  </span>
+                </div>
+              </div>
+              <div className="w-12 h-12 bg-blue-100/60 rounded-xl flex items-center justify-center text-blue-600 flex-shrink-0">
+                <GraduationCap className="w-6 h-6" />
               </div>
             </div>
-            <div className="w-12 h-12 bg-blue-100/60 rounded-xl flex items-center justify-center text-blue-600 flex-shrink-0">
-              <GraduationCap className="w-6 h-6" />
-            </div>
-          </div>
+          )}
 
           {/* Card 2: Teachers overall */}
-          <div className="p-5 bg-emerald-50/40 rounded-xl border border-emerald-100/60 flex items-center justify-between">
-            <div className="space-y-1">
-              <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Total Guru Keseluruhan</span>
-              <h3 className="text-2xl font-extrabold text-slate-800">{totalTeachers} <span className="text-xs font-semibold text-slate-400">Orang</span></h3>
-              <div className="flex items-center gap-3 text-xs text-slate-600 font-semibold mt-1">
-                <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                  Laki-laki: <strong className="text-slate-800">{totalTeachersMale}</strong>
-                </span>
-                <span className="text-slate-300">|</span>
-                <span className="flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
-                  Perempuan: <strong className="text-slate-800">{totalTeachersFemale}</strong>
-                </span>
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+            <div className="p-5 bg-emerald-50/40 rounded-xl border border-emerald-100/60 flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Total Guru Keseluruhan</span>
+                <h3 className="text-2xl font-extrabold text-slate-800">{totalTeachers} <span className="text-xs font-semibold text-slate-400">Orang</span></h3>
+                <div className="flex items-center gap-3 text-xs text-slate-600 font-semibold mt-1">
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    Laki-laki: <strong className="text-slate-800">{totalTeachersMale}</strong>
+                  </span>
+                  <span className="text-slate-300">|</span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
+                    Perempuan: <strong className="text-slate-800">{totalTeachersFemale}</strong>
+                  </span>
+                </div>
+              </div>
+              <div className="w-12 h-12 bg-emerald-100/60 rounded-xl flex items-center justify-center text-emerald-600 flex-shrink-0">
+                <Users className="w-6 h-6" />
               </div>
             </div>
-            <div className="w-12 h-12 bg-emerald-100/60 rounded-xl flex items-center justify-center text-emerald-600 flex-shrink-0">
-              <Users className="w-6 h-6" />
+          )}
+
+          {/* Card 3: Tendik overall */}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+            <div className="p-5 bg-indigo-50/40 rounded-xl border border-indigo-100/60 flex items-center justify-between">
+              <div className="space-y-1">
+                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Total Tendik Keseluruhan</span>
+                <h3 className="text-2xl font-extrabold text-slate-800">{totalTendik} <span className="text-xs font-semibold text-slate-400">Orang</span></h3>
+                <div className="flex items-center gap-3 text-xs text-slate-600 font-semibold mt-1">
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                    Laki-laki: <strong className="text-slate-800">{totalTendikMale}</strong>
+                  </span>
+                  <span className="text-slate-300">|</span>
+                  <span className="flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+                    Perempuan: <strong className="text-slate-800">{totalTendikFemale}</strong>
+                  </span>
+                </div>
+              </div>
+              <div className="w-12 h-12 bg-indigo-100/60 rounded-xl flex items-center justify-center text-indigo-600 flex-shrink-0">
+                <Award className="w-6 h-6" />
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Breakdown detail rows */}
-        <div className="space-y-4 pt-2">
-          <div>
-            <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider">Rincian Siswa per Jenjang Kelas & Rincian per Kelas</h5>
-            <p className="text-[11px] text-slate-400 font-medium">Rincian gender (Laki-laki & Perempuan) serta nama pahlawan/ruang masing-masing rombel aktif.</p>
-          </div>
+        {currentUser?.role !== 'Tendik' && (
+          <div className="space-y-4 pt-2">
+            <div>
+              <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider">Rincian Siswa per Jenjang Kelas & Rincian per Kelas</h5>
+              <p className="text-[11px] text-slate-400 font-medium">Rincian gender (Laki-laki & Perempuan) serta nama pahlawan/ruang masing-masing rombel aktif.</p>
+            </div>
           
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* Grade VII */}
@@ -505,8 +630,8 @@ export function DashboardView({
                   <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Rincian Kelas:</span>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                     {classesForGrade('VII').length > 0 ? (
-                      classesForGrade('VII').map((cls) => (
-                        <div key={cls.className} className="p-2 bg-white rounded-lg border border-slate-200/40 shadow-3xs space-y-1">
+                      classesForGrade('VII').map((cls, idx) => (
+                        <div key={`class-vii-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-slate-200/40 shadow-3xs space-y-1">
                           <div className="flex justify-between items-start gap-1">
                             <span className="font-bold text-slate-800 text-[11px] leading-tight">
                               {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
@@ -552,8 +677,8 @@ export function DashboardView({
                   <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Rincian Kelas:</span>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                     {classesForGrade('VIII').length > 0 ? (
-                      classesForGrade('VIII').map((cls) => (
-                        <div key={cls.className} className="p-2 bg-white rounded-lg border border-slate-200/40 shadow-3xs space-y-1">
+                      classesForGrade('VIII').map((cls, idx) => (
+                        <div key={`class-viii-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-slate-200/40 shadow-3xs space-y-1">
                           <div className="flex justify-between items-start gap-1">
                             <span className="font-bold text-slate-800 text-[11px] leading-tight">
                               {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
@@ -599,8 +724,8 @@ export function DashboardView({
                   <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Rincian Kelas:</span>
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                     {classesForGrade('IX').length > 0 ? (
-                      classesForGrade('IX').map((cls) => (
-                        <div key={cls.className} className="p-2 bg-white rounded-lg border border-slate-200/40 shadow-3xs space-y-1">
+                      classesForGrade('IX').map((cls, idx) => (
+                        <div key={`class-ix-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-slate-200/40 shadow-3xs space-y-1">
                           <div className="flex justify-between items-start gap-1">
                             <span className="font-bold text-slate-800 text-[11px] leading-tight">
                               {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
@@ -651,8 +776,8 @@ export function DashboardView({
                         <span className="text-[9px] font-extrabold text-indigo-400 uppercase tracking-wider block">Rincian Kelas:</span>
                         <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                           {classesForGrade('X').length > 0 ? (
-                            classesForGrade('X').map((cls) => (
-                              <div key={cls.className} className="p-2 bg-white rounded-lg border border-indigo-100/40 shadow-3xs space-y-1">
+                            classesForGrade('X').map((cls, idx) => (
+                              <div key={`class-x-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-indigo-100/40 shadow-3xs space-y-1">
                                 <div className="flex justify-between items-start gap-1">
                                   <span className="font-bold text-slate-800 text-[11px] leading-tight">
                                     {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
@@ -698,8 +823,8 @@ export function DashboardView({
                         <span className="text-[9px] font-extrabold text-indigo-400 uppercase tracking-wider block">Rincian Kelas:</span>
                         <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                           {classesForGrade('XI').length > 0 ? (
-                            classesForGrade('XI').map((cls) => (
-                              <div key={cls.className} className="p-2 bg-white rounded-lg border border-indigo-100/40 shadow-3xs space-y-1">
+                            classesForGrade('XI').map((cls, idx) => (
+                              <div key={`class-xi-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-indigo-100/40 shadow-3xs space-y-1">
                                 <div className="flex justify-between items-start gap-1">
                                   <span className="font-bold text-slate-800 text-[11px] leading-tight">
                                     {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
@@ -745,8 +870,8 @@ export function DashboardView({
                         <span className="text-[9px] font-extrabold text-indigo-400 uppercase tracking-wider block">Rincian Kelas:</span>
                         <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
                           {classesForGrade('XII').length > 0 ? (
-                            classesForGrade('XII').map((cls) => (
-                              <div key={cls.className} className="p-2 bg-white rounded-lg border border-indigo-100/40 shadow-3xs space-y-1">
+                            classesForGrade('XII').map((cls, idx) => (
+                              <div key={`class-xii-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-indigo-100/40 shadow-3xs space-y-1">
                                 <div className="flex justify-between items-start gap-1">
                                   <span className="font-bold text-slate-800 text-[11px] leading-tight">
                                     {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
@@ -773,127 +898,249 @@ export function DashboardView({
             </div>
           )}
         </div>
-      </div>
+      )}
+    </div>
 
       {/* Live Feed Rekap Presensi Terbaru */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
-          <div>
-            <h4 className="font-extrabold text-slate-800 text-sm tracking-tight flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>Rekap Sesi Absensi Mengajar Terbaru</span>
-            </h4>
-            <p className="text-[11px] text-slate-400 font-medium">Log aktivitas presensi siswa langsung terupdate sesuai guru yang mengabsen.</p>
-          </div>
-          <button
-            onClick={() => onNavigate('riwayat')}
-            className="text-xs text-blue-600 hover:text-blue-700 font-bold transition-all cursor-pointer hover:underline self-start sm:self-center"
-          >
-            Lihat Semua Riwayat →
-          </button>
-        </div>
+      <div className="space-y-6">
+        {/* Render Rekap Sesi Absensi Mengajar Terbaru if Guru or Admin */}
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-sm tracking-tight flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>Rekap Sesi Absensi Mengajar Terbaru</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 font-medium">Log aktivitas presensi siswa langsung terupdate sesuai guru yang mengabsen.</p>
+              </div>
+              <button
+                onClick={() => onNavigate('riwayat')}
+                className="text-xs text-blue-600 hover:text-blue-700 font-bold transition-all cursor-pointer hover:underline self-start sm:self-center"
+              >
+                Lihat Semua Riwayat →
+              </button>
+            </div>
 
-        <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-slate-50/20">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200/60">
-              <tr>
-                <th className="p-3 pl-4">Tanggal & Waktu</th>
-                <th className="p-3">Nama Guru</th>
-                <th className="p-3 text-center">Kelas</th>
-                <th className="p-3">Mata Pelajaran</th>
-                <th className="p-3 text-center w-12 text-emerald-700">Hadir</th>
-                <th className="p-3 text-center w-12 text-amber-700">Sakit</th>
-                <th className="p-3 text-center w-12 text-blue-700">Izin</th>
-                <th className="p-3 text-center w-12 text-rose-700">Alpa</th>
-                <th className="p-3 text-center w-24">Bukti Foto</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 bg-white">
-              {historyList.length > 0 ? (
-                historyList.slice(0, 5).map((log) => (
-                  <tr key={log.rowIndex} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="p-3 pl-4 font-mono text-slate-400 font-bold whitespace-nowrap">
-                      {log.tanggal} <span className="text-slate-300">|</span> {log.waktu}
-                    </td>
-                    <td className="p-3 font-bold text-slate-850">{log.guru}</td>
-                    <td className="p-3 text-center font-extrabold text-blue-700 whitespace-nowrap">
-                      {log.kelas}
-                    </td>
-                    <td className="p-3 font-semibold text-slate-600">{log.mapel}</td>
-                    <td className="p-3 text-center">
-                      <span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-extrabold rounded-lg border border-emerald-100/80 text-[10px]">
-                        {log.hadir}
-                      </span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="inline-block px-2.5 py-1 bg-amber-50 text-amber-700 font-extrabold rounded-lg border border-amber-100/80 text-[10px]">
-                        {log.sakit}
-                      </span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="inline-block px-2.5 py-1 bg-blue-50 text-blue-700 font-extrabold rounded-lg border border-blue-100/80 text-[10px]">
-                        {log.izin}
-                      </span>
-                    </td>
-                    <td className="p-3 text-center">
-                      <span className="inline-block px-2.5 py-1 bg-rose-50 text-rose-700 font-extrabold rounded-lg border border-rose-100/80 text-[10px]">
-                        {log.alpa}
-                      </span>
-                    </td>
-                    <td className="p-3 text-center whitespace-nowrap">
-                      {log.photo ? (
-                        <button
-                          onClick={() => setSelectedPhoto(log.photo || null)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-[10px] font-bold cursor-pointer transition-all"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Lihat Foto</span>
-                        </button>
-                      ) : (
-                        <span className="text-slate-400 text-[10px] font-medium">Tidak Ada</span>
-                      )}
-                    </td>
+            <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-slate-50/20">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200/60">
+                  <tr>
+                    <th className="p-3 pl-4">Tanggal & Waktu</th>
+                    <th className="p-3">Nama Guru</th>
+                    <th className="p-3 text-center">Kelas</th>
+                    <th className="p-3">Mata Pelajaran</th>
+                    <th className="p-3 text-center w-12 text-emerald-700">Hadir</th>
+                    <th className="p-3 text-center w-12 text-amber-700">Sakit</th>
+                    <th className="p-3 text-center w-12 text-blue-700">Izin</th>
+                    <th className="p-3 text-center w-12 text-rose-700">Alpa</th>
+                    <th className="p-3 text-center w-24">Bukti Foto</th>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={8} className="p-12 text-center text-slate-400 font-medium">
-                    Belum ada riwayat presensi hari ini. Silakan catat presensi kelas Anda!
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {historyList.length > 0 ? (
+                    historyList.slice(0, 5).map((log) => (
+                      <tr key={log.rowIndex} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-3 pl-4 font-mono text-slate-400 font-bold whitespace-nowrap">
+                          {log.tanggal} <span className="text-slate-300">|</span> {log.waktu}
+                        </td>
+                        <td className="p-3 font-bold text-slate-850">{log.guru}</td>
+                        <td className="p-3 text-center font-extrabold text-blue-700 whitespace-nowrap">
+                          {log.kelas}
+                        </td>
+                        <td className="p-3 font-semibold text-slate-600">{log.mapel}</td>
+                        <td className="p-3 text-center">
+                          <span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-extrabold rounded-lg border border-emerald-100/80 text-[10px]">
+                            {log.hadir}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="inline-block px-2.5 py-1 bg-amber-50 text-amber-700 font-extrabold rounded-lg border border-amber-100/80 text-[10px]">
+                            {log.sakit}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="inline-block px-2.5 py-1 bg-blue-50 text-blue-700 font-extrabold rounded-lg border border-blue-100/80 text-[10px]">
+                            {log.izin}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="inline-block px-2.5 py-1 bg-rose-50 text-rose-700 font-extrabold rounded-lg border border-rose-100/80 text-[10px]">
+                            {log.alpa}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center whitespace-nowrap">
+                          {log.photo ? (
+                            <button
+                              onClick={() => setSelectedPhoto(log.photo || null)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-[10px] font-bold cursor-pointer transition-all"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Lihat Foto</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 text-[10px] font-medium">Tidak Ada</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={9} className="p-12 text-center text-slate-400 font-medium">
+                        Belum ada riwayat presensi hari ini. Silakan catat presensi kelas Anda!
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Render Riwayat Presensi Hadir Tendik Terbaru if Tendik or Admin */}
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-sm tracking-tight flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  <span>Riwayat Presensi Hadir Tendik Terbaru</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 font-medium">Log riwayat kehadiran harian Tenaga Kependidikan (Tendik) aktif.</p>
+              </div>
+              <button
+                onClick={() => onNavigate('riwayat')}
+                className="text-xs text-blue-600 hover:text-blue-700 font-bold transition-all cursor-pointer hover:underline self-start sm:self-center"
+              >
+                Lihat Semua Riwayat →
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-slate-50/20">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200/60">
+                  <tr>
+                    <th className="p-3 pl-4">Tanggal & Waktu</th>
+                    <th className="p-3">NIP</th>
+                    <th className="p-3">Nama Tendik</th>
+                    <th className="p-3 text-center">Status Kehadiran</th>
+                    <th className="p-3 text-center w-24">Bukti Foto</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {loadingTendik ? (
+                    <tr>
+                      <td colSpan={5} className="p-12 text-center text-slate-400">
+                        <span className="inline-block animate-spin mr-2">⏳</span> Memuat riwayat...
+                      </td>
+                    </tr>
+                  ) : tendikList.length > 0 ? (
+                    tendikList.slice(0, 5).map((log, idx) => (
+                      <tr key={log.rowIndex || idx} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-3 pl-4 font-mono text-slate-400 font-bold whitespace-nowrap">
+                          {log.tanggal} <span className="text-slate-300">|</span> {log.waktu}
+                        </td>
+                        <td className="p-3 font-mono text-slate-550 font-semibold">{log.nip || '-'}</td>
+                        <td className="p-3 font-bold text-slate-850">{log.namaTendik}</td>
+                        <td className="p-3 text-center">
+                          <span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-extrabold rounded-lg border border-emerald-100/80 text-[10px]">
+                            Hadir
+                          </span>
+                        </td>
+                        <td className="p-3 text-center whitespace-nowrap">
+                          {log.photo ? (
+                            <button
+                              onClick={() => setSelectedPhoto(log.photo || null)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-[10px] font-bold cursor-pointer transition-all"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Lihat Foto</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 text-[10px] font-medium">Tidak Ada</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={5} className="p-12 text-center text-slate-400 font-medium">
+                        Belum ada riwayat presensi hadir Tendik hari ini.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div
-          onClick={() => onNavigate('absen-siswa')}
-          className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-blue-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
-        >
-          <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center text-xl transition-all flex-shrink-0">
-            <UserPen className="w-6 h-6" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Absen Siswa Sekarang (Visible for Admin and Guru) */}
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          <div
+            onClick={() => onNavigate('absen-siswa')}
+            className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-blue-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center text-xl transition-all flex-shrink-0">
+              <UserPen className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm group-hover:text-blue-600 transition-colors">Absen Siswa Sekarang</h4>
+              <p className="text-xs text-slate-500 mt-0.5">Pilih kelas, mata pelajaran, foto kelas, dan catat kehadiran siswa.</p>
+            </div>
           </div>
-          <div>
-            <h4 className="font-bold text-slate-800 text-sm group-hover:text-blue-600 transition-colors">Absen Siswa Sekarang</h4>
-            <p className="text-xs text-slate-500 mt-0.5">Pilih kelas, mata pelajaran, foto kelas, dan catat kehadiran siswa.</p>
-          </div>
-        </div>
+        )}
 
-        <div
-          onClick={() => onNavigate('izin-guru')}
-          className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-emerald-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
-        >
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center text-xl transition-all flex-shrink-0">
-            <CalendarRange className="w-6 h-6" />
+        {/* Form Izin / Sakit Guru (Visible for Admin and Guru) */}
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          <div
+            onClick={() => onNavigate('izin-guru')}
+            className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-emerald-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center text-xl transition-all flex-shrink-0">
+              <CalendarRange className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm group-hover:text-emerald-600 transition-colors">Form Izin / Sakit Guru</h4>
+              <p className="text-xs text-slate-500 mt-0.5">Kirim pemberitahuan izin tidak mengajar secara resmi ke sekolah.</p>
+            </div>
           </div>
-          <div>
-            <h4 className="font-bold text-slate-800 text-sm group-hover:text-emerald-600 transition-colors">Form Izin / Sakit Guru</h4>
-            <p className="text-xs text-slate-500 mt-0.5">Kirim pemberitahuan izin tidak mengajar secara resmi ke sekolah.</p>
+        )}
+
+        {/* Absen Mandiri Tendik (Visible for Admin and Tendik) */}
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+          <div
+            onClick={() => onNavigate('absen-tendik')}
+            className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-indigo-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white flex items-center justify-center text-xl transition-all flex-shrink-0">
+              <ClipboardList className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm group-hover:text-indigo-600 transition-colors">Absen Mandiri Tendik</h4>
+              <p className="text-xs text-slate-500 mt-0.5 font-medium">Catat kehadiran harian mandiri Anda beserta bukti foto selfie secara langsung.</p>
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Form Izin Tendik (Visible for Admin and Tendik) */}
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+          <div
+            onClick={() => onNavigate('izin-tendik')}
+            className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-rose-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 group-hover:bg-rose-600 group-hover:text-white flex items-center justify-center text-xl transition-all flex-shrink-0">
+              <CalendarRange className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm group-hover:text-rose-600 transition-colors">Form Izin Tendik</h4>
+              <p className="text-xs text-slate-500 mt-0.5 font-medium">Kirim permohonan izin harian, dinas luar, sakit, atau cuti resmi Tendik.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Lightbox / Photo Viewer Modal */}

@@ -11,6 +11,8 @@ const STORAGE_KEYS = {
   USER: 'absensi_user',
   HISTORY_SISWA: 'absensi_history_siswa',
   HISTORY_GURU: 'absensi_history_guru',
+  HISTORY_TENDIK_ABSEN: 'absensi_history_tendik_absen',
+  HISTORY_TENDIK_IZIN: 'absensi_history_tendik_izin',
   MASTER_GURU: 'absensi_master_guru',
   MASTER_SISWA: 'absensi_master_siswa',
   MASTER_KELAS: 'absensi_master_kelas',
@@ -19,12 +21,55 @@ const STORAGE_KEYS = {
 
 // Seed realistic default data if not already present
 export function initializeStorage() {
+  // Migrate any existing 6-column Master_Guru rows to 7-column rows with Gender
+  try {
+    const existingGuruStr = localStorage.getItem(STORAGE_KEYS.MASTER_GURU);
+    if (existingGuruStr) {
+      const existingGuru = JSON.parse(existingGuruStr);
+      let migrated = false;
+      const updatedGuru = existingGuru.map((row: any) => {
+        if (row && row.data && row.data.length === 6) {
+          migrated = true;
+          const nama = row.data[2] || '';
+          let gender = 'Laki-laki';
+          const lower = nama.toLowerCase();
+          if (
+            lower.includes('siti') ||
+            lower.includes('rina') ||
+            lower.includes('dewi') ||
+            lower.includes('ibu') ||
+            lower.includes('herawati') ||
+            lower.includes('putri') ||
+            lower.includes('rahma') ||
+            lower.includes('susanti') ||
+            lower.includes('lestari') ||
+            lower.includes('kartika') ||
+            lower.includes('sari')
+          ) {
+            gender = 'Perempuan';
+          }
+          const newData = [...row.data];
+          newData.splice(3, 0, gender); // Insert 'Jenis Kelamin' at index 3
+          return { ...row, data: newData };
+        }
+        return row;
+      });
+      if (migrated) {
+        localStorage.setItem(STORAGE_KEYS.MASTER_GURU, JSON.stringify(updatedGuru));
+      }
+    }
+  } catch (e) {
+    console.error('Error migrating Master_Guru local storage:', e);
+  }
+
   if (!localStorage.getItem(STORAGE_KEYS.MASTER_GURU)) {
     const defaultGuru = [
-      { _rowIndex: 2, data: ['G01', '19850101201001', 'Administrator Utama', 'admin', 'Admin', 'Aktif'] },
-      { _rowIndex: 3, data: ['G02', '19900202201502', 'Budi Santoso, S.Pd.', 'guru', 'Guru', 'Aktif'] },
-      { _rowIndex: 4, data: ['G03', '19920815201803', 'Siti Rahma, M.Pd.', 'sitirahma', 'Guru', 'Aktif'] },
-      { _rowIndex: 5, data: ['G04', '19881112201201', 'Hendra Wijaya, S.Si.', 'hendra', 'Guru', 'Aktif'] },
+      { _rowIndex: 2, data: ['G01', '19850101201001', 'Administrator Utama', 'Laki-laki', 'admin', 'Admin', 'Aktif'] },
+      { _rowIndex: 3, data: ['G02', '19900202201502', 'Budi Santoso, S.Pd.', 'Laki-laki', 'guru', 'Guru', 'Aktif'] },
+      { _rowIndex: 4, data: ['G03', '19920815201803', 'Siti Rahma, M.Pd.', 'Perempuan', 'sitirahma', 'Guru', 'Aktif'] },
+      { _rowIndex: 5, data: ['G04', '19881112201201', 'Hendra Wijaya, S.Si.', 'Laki-laki', 'hendra', 'Guru', 'Aktif'] },
+      { _rowIndex: 6, data: ['G05', '19950505202005', 'Rina Herawati, S.Pd.I.', 'Perempuan', 'rina', 'Tendik', 'Aktif'] },
+      { _rowIndex: 7, data: ['G06', '19970606202206', 'Doni Setiawan', 'Laki-laki', 'doni', 'Tendik', 'Aktif'] },
     ];
     localStorage.setItem(STORAGE_KEYS.MASTER_GURU, JSON.stringify(defaultGuru));
   }
@@ -339,6 +384,124 @@ export const apiClient = {
     return { status: 'success', history };
   },
 
+  // 6.1 SUBMIT TENDIK ATTENDANCE
+  async submitTendikAttendance(payload: any) {
+    const url = this.getBackendUrl();
+    if (url) {
+      return await callGAS(url, 'submitTendikAttendance', { payload });
+    }
+
+    // Demo Mode
+    const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
+    const history: any[] = JSON.parse(rawHistory);
+
+    const newRecord = {
+      rowIndex: Date.now(),
+      tanggal: payload.tanggal,
+      waktu: payload.waktu,
+      nip: payload.nip || "",
+      namaTendik: payload.namaTendik || "",
+      photo: payload.photoBase64 || "",
+    };
+
+    history.unshift(newRecord);
+    localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(history));
+    return { status: 'success' };
+  },
+
+  // 6.2 SUBMIT TENDIK PERMIT
+  async submitTendikPermit(payload: any) {
+    const url = this.getBackendUrl();
+    if (url) {
+      return await callGAS(url, 'submitTendikPermit', { payload });
+    }
+
+    // Demo Mode
+    const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN) || '[]';
+    const history: any[] = JSON.parse(rawHistory);
+
+    const newRecord = {
+      rowIndex: Date.now(),
+      tanggal: payload.tanggal,
+      waktu: payload.waktu,
+      nip: payload.nip || "",
+      namaTendik: payload.namaTendik || "",
+      status: payload.status || "Sakit",
+      alasan: payload.alasan || "",
+      photo: payload.photoBase64 || "",
+    };
+
+    history.unshift(newRecord);
+    localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN, JSON.stringify(history));
+    return { status: 'success' };
+  },
+
+  // 6.3 GET TENDIK ATTENDANCE HISTORY
+  async getTendikAttendanceHistory(tanggal: string): Promise<{ status: string; history: any[] }> {
+    const url = this.getBackendUrl();
+    if (url) {
+      return await callGAS(url, 'getTendikAttendanceHistory', { tanggal });
+    }
+
+    // Demo Mode
+    const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
+    let history: any[] = JSON.parse(rawHistory);
+
+    if (tanggal) {
+      history = history.filter((h) => h.tanggal === tanggal);
+    }
+
+    return { status: 'success', history };
+  },
+
+  // 6.4 GET TENDIK PERMIT HISTORY
+  async getTendikPermitHistory(tanggal: string): Promise<{ status: string; history: any[] }> {
+    const url = this.getBackendUrl();
+    if (url) {
+      return await callGAS(url, 'getTendikPermitHistory', { tanggal });
+    }
+
+    // Demo Mode
+    const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN) || '[]';
+    let history: any[] = JSON.parse(rawHistory);
+
+    if (tanggal) {
+      history = history.filter((h) => h.tanggal === tanggal);
+    }
+
+    return { status: 'success', history };
+  },
+
+  // 6.5 DELETE TENDIK ATTENDANCE RECORD
+  async deleteTendikAttendanceRecord(rowIndex: string | number) {
+    const url = this.getBackendUrl();
+    if (url) {
+      return await callGAS(url, 'deleteTendikAttendanceRecord', { rowIndex });
+    }
+
+    // Demo Mode
+    const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
+    let history: any[] = JSON.parse(rawHistory);
+    history = history.filter((h) => String(h.rowIndex) !== String(rowIndex));
+    localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(history));
+    return { status: 'success' };
+  },
+
+  // 6.6 DELETE TENDIK PERMIT RECORD
+  async deleteTendikPermitRecord(rowIndex: string | number) {
+    const url = this.getBackendUrl();
+    if (url) {
+      return await callGAS(url, 'deleteTendikPermitRecord', { rowIndex });
+    }
+
+    // Demo Mode
+    const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN) || '[]';
+    let history: any[] = JSON.parse(rawHistory);
+    history = history.filter((h) => String(h.rowIndex) !== String(rowIndex));
+    localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN, JSON.stringify(history));
+    return { status: 'success' };
+  },
+
   // 7. UPDATE SINGLE RECORD IN STUDENT ATTENDANCE HISTORY
   async updateAttendanceRecord(rowIndex: string | number, newStatus: string, newKeterangan: string) {
     const url = this.getBackendUrl();
@@ -372,7 +535,7 @@ export const apiClient = {
     let headers: string[] = [];
     if (sheetName === 'Master_Guru') {
       key = STORAGE_KEYS.MASTER_GURU;
-      headers = ['ID', 'NIP', 'Nama Lengkap', 'Username', 'Role', 'Status'];
+      headers = ['ID', 'NIP', 'Nama Lengkap', 'Jenis Kelamin', 'Username', 'Role', 'Status'];
     } else if (sheetName === 'Master_Siswa') {
       key = STORAGE_KEYS.MASTER_SISWA;
       headers = ['ID', 'NISN', 'Nama Siswa', 'Kelas', 'Jenis Kelamin', 'Status'];

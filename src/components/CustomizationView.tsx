@@ -33,6 +33,8 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
   const [fullAccessUsernames, setFullAccessUsernames] = useState<string[]>(customization.fullAccessUsernames || []);
   const [userPhotos, setUserPhotos] = useState<Record<string, string>>(customization.userPhotos || {});
   const [customEmojiInput, setCustomEmojiInput] = useState('');
+  const [kepalaSekolahNama, setKepalaSekolahNama] = useState(customization.kepalaSekolahNama || '');
+  const [kepalaSekolahNip, setKepalaSekolahNip] = useState(customization.kepalaSekolahNip || '');
 
   // Sync status
   const [syncStatus, setSyncStatus] = useState<'demo' | 'checking' | 'synced' | 'sheet_missing' | 'error'>('checking');
@@ -113,6 +115,8 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
       logoUrl: logoUrl.trim(),
       fullAccessUsernames: fullAccessUsernames,
       userPhotos: userPhotos,
+      kepalaSekolahNama: kepalaSekolahNama.trim(),
+      kepalaSekolahNip: kepalaSekolahNip.trim(),
     });
   };
 
@@ -271,6 +275,37 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                 <p className="text-[10px] text-slate-400 mt-1">
                   *Masukkan link URL gambar langsung (PNG/JPG). Jika diisi, link gambar ini akan diutamakan. Jika dikosongkan, logo akan otomatis menggunakan Emoji di bawah ini.
                 </p>
+              </div>
+
+              <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider pt-2 pb-1 border-b border-slate-100 mt-2">
+                Identitas Kepala Sekolah (Untuk Tanda Tangan PDF)
+              </h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">
+                    Nama Kepala Sekolah
+                  </label>
+                  <input
+                    type="text"
+                    value={kepalaSekolahNama}
+                    onChange={(e) => setKepalaSekolahNama(e.target.value)}
+                    placeholder="Contoh: Dr. H. Ahmad Fauzi, M.Pd."
+                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">
+                    NIP Kepala Sekolah
+                  </label>
+                  <input
+                    type="text"
+                    value={kepalaSekolahNip}
+                    onChange={(e) => setKepalaSekolahNip(e.target.value)}
+                    placeholder="Contoh: 197501012000031001"
+                    className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                  />
+                </div>
               </div>
 
               <div>

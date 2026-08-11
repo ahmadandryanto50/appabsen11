@@ -8,7 +8,7 @@ export interface User {
   nip?: string;
   nama: string;
   username: string;
-  role: 'Admin' | 'Guru';
+  role: 'Admin' | 'Guru' | 'Tendik';
   status?: string;
 }
 
@@ -47,6 +47,26 @@ export interface TeacherAbsenceRecord {
   alasan: string;
 }
 
+export interface TendikAttendanceRecord {
+  rowIndex: number | string;
+  tanggal: string;
+  waktu: string;
+  nip: string;
+  namaTendik: string;
+  photo?: string;
+}
+
+export interface TendikAbsenceRecord {
+  rowIndex: number | string;
+  tanggal: string;
+  waktu: string;
+  nip: string;
+  namaTendik: string;
+  status: string;
+  alasan: string;
+  photo?: string;
+}
+
 export interface ToastMessage {
   id: number;
   message: string;
@@ -63,7 +83,9 @@ export type ViewType =
   | 'crud-kelas'
   | 'crud-mapel'
   | 'customization'
-  | 'apps-script';
+  | 'apps-script'
+  | 'absen-tendik'
+  | 'izin-tendik';
 
 export interface AppCustomization {
   appName: string;
@@ -73,6 +95,8 @@ export interface AppCustomization {
   fullAccessUsernames: string[];
   logoUrl?: string;
   userPhotos?: Record<string, string>;
+  kepalaSekolahNama?: string;
+  kepalaSekolahNip?: string;
 }
 
 export interface CrudRow {

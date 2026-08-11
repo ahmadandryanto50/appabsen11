@@ -113,6 +113,24 @@ function doPost(e) {
       case "deleteTeacherAbsenceRecord":
         result = deleteTeacherAbsenceRecord(contents.rowIndex);
         break;
+      case "submitTendikAttendance":
+        result = submitTendikAttendance(contents.payload);
+        break;
+      case "submitTendikPermit":
+        result = submitTendikPermit(contents.payload);
+        break;
+      case "getTendikAttendanceHistory":
+        result = getTendikAttendanceHistory(contents.tanggal);
+        break;
+      case "getTendikPermitHistory":
+        result = getTendikPermitHistory(contents.tanggal);
+        break;
+      case "deleteTendikAttendanceRecord":
+        result = deleteTendikAttendanceRecord(contents.rowIndex);
+        break;
+      case "deleteTendikPermitRecord":
+        result = deleteTendikPermitRecord(contents.rowIndex);
+        break;
       case "setup":
         result = setupDatabase();
         break;
@@ -149,10 +167,10 @@ function setupDatabase() {
     let sheetGuru = ss.getSheetByName("Master_Guru");
     if (!sheetGuru) {
       sheetGuru = ss.insertSheet("Master_Guru");
-      sheetGuru.appendRow(["ID", "NIP", "Nama Lengkap", "Username", "Password", "Role", "Status"]);
-      sheetGuru.appendRow(["G01", "19850101201001", "Administrator Utama", "admin", "admin123", "Admin", "Aktif"]);
-      sheetGuru.appendRow(["G02", "19900202201502", "Budi Santoso, S.Pd.", "guru", "guru123", "Guru", "Aktif"]);
-      sheetGuru.appendRow(["G03", "19920303201803", "Siti Rahma, M.Pd.", "siti", "siti123", "Guru", "Aktif"]);
+      sheetGuru.appendRow(["ID", "NIP", "Nama Lengkap", "Jenis Kelamin", "Username", "Password", "Role", "Status"]);
+      sheetGuru.appendRow(["G01", "19850101201001", "Administrator Utama", "Laki-laki", "admin", "admin123", "Admin", "Aktif"]);
+      sheetGuru.appendRow(["G02", "19900202201502", "Budi Santoso, S.Pd.", "Laki-laki", "guru", "guru123", "Guru", "Aktif"]);
+      sheetGuru.appendRow(["G03", "19920303201803", "Siti Rahma, M.Pd.", "Perempuan", "siti", "siti123", "Guru", "Aktif"]);
     }
 
     // 2. Tabel Master_Siswa
@@ -208,6 +226,20 @@ function setupDatabase() {
       sheetPengaturan = ss.insertSheet("Pengaturan");
       sheetPengaturan.appendRow(["Kunci", "Nilai"]);
       sheetPengaturan.appendRow(["customization", "{}"]);
+    }
+
+    // 8. Tabel Absen_Tendik
+    let sheetAbsenTendik = ss.getSheetByName("Absen_Tendik");
+    if (!sheetAbsenTendik) {
+      sheetAbsenTendik = ss.insertSheet("Absen_Tendik");
+      sheetAbsenTendik.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Tendik", "Foto Bukti Base64"]);
+    }
+
+    // 9. Tabel Izin_Tendik
+    let sheetIzinTendik = ss.getSheetByName("Izin_Tendik");
+    if (!sheetIzinTendik) {
+      sheetIzinTendik = ss.insertSheet("Izin_Tendik");
+      sheetIzinTendik.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Tendik", "Status/Kategori", "Detail Alasan", "Foto Bukti Base64"]);
     }
 
     return { status: "success", message: "Setup Database Berhasil! Seluruh tabel dasar telah dibuat." };
@@ -697,6 +729,204 @@ function saveCustomization(customizationObj) {
     }
 
     return { status: "success", message: "Pengaturan berhasil disinkronkan ke Spreadsheet!" };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+// ===========================================================================
+// FUNGSI KHUSUS TENDIK (PRESENSI MANDIRI & PERIZINAN)
+// ===========================================================================
+
+function submitTendikAttendance(payload) {
+  try {
+    const ss = getDb();
+    let sheet = ss.getSheetByName("Absen_Tendik");
+    if (!sheet) {
+      sheet = ss.insertSheet("Absen_Tendik");
+      sheet.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Tendik", "Foto Bukti Base64"]);
+    }
+
+    const now = new Date();
+    const tz = Session.getScriptTimeZone();
+    const tanggalDefault = Utilities.formatDate(now, tz, "yyyy-MM-dd");
+    const waktuDefault = Utilities.formatDate(now, tz, "HH:mm:ss");
+
+    const tgl = payload.tanggal || tanggalDefault;
+    const wkt = payload.waktu || waktuDefault;
+    const rIdx = "TND-ABS-" + Date.now();
+
+    sheet.appendRow([
+      rIdx,
+      tgl,
+      wkt,
+      payload.nip || "",
+      payload.namaTendik || "",
+      payload.photo || payload.photoBase64 || ""
+    ]);
+
+    return { status: "success", message: "Presensi Tendik berhasil disimpan!" };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function submitTendikPermit(payload) {
+  try {
+    const ss = getDb();
+    let sheet = ss.getSheetByName("Izin_Tendik");
+    if (!sheet) {
+      sheet = ss.insertSheet("Izin_Tendik");
+      sheet.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Tendik", "Status/Kategori", "Detail Alasan", "Foto Bukti Base64"]);
+    }
+
+    const now = new Date();
+    const tz = Session.getScriptTimeZone();
+    const tanggalDefault = Utilities.formatDate(now, tz, "yyyy-MM-dd");
+    const waktuDefault = Utilities.formatDate(now, tz, "HH:mm:ss");
+
+    const tgl = payload.tanggal || tanggalDefault;
+    const wkt = payload.waktu || waktuDefault;
+    const rIdx = "TND-IZN-" + Date.now();
+
+    sheet.appendRow([
+      rIdx,
+      tgl,
+      wkt,
+      payload.nip || "",
+      payload.namaTendik || "",
+      payload.status || "Izin",
+      payload.alasan || "",
+      payload.photo || payload.photoBase64 || ""
+    ]);
+
+    return { status: "success", message: "Formulir izin Tendik berhasil disimpan!" };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function getTendikAttendanceHistory(tanggal) {
+  try {
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Absen_Tendik");
+    if (!sheet) return { status: "success", history: [] };
+
+    const values = sheet.getDataRange().getValues();
+    const history = [];
+    const tz = Session.getScriptTimeZone();
+
+    for (let i = 1; i < values.length; i++) {
+      let rowTanggal = values[i][1];
+      if (rowTanggal instanceof Date) {
+        rowTanggal = Utilities.formatDate(rowTanggal, tz, "yyyy-MM-dd");
+      } else {
+        rowTanggal = rowTanggal ? rowTanggal.toString() : "";
+      }
+
+      let rowWaktu = values[i][2];
+      if (rowWaktu instanceof Date) {
+        rowWaktu = Utilities.formatDate(rowWaktu, tz, "HH:mm:ss");
+      } else {
+        rowWaktu = rowWaktu ? rowWaktu.toString() : "";
+      }
+
+      if (!tanggal || rowTanggal === tanggal) {
+        history.unshift({
+          rowIndex: values[i][0].toString(),
+          tanggal: rowTanggal,
+          waktu: rowWaktu,
+          nip: values[i][3] ? values[i][3].toString() : "",
+          namaTendik: values[i][4] ? values[i][4].toString() : "",
+          photo: values[i][5] ? values[i][5].toString() : ""
+        });
+      }
+    }
+
+    return { status: "success", history: history };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function getTendikPermitHistory(tanggal) {
+  try {
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Izin_Tendik");
+    if (!sheet) return { status: "success", history: [] };
+
+    const values = sheet.getDataRange().getValues();
+    const history = [];
+    const tz = Session.getScriptTimeZone();
+
+    for (let i = 1; i < values.length; i++) {
+      let rowTanggal = values[i][1];
+      if (rowTanggal instanceof Date) {
+        rowTanggal = Utilities.formatDate(rowTanggal, tz, "yyyy-MM-dd");
+      } else {
+        rowTanggal = rowTanggal ? rowTanggal.toString() : "";
+      }
+
+      let rowWaktu = values[i][2];
+      if (rowWaktu instanceof Date) {
+        rowWaktu = Utilities.formatDate(rowWaktu, tz, "HH:mm:ss");
+      } else {
+        rowWaktu = rowWaktu ? rowWaktu.toString() : "";
+      }
+
+      if (!tanggal || rowTanggal === tanggal) {
+        history.unshift({
+          rowIndex: values[i][0].toString(),
+          tanggal: rowTanggal,
+          waktu: rowWaktu,
+          nip: values[i][3] ? values[i][3].toString() : "",
+          namaTendik: values[i][4] ? values[i][4].toString() : "",
+          status: values[i][5] ? values[i][5].toString() : "Izin",
+          alasan: values[i][6] ? values[i][6].toString() : "",
+          photo: values[i][7] ? values[i][7].toString() : ""
+        });
+      }
+    }
+
+    return { status: "success", history: history };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function deleteTendikAttendanceRecord(rowIndex) {
+  try {
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Absen_Tendik");
+    if (!sheet) return { status: "error", message: "Tabel Absen_Tendik tidak ditemukan." };
+
+    const values = sheet.getDataRange().getValues();
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][0].toString() === rowIndex.toString()) {
+        sheet.deleteRow(i + 1);
+        return { status: "success", message: "Data presensi Tendik berhasil dihapus!" };
+      }
+    }
+    return { status: "error", message: "RowIndex '" + rowIndex + "' tidak ditemukan." };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function deleteTendikPermitRecord(rowIndex) {
+  try {
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Izin_Tendik");
+    if (!sheet) return { status: "error", message: "Tabel Izin_Tendik tidak ditemukan." };
+
+    const values = sheet.getDataRange().getValues();
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][0].toString() === rowIndex.toString()) {
+        sheet.deleteRow(i + 1);
+        return { status: "success", message: "Data perizinan Tendik berhasil dihapus!" };
+      }
+    }
+    return { status: "error", message: "RowIndex '" + rowIndex + "' tidak ditemukan." };
   } catch (err) {
     return { status: "error", message: err.message };
   }

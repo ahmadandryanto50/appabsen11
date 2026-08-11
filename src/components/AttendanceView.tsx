@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Student, User } from '../types';
-import { Camera, FileImage, Trash2, CheckCircle, Clock, CheckSquare, Sparkles, Loader2, Play } from 'lucide-react';
+import { Camera, FileImage, Trash2, CheckCircle, Clock, CheckSquare, Sparkles, Loader2, Play, RotateCw } from 'lucide-react';
 
 interface AttendanceViewProps {
   currentUser: User | null;
@@ -30,6 +30,7 @@ export function AttendanceView({
   // Camera Snapshot State
   const [showCameraStream, setShowCameraStream] = useState(false);
   const [cameraPhoto, setCameraPhoto] = useState<string | null>(null);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'user' | 'environment'>('environment');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
@@ -70,12 +71,12 @@ export function AttendanceView({
   }, []);
 
   // WebCam methods
-  const startCamera = async () => {
+  const startCamera = async (mode: 'user' | 'environment' = cameraFacingMode) => {
     setShowCameraStream(true);
     setCameraPhoto(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
+        video: { facingMode: mode },
         audio: false,
       });
       streamRef.current = stream;
@@ -86,6 +87,16 @@ export function AttendanceView({
       console.error('Camera access error:', err);
       setShowCameraStream(false);
       alert('Gagal membuka kamera. Pastikan Anda memberikan izin kamera.');
+    }
+  };
+
+  const toggleCameraFacingMode = async () => {
+    const newMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    setCameraFacingMode(newMode);
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      await startCamera(newMode);
     }
   };
 
@@ -312,9 +323,9 @@ export function AttendanceView({
                 ref={videoRef}
                 autoPlay
                 playsInline
-                className="w-full rounded-xl bg-black aspect-video object-cover"
+                className={`w-full rounded-xl bg-black aspect-video object-cover ${cameraFacingMode === 'user' ? 'transform scale-x-[-1]' : ''}`}
               />
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={capturePhoto}
@@ -322,6 +333,15 @@ export function AttendanceView({
                 >
                   <Play className="w-3 h-3 fill-white" />
                   <span>Ambil Foto</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={toggleCameraFacingMode}
+                  className="px-3 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-xl text-xs font-bold cursor-pointer flex items-center gap-1.5"
+                  title="Ganti Kamera Depan / Belakang"
+                >
+                  <RotateCw className="w-3.5 h-3.5" />
+                  <span>{cameraFacingMode === 'environment' ? 'Kamera Depan' : 'Kamera Belakang'}</span>
                 </button>
                 <button
                   type="button"
