@@ -260,9 +260,9 @@ function loginUser(username, password) {
 
     const values = sheet.getDataRange().getValues();
     for (let i = 1; i < values.length; i++) {
-      const u = values[i][3] ? values[i][3].toString().trim() : "";
-      const p = values[i][4] ? values[i][4].toString().trim() : "";
-      const status = values[i][6] ? values[i][6].toString().trim() : "Aktif";
+      const u = values[i][4] ? values[i][4].toString().trim() : "";
+      const p = values[i][5] ? values[i][5].toString().trim() : "";
+      const status = values[i][7] ? values[i][7].toString().trim() : "Aktif";
 
       if (u === username && p === password) {
         if (status.toLowerCase() !== "aktif") {
@@ -275,7 +275,7 @@ function loginUser(username, password) {
             nip: values[i][1],
             nama: values[i][2],
             username: u,
-            role: values[i][5]
+            role: values[i][6]
           }
         };
       }

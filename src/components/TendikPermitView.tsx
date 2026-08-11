@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User } from '../types';
+import { User, getLocalDateString } from '../types';
 import { Camera, FileImage, Trash2, CheckCircle, Clock, Loader2, Play, CalendarDays, RotateCw } from 'lucide-react';
 
 interface TendikPermitViewProps {
@@ -112,7 +112,7 @@ export function TendikPermitView({
     setIsSubmitting(true);
     try {
       const now = new Date();
-      const dateString = now.toISOString().split('T')[0];
+      const dateString = getLocalDateString(now);
       const timeString = now.toTimeString().split(' ')[0];
 
       const payload = {

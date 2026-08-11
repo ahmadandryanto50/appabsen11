@@ -24,7 +24,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 
-import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization } from './types';
+import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString } from './types';
 import { apiClient, initializeStorage } from './api';
 
 // Components
@@ -152,7 +152,7 @@ export default function App() {
   // Load lists when view changes
   const loadHistoryData = useCallback(async () => {
     setIsLoading(true);
-    const todayStr = new Date().toISOString().split('T')[0];
+    const todayStr = getLocalDateString();
     try {
       const classRes = await apiClient.getAttendanceHistory(todayStr, '');
       if (classRes.status === 'success') {

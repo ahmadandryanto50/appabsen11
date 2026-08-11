@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { User } from '../types';
+import { User, getLocalDateString } from '../types';
 import { 
   CalendarRange, 
   Send, 
@@ -58,7 +58,7 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
       
       // Initialize with today's date & time
       const today = new Date();
-      setCustomDate(today.toISOString().split('T')[0]);
+      setCustomDate(getLocalDateString(today));
       setCustomTime(today.toTimeString().split(' ')[0]);
 
       Promise.all([
@@ -211,7 +211,7 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
     setIsLoading(true);
 
     const now = new Date();
-    const finalDate = (isAdmin && customDate) ? customDate : now.toISOString().split('T')[0];
+    const finalDate = (isAdmin && customDate) ? customDate : getLocalDateString(now);
     const finalTime = (isAdmin && customTime) ? customTime : now.toTimeString().split(' ')[0];
 
     const finalNip = isAdmin ? selectedTeacherNip : (currentUser?.nip || 'Belum diisi');

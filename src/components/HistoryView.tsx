@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { AttendanceRecord, TeacherAbsenceRecord, User, AppCustomization } from '../types';
+import { AttendanceRecord, TeacherAbsenceRecord, User, AppCustomization, getLocalDateString } from '../types';
 import {
   Calendar,
   Users,
@@ -64,16 +64,16 @@ export function HistoryView({
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
   // Filter States - Siswa
-  const [filterSiswaTanggal, setFilterSiswaTanggal] = useState(new Date().toISOString().split('T')[0]);
+  const [filterSiswaTanggal, setFilterSiswaTanggal] = useState(getLocalDateString());
   const [filterSiswaKelas, setFilterSiswaKelas] = useState('');
   const [isLoadingSiswa, setIsLoadingSiswa] = useState(false);
 
   // Filter States - Guru
-  const [filterGuruTanggal, setFilterGuruTanggal] = useState(new Date().toISOString().split('T')[0]);
+  const [filterGuruTanggal, setFilterGuruTanggal] = useState(getLocalDateString());
   const [isLoadingGuru, setIsLoadingGuru] = useState(false);
 
   // Filter States - Tendik
-  const [filterTendikTanggal, setFilterTendikTanggal] = useState(new Date().toISOString().split('T')[0]);
+  const [filterTendikTanggal, setFilterTendikTanggal] = useState(getLocalDateString());
   const [tendikAbsenHistory, setTendikAbsenHistory] = useState<any[]>([]);
   const [tendikIzinHistory, setTendikIzinHistory] = useState<any[]>([]);
   const [isLoadingTendik, setIsLoadingTendik] = useState(false);
@@ -112,10 +112,10 @@ export function HistoryView({
   // Initialize default date range (7 days ago to today)
   useEffect(() => {
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = getLocalDateString(today);
     const lastWeek = new Date();
     lastWeek.setDate(today.getDate() - 6);
-    setTanggalMulai(lastWeek.toISOString().split('T')[0]);
+    setTanggalMulai(getLocalDateString(lastWeek));
     setTanggalAkhir(todayStr);
   }, []);
 
@@ -325,17 +325,17 @@ export function HistoryView({
   const handlePeriodChange = (val: 'minggu' | 'bulan' | 'kustom') => {
     setRekapPeriode(val);
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
+    const todayStr = getLocalDateString(today);
     
     if (val === 'minggu') {
       const lastWeek = new Date();
       lastWeek.setDate(today.getDate() - 6);
-      setTanggalMulai(lastWeek.toISOString().split('T')[0]);
+      setTanggalMulai(getLocalDateString(lastWeek));
       setTanggalAkhir(todayStr);
     } else if (val === 'bulan') {
       const lastMonth = new Date();
       lastMonth.setDate(today.getDate() - 29);
-      setTanggalMulai(lastMonth.toISOString().split('T')[0]);
+      setTanggalMulai(getLocalDateString(lastMonth));
       setTanggalAkhir(todayStr);
     }
   };

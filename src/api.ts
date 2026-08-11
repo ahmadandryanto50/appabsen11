@@ -119,7 +119,8 @@ export function initializeStorage() {
   }
 
   if (!localStorage.getItem(STORAGE_KEYS.HISTORY_SISWA)) {
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const defaultHistorySiswa: AttendanceRecord[] = [
       {
         rowIndex: 2,
@@ -165,7 +166,8 @@ export function initializeStorage() {
   }
 
   if (!localStorage.getItem(STORAGE_KEYS.HISTORY_GURU)) {
-    const today = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const defaultHistoryGuru: TeacherAbsenceRecord[] = [
       {
         rowIndex: 2,
@@ -225,7 +227,7 @@ export const apiClient = {
     // Demo Mode Logic
     const rawGuru = localStorage.getItem(STORAGE_KEYS.MASTER_GURU) || '[]';
     const gurus = JSON.parse(rawGuru);
-    const matched = gurus.find((g: any) => g.data[3] === username);
+    const matched = gurus.find((g: any) => g.data[4] === username);
 
     if (username === 'admin' && passwordInput === 'admin123') {
       return {
@@ -238,14 +240,26 @@ export const apiClient = {
         user: { id: 'G02', nip: '19900202201502', nama: 'Budi Santoso, S.Pd.', username: 'guru', role: 'Guru' },
       };
     } else if (matched) {
+      // Validate password (defaulting to username + '123' if not explicitly set)
+      const expectedPassword = matched.data[4] + '123';
+      if (passwordInput !== expectedPassword) {
+        return { status: 'error', message: 'Kata sandi salah!' };
+      }
+
+      // Check status (index 6 is Status)
+      const status = matched.data[6] || 'Aktif';
+      if (status.toLowerCase() !== 'aktif') {
+        return { status: 'error', message: 'Akun Anda sedang dinonaktifkan.' };
+      }
+
       return {
         status: 'success',
         user: {
           id: matched.data[0],
           nip: matched.data[1],
           nama: matched.data[2],
-          username: matched.data[3],
-          role: matched.data[4],
+          username: matched.data[4],
+          role: matched.data[5],
         },
       };
     }
