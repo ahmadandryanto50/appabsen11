@@ -67,12 +67,24 @@ export function TendikAttendanceView({
     if (videoRef.current) {
       const video = videoRef.current;
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
+      let w = video.videoWidth || 640;
+      let h = video.videoHeight || 480;
+      const maxDim = 480;
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+        ctx.drawImage(video, 0, 0, w, h);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
         setCameraPhoto(dataUrl);
       }
       stopCamera();
@@ -93,7 +105,33 @@ export function TendikAttendanceView({
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
-          setCameraPhoto(event.target.result as string);
+          const rawUrl = event.target.result as string;
+          const img = new Image();
+          img.onload = () => {
+            let w = img.width;
+            let h = img.height;
+            const maxDim = 480;
+            if (w > maxDim || h > maxDim) {
+              if (w > h) {
+                h = Math.round((h * maxDim) / w);
+                w = maxDim;
+              } else {
+                w = Math.round((w * maxDim) / h);
+                h = maxDim;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, w, h);
+              setCameraPhoto(canvas.toDataURL('image/jpeg', 0.6));
+            } else {
+              setCameraPhoto(rawUrl);
+            }
+          };
+          img.src = rawUrl;
         }
       };
       reader.readAsDataURL(file);

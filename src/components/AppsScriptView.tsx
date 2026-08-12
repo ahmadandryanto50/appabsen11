@@ -296,16 +296,17 @@ function getStudentsByClass(kelas) {
     const students = [];
 
     for (let i = 1; i < values.length; i++) {
+      if (!values[i] || values[i].length < 3) continue;
       const k = values[i][3] ? values[i][3].toString().trim() : "";
       const status = values[i][5] ? values[i][5].toString().trim() : "Aktif";
 
-      if (k === kelas && status.toLowerCase() === "aktif") {
+      if (k === kelas && (status.toLowerCase() === "aktif" || status === "")) {
         students.push({
-          id: values[i][0].toString(),
-          nisn: values[i][1].toString(),
-          nama: values[i][2],
+          id: values[i][0] ? values[i][0].toString() : (i + 1).toString(),
+          nisn: values[i][1] ? values[i][1].toString() : "",
+          nama: values[i][2] ? values[i][2].toString() : "Siswa " + (i + 1),
           kelas: k,
-          gender: values[i][4]
+          gender: values[i][4] ? values[i][4].toString() : "Laki-laki"
         });
       }
     }
@@ -812,11 +813,14 @@ function getTendikAttendanceHistory(tanggal) {
     const sheet = ss.getSheetByName("Absen_Tendik");
     if (!sheet) return { status: "success", history: [] };
 
-    const values = sheet.getDataRange().getValues();
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { status: "success", history: [] };
+
+    const values = sheet.getRange(1, 1, lastRow, 6).getValues();
     const history = [];
     const tz = Session.getScriptTimeZone();
 
-    for (let i = 1; i < values.length; i++) {
+    for (let i = values.length - 1; i >= 1; i--) {
       let rowTanggal = values[i][1];
       if (rowTanggal instanceof Date) {
         rowTanggal = Utilities.formatDate(rowTanggal, tz, "yyyy-MM-dd");
@@ -832,14 +836,18 @@ function getTendikAttendanceHistory(tanggal) {
       }
 
       if (!tanggal || rowTanggal === tanggal) {
-        history.unshift({
-          rowIndex: values[i][0].toString(),
+        history.push({
+          rowIndex: values[i][0] ? values[i][0].toString() : (i + 1).toString(),
           tanggal: rowTanggal,
           waktu: rowWaktu,
           nip: values[i][3] ? values[i][3].toString() : "",
           namaTendik: values[i][4] ? values[i][4].toString() : "",
           photo: values[i][5] ? values[i][5].toString() : ""
         });
+      }
+
+      if (!tanggal && history.length >= 100) {
+        break;
       }
     }
 
@@ -855,11 +863,14 @@ function getTendikPermitHistory(tanggal) {
     const sheet = ss.getSheetByName("Izin_Tendik");
     if (!sheet) return { status: "success", history: [] };
 
-    const values = sheet.getDataRange().getValues();
+    const lastRow = sheet.getLastRow();
+    if (lastRow <= 1) return { status: "success", history: [] };
+
+    const values = sheet.getRange(1, 1, lastRow, 8).getValues();
     const history = [];
     const tz = Session.getScriptTimeZone();
 
-    for (let i = 1; i < values.length; i++) {
+    for (let i = values.length - 1; i >= 1; i--) {
       let rowTanggal = values[i][1];
       if (rowTanggal instanceof Date) {
         rowTanggal = Utilities.formatDate(rowTanggal, tz, "yyyy-MM-dd");
@@ -875,8 +886,8 @@ function getTendikPermitHistory(tanggal) {
       }
 
       if (!tanggal || rowTanggal === tanggal) {
-        history.unshift({
-          rowIndex: values[i][0].toString(),
+        history.push({
+          rowIndex: values[i][0] ? values[i][0].toString() : (i + 1).toString(),
           tanggal: rowTanggal,
           waktu: rowWaktu,
           nip: values[i][3] ? values[i][3].toString() : "",
@@ -885,6 +896,10 @@ function getTendikPermitHistory(tanggal) {
           alasan: values[i][6] ? values[i][6].toString() : "",
           photo: values[i][7] ? values[i][7].toString() : ""
         });
+      }
+
+      if (!tanggal && history.length >= 100) {
+        break;
       }
     }
 

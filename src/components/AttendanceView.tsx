@@ -49,10 +49,29 @@ export function AttendanceView({
         // Class hasn't changed, prevent erasing student list and refetching
         return;
       }
-      setIsLoading(true);
+
+      // Populate immediately from cache if available so UI responds in 0ms
+      const cached = localStorage.getItem(`absensi_students_${selectedKelas}`);
+      let hasCache = false;
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setStudentList(parsed.map((s) => ({ ...s, status: 'Hadir', keterangan: '' })));
+            hasCache = true;
+          }
+        } catch (e) {}
+      }
+
+      if (!hasCache) {
+        setIsLoading(true);
+      }
+
       onLoadStudentsRef.current(selectedKelas)
         .then((students) => {
-          setStudentList(students.map((s) => ({ ...s, status: 'Hadir', keterangan: '' })));
+          if (students && students.length > 0 && !hasCache) {
+            setStudentList(students.map((s) => ({ ...s, status: 'Hadir', keterangan: '' })));
+          }
           lastLoadedKelasRef.current = selectedKelas;
         })
         .catch(() => {})
@@ -253,8 +272,8 @@ export function AttendanceView({
               className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm bg-white"
             >
               <option value="">-- Pilih Kelas --</option>
-              {kelasList.map((k) => (
-                <option key={k} value={k}>
+              {kelasList.map((k, idx) => (
+                <option key={`cls-${k}-${idx}`} value={k}>
                   {k.startsWith('Kelas') ? k : 'Kelas ' + k}
                 </option>
               ))}
@@ -418,7 +437,7 @@ export function AttendanceView({
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {studentList.map((student, index) => (
-                        <tr key={student.id || index} className="hover:bg-slate-50/60 transition-colors">
+                        <tr key={`st-${student.id || student.nisn || 'st'}-${index}`} className="hover:bg-slate-50/60 transition-colors">
                           <td className="p-3.5 pl-4 text-center text-slate-400 font-bold">{index + 1}</td>
                           <td className="p-3.5 font-mono text-slate-500 font-semibold">{student.nisn}</td>
                           <td className="p-3.5 font-semibold text-slate-800 text-sm">{student.nama}</td>

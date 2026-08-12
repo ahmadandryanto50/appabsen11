@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 
 import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString } from './types';
-import { apiClient, initializeStorage } from './api';
+import { apiClient, initializeStorage, clearApiCache } from './api';
 
 // Components
 import { ToastContainer } from './components/ToastContainer';
@@ -55,8 +55,34 @@ export default function App() {
 
   // Global Lists
   const [kelasList, setKelasList] = useState<string[]>(['X-A', 'X-B', 'XI-A', 'XI-B', 'XII-A', 'XII-B']);
-  const [historyList, setHistoryList] = useState<AttendanceRecord[]>([]);
-  const [teacherHistoryList, setTeacherHistoryList] = useState<TeacherAbsenceRecord[]>([]);
+  const [historyList, setHistoryList] = useState<AttendanceRecord[]>(() => {
+    try {
+      if (!apiClient.isDemoMode()) {
+        const saved = localStorage.getItem('absensi_history_siswa');
+        if (!saved) return [];
+        const parsed = JSON.parse(saved);
+        return parsed.filter((r: AttendanceRecord) => r.guru !== 'Budi Santoso, S.Pd.' || r.kelas !== 'X-A' || r.mapel !== 'Matematika');
+      }
+      const saved = localStorage.getItem('absensi_history_siswa');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [teacherHistoryList, setTeacherHistoryList] = useState<TeacherAbsenceRecord[]>(() => {
+    try {
+      if (!apiClient.isDemoMode()) {
+        const saved = localStorage.getItem('absensi_history_guru');
+        if (!saved) return [];
+        const parsed = JSON.parse(saved);
+        return parsed.filter((r: TeacherAbsenceRecord) => r.nip !== '19920815201803');
+      }
+      const saved = localStorage.getItem('absensi_history_guru');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [allTeachers, setAllTeachers] = useState<any[]>([]);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
@@ -133,14 +159,16 @@ export default function App() {
     }
   }, []);
 
-  // Fetch student & teacher master data dynamically for stats
+  // Fetch student & teacher master data dynamically for stats (in parallel)
   const fetchMasterData = useCallback(async () => {
     try {
-      const studentRes = await apiClient.getCrud('Master_Siswa');
+      const [studentRes, teacherRes] = await Promise.all([
+        apiClient.getCrud('Master_Siswa'),
+        apiClient.getCrud('Master_Guru')
+      ]);
       if (studentRes && studentRes.status === 'success' && studentRes.rows) {
         setAllStudents(studentRes.rows);
       }
-      const teacherRes = await apiClient.getCrud('Master_Guru');
       if (teacherRes && teacherRes.status === 'success' && teacherRes.rows) {
         setAllTeachers(teacherRes.rows);
       }
@@ -149,33 +177,34 @@ export default function App() {
     }
   }, []);
 
-  // Load lists when view changes
+  // Load lists in parallel background without full-screen blocking overlay
   const loadHistoryData = useCallback(async () => {
-    setIsLoading(true);
-    const todayStr = getLocalDateString();
     try {
-      const classRes = await apiClient.getAttendanceHistory(todayStr, '');
-      if (classRes.status === 'success') {
+      const [classRes, teachRes] = await Promise.all([
+        apiClient.getAttendanceHistory('', ''),
+        apiClient.getTeacherAbsenceHistory('')
+      ]);
+      if (classRes && classRes.status === 'success' && Array.isArray(classRes.history)) {
         setHistoryList(classRes.history);
       }
-      const teachRes = await apiClient.getTeacherAbsenceHistory(todayStr);
-      if (teachRes.status === 'success') {
+      if (teachRes && teachRes.status === 'success' && Array.isArray(teachRes.history)) {
         setTeacherHistoryList(teachRes.history);
       }
     } catch (err: any) {
-      addToast(err.message || 'Gagal sinkronisasi data riwayat', 'error');
-    } finally {
-      setIsLoading(false);
+      console.warn('Gagal sinkronisasi data riwayat:', err);
     }
-  }, [addToast]);
+  }, []);
 
   const handleRefreshAll = useCallback(async () => {
     setIsLoading(true);
+    clearApiCache();
     addToast('Menyinkronkan data dengan database...', 'info');
     try {
-      await fetchKelasList();
-      await fetchMasterData();
-      await loadHistoryData();
+      await Promise.all([
+        fetchKelasList(),
+        fetchMasterData(),
+        loadHistoryData()
+      ]);
       addToast('Sinkronisasi data berhasil!', 'success');
     } catch (err: any) {
       addToast(err.message || 'Gagal menyinkronkan data', 'error');
@@ -225,15 +254,14 @@ export default function App() {
       // Clean up URL parameters
       const newUrl = window.location.pathname + window.location.hash;
       window.history.replaceState({}, document.title, newUrl);
-
-      // Force fetch customization & lists immediately
-      loadCustomization();
-      fetchKelasList();
-    } else {
-      fetchKelasList();
     }
 
-    fetchMasterData();
+    // Fetch initial datasets in parallel
+    Promise.all([
+      loadCustomization(),
+      fetchKelasList(),
+      fetchMasterData()
+    ]);
 
     // Auto load session
     const savedUser = localStorage.getItem('absensi_user');
@@ -247,18 +275,6 @@ export default function App() {
       }
     }
   }, [addToast, fetchKelasList, fetchMasterData, loadCustomization]);
-
-  // Load master data once logged in
-  useEffect(() => {
-    if (isLoggedIn) {
-      fetchMasterData();
-    }
-  }, [isLoggedIn, fetchMasterData]);
-
-  // Load app customization on mount and when loadCustomization is available
-  useEffect(() => {
-    loadCustomization();
-  }, [loadCustomization]);
 
   // Load history data once logged in
   useEffect(() => {
@@ -357,7 +373,7 @@ export default function App() {
     try {
       const res = await apiClient.submitAttendance(payload);
       if (res.status === 'success') {
-        addToast(`Absensi kelas ${payload.kelas} (${payload.mapel}) berhasil disimpan!`, 'success');
+        addToast(res.message || `Absensi kelas ${payload.kelas} (${payload.mapel}) berhasil disimpan!`, 'success');
         // Reload history list immediately
         await loadHistoryData();
       } else {
@@ -373,7 +389,7 @@ export default function App() {
     try {
       const res = await apiClient.submitTeacherAbsence(payload);
       if (res.status === 'success') {
-        addToast('Permohonan izin Anda berhasil dikirim ke Kepala Sekolah.', 'success');
+        addToast(res.message || 'Permohonan izin Anda berhasil dikirim ke Kepala Sekolah.', 'success');
         await loadHistoryData();
       } else {
         addToast(res.message || 'Gagal mengirim formulir izin.', 'error');
@@ -388,7 +404,7 @@ export default function App() {
     try {
       const res = await apiClient.submitTendikAttendance(payload);
       if (res.status === 'success') {
-        addToast('Presensi hadir Tendik berhasil disimpan.', 'success');
+        addToast(res.message || 'Presensi hadir Tendik berhasil disimpan.', 'success');
         await loadHistoryData();
       } else {
         addToast(res.message || 'Gagal menyimpan presensi.', 'error');
@@ -403,7 +419,7 @@ export default function App() {
     try {
       const res = await apiClient.submitTendikPermit(payload);
       if (res.status === 'success') {
-        addToast('Formulir izin/sakit Tendik berhasil dikirim.', 'success');
+        addToast(res.message || 'Formulir izin/sakit Tendik berhasil dikirim.', 'success');
         await loadHistoryData();
       } else {
         addToast(res.message || 'Gagal mengirim formulir izin.', 'error');
@@ -495,8 +511,26 @@ export default function App() {
 
   // MASTER CRUD ACTIONS
   const loadCrudTable = useCallback(async (sheetName: string) => {
-    setCrudLoading(true);
     setCurrentCrudSheet(sheetName);
+
+    // Instant local cache check
+    const cached = localStorage.getItem(`absensi_crud_cache_${sheetName}`);
+    let hasCache = false;
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.status === 'success' && Array.isArray(parsed.rows)) {
+          setCrudHeaders(parsed.headers || []);
+          setCrudRows(parsed.rows || []);
+          hasCache = true;
+        }
+      } catch (e) {}
+    }
+
+    if (!hasCache) {
+      setCrudLoading(true);
+    }
+
     try {
       const res = await apiClient.getCrud(sheetName);
       if (res.status === 'success') {
@@ -504,7 +538,9 @@ export default function App() {
         setCrudRows(res.rows);
       }
     } catch (err: any) {
-      addToast(err.message || 'Gagal memuat tabel master.', 'error');
+      if (!hasCache) {
+        addToast(err.message || 'Gagal memuat tabel master.', 'error');
+      }
     } finally {
       setCrudLoading(false);
     }
@@ -715,7 +751,7 @@ export default function App() {
                 </>
               )}
 
-              {(currentUser?.role === 'Tendik' || hasFullAccess(currentUser)) && (
+              {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
                 <>
                   <button
                     onClick={() => {
@@ -996,7 +1032,7 @@ export default function App() {
               )}
 
               {/* VIEW 3.1: TENDIK ATTENDANCE */}
-              {activeView === 'absen-tendik' && (
+              {activeView === 'absen-tendik' && (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
                 <TendikAttendanceView
                   currentUser={currentUser}
                   onSubmit={handleSubmitTendikAttendance}
@@ -1005,7 +1041,7 @@ export default function App() {
               )}
 
               {/* VIEW 3.2: TENDIK PERMIT */}
-              {activeView === 'izin-tendik' && (
+              {activeView === 'izin-tendik' && (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
                 <TendikPermitView
                   currentUser={currentUser}
                   onSubmit={handleSubmitTendikPermit}

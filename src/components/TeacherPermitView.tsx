@@ -118,22 +118,34 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
   // Load students automatically when class is selected
   useEffect(() => {
     if (isAdmin && attendanceMode === 'hadir' && selectedKelas) {
-      setIsLoadingStudents(true);
+      const cached = localStorage.getItem(`absensi_students_${selectedKelas}`);
+      let hasCache = false;
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setStudentList(parsed.map((s) => ({ ...s, status: 'Hadir', keterangan: '' })));
+            hasCache = true;
+          }
+        } catch (e) {}
+      }
+
+      if (!hasCache) {
+        setIsLoadingStudents(true);
+      }
+
       apiClient.getStudents(selectedKelas)
         .then((res) => {
-          if (res.status === 'success' && res.students) {
+          if (res.status === 'success' && res.students && res.students.length > 0 && !hasCache) {
             setStudentList(res.students.map((s) => ({
               ...s,
               status: 'Hadir',
               keterangan: '',
             })));
-          } else {
-            setStudentList([]);
           }
         })
         .catch((err) => {
           console.error('Failed to load student list:', err);
-          setStudentList([]);
         })
         .finally(() => {
           setIsLoadingStudents(false);
@@ -367,8 +379,8 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
                   className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm bg-white font-semibold text-slate-800"
                 >
                   <option value="">-- Pilih Guru --</option>
-                  {teachers.map((t) => (
-                    <option key={t.nip} value={t.nip}>
+                  {teachers.map((t, idx) => (
+                    <option key={`t-${t.nip || t.nama || 'nip'}-${idx}`} value={t.nip}>
                       {t.nama} (NIP: {t.nip})
                     </option>
                   ))}
@@ -463,8 +475,8 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
                       className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm bg-white font-semibold text-slate-700"
                     >
                       <option value="">-- Pilih Kelas --</option>
-                      {classes.map((cls) => (
-                        <option key={cls} value={cls}>
+                      {classes.map((cls, idx) => (
+                        <option key={`cls-${cls}-${idx}`} value={cls}>
                           Kelas {cls}
                         </option>
                       ))}
@@ -526,7 +538,7 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                               {studentList.map((student, index) => (
-                                <tr key={student.id || index} className="hover:bg-slate-50/50 transition-colors">
+                                <tr key={`st-${student.id || student.nisn || 'st'}-${index}`} className="hover:bg-slate-50/50 transition-colors">
                                   <td className="p-3 pl-4 text-center text-slate-400 font-bold">{index + 1}</td>
                                   <td className="p-3 font-semibold text-slate-700 text-xs">
                                     <div className="truncate max-w-[150px] sm:max-w-xs" title={student.nama}>{student.nama}</div>

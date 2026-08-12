@@ -64,18 +64,44 @@ export function HistoryView({
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
   // Filter States - Siswa
-  const [filterSiswaTanggal, setFilterSiswaTanggal] = useState(getLocalDateString());
+  const [filterSiswaTanggal, setFilterSiswaTanggal] = useState('');
   const [filterSiswaKelas, setFilterSiswaKelas] = useState('');
   const [isLoadingSiswa, setIsLoadingSiswa] = useState(false);
 
   // Filter States - Guru
-  const [filterGuruTanggal, setFilterGuruTanggal] = useState(getLocalDateString());
+  const [filterGuruTanggal, setFilterGuruTanggal] = useState('');
   const [isLoadingGuru, setIsLoadingGuru] = useState(false);
 
   // Filter States - Tendik
-  const [filterTendikTanggal, setFilterTendikTanggal] = useState(getLocalDateString());
-  const [tendikAbsenHistory, setTendikAbsenHistory] = useState<any[]>([]);
-  const [tendikIzinHistory, setTendikIzinHistory] = useState<any[]>([]);
+  const [filterTendikTanggal, setFilterTendikTanggal] = useState('');
+  const [tendikAbsenHistory, setTendikAbsenHistory] = useState<any[]>(() => {
+    try {
+      if (!apiClient.isDemoMode()) {
+        const saved = localStorage.getItem('absensi_history_tendik_absen');
+        if (!saved) return [];
+        const parsed = JSON.parse(saved);
+        return parsed.filter((r: any) => r.namaTendik !== 'Bambang Suryono, S.Kom.');
+      }
+      const saved = localStorage.getItem('absensi_history_tendik_absen');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [tendikIzinHistory, setTendikIzinHistory] = useState<any[]>(() => {
+    try {
+      if (!apiClient.isDemoMode()) {
+        const saved = localStorage.getItem('absensi_history_tendik_izin');
+        if (!saved) return [];
+        const parsed = JSON.parse(saved);
+        return parsed.filter((r: any) => r.namaTendik !== 'Bambang Suryono, S.Kom.');
+      }
+      const saved = localStorage.getItem('absensi_history_tendik_izin');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
   const [isLoadingTendik, setIsLoadingTendik] = useState(false);
 
   // Edit Modal States - Siswa
@@ -261,21 +287,41 @@ export function HistoryView({
   };
 
   const handleApplyTendikFilter = async () => {
-    setIsLoadingTendik(true);
+    // Populate immediately from local cache if present
+    const cachedAbsen = localStorage.getItem('absensi_history_tendik_absen');
+    const cachedIzin = localStorage.getItem('absensi_history_tendik_izin');
+    let hasCache = false;
+    if (cachedAbsen) {
+      try {
+        let parsed = JSON.parse(cachedAbsen);
+        if (filterTendikTanggal) parsed = parsed.filter((h: any) => h.tanggal === filterTendikTanggal);
+        setTendikAbsenHistory(parsed);
+        hasCache = true;
+      } catch (e) {}
+    }
+    if (cachedIzin) {
+      try {
+        let parsed = JSON.parse(cachedIzin);
+        if (filterTendikTanggal) parsed = parsed.filter((h: any) => h.tanggal === filterTendikTanggal);
+        setTendikIzinHistory(parsed);
+        hasCache = true;
+      } catch (e) {}
+    }
+
+    if (!hasCache) {
+      setIsLoadingTendik(true);
+    }
+
     try {
       const [resAbsen, resIzin] = await Promise.all([
         apiClient.getTendikAttendanceHistory(filterTendikTanggal),
         apiClient.getTendikPermitHistory(filterTendikTanggal)
       ]);
-      if (resAbsen.status === 'success' && resAbsen.history) {
+      if (resAbsen.status === 'success' && Array.isArray(resAbsen.history)) {
         setTendikAbsenHistory(resAbsen.history);
-      } else {
-        setTendikAbsenHistory([]);
       }
-      if (resIzin.status === 'success' && resIzin.history) {
+      if (resIzin.status === 'success' && Array.isArray(resIzin.history)) {
         setTendikIzinHistory(resIzin.history);
-      } else {
-        setTendikIzinHistory([]);
       }
     } catch (err) {
       console.error('Failed to load Tendik history:', err);
@@ -1037,8 +1083,8 @@ export function HistoryView({
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
                 >
                   <option value="">Semua Kelas</option>
-                  {kelasList.map((k) => (
-                    <option key={k} value={k}>
+                  {kelasList.map((k, idx) => (
+                    <option key={`opt-k-${k}-${idx}`} value={k}>
                       {k.startsWith('Kelas') ? k : 'Kelas ' + k}
                     </option>
                   ))}
@@ -1077,8 +1123,8 @@ export function HistoryView({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {historyList.length > 0 ? (
-                    historyList.map((item) => (
-                      <tr key={item.rowIndex} className="hover:bg-slate-50/60 transition-colors">
+                    historyList.map((item, idx) => (
+                      <tr key={`sis-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
                           {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
                         </td>
@@ -1217,8 +1263,8 @@ export function HistoryView({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {teacherHistoryList.length > 0 ? (
-                    teacherHistoryList.map((item) => (
-                      <tr key={item.rowIndex} className="hover:bg-slate-50/60 transition-colors">
+                    teacherHistoryList.map((item, idx) => (
+                      <tr key={`guru-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
                           {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
                         </td>
@@ -1336,8 +1382,8 @@ export function HistoryView({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {tendikAbsenHistory.length > 0 ? (
-                    tendikAbsenHistory.map((item) => (
-                      <tr key={item.rowIndex} className="hover:bg-slate-50/60 transition-colors">
+                    tendikAbsenHistory.map((item, idx) => (
+                      <tr key={`t-absen-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
                           {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
                         </td>
@@ -1445,8 +1491,8 @@ export function HistoryView({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {tendikIzinHistory.length > 0 ? (
-                    tendikIzinHistory.map((item) => (
-                      <tr key={item.rowIndex} className="hover:bg-slate-50/60 transition-colors">
+                    tendikIzinHistory.map((item, idx) => (
+                      <tr key={`t-izin-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
                           {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
                         </td>
@@ -1529,8 +1575,8 @@ export function HistoryView({
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
                 >
                   <option value="">-- Pilih Guru --</option>
-                  {teachers.map((t) => (
-                    <option key={t.nip} value={t.nama}>
+                  {teachers.map((t, idx) => (
+                    <option key={`teacher-${t.nip || 'nip'}-${idx}`} value={t.nama}>
                       {t.nama}
                     </option>
                   ))}
@@ -1545,8 +1591,8 @@ export function HistoryView({
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
                 >
                   <option value="">-- Pilih Mapel --</option>
-                  {mapels.map((m) => (
-                    <option key={m} value={m}>
+                  {mapels.map((m, idx) => (
+                    <option key={`mapel-${m}-${idx}`} value={m}>
                       {m}
                     </option>
                   ))}
@@ -1660,8 +1706,8 @@ export function HistoryView({
 
                 {/* Grid of Class Recaps */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {getProcessedRecap().map((classRecap) => (
-                    <div key={classRecap.kelas} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 space-y-4">
+                  {getProcessedRecap().map((classRecap, cIdx) => (
+                    <div key={`recap-${classRecap.kelas}-${cIdx}`} className="bg-white border border-slate-200 rounded-2xl shadow-sm p-5 space-y-4">
                       {/* Class Header */}
                       <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                         <div className="flex items-center gap-2">

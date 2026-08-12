@@ -177,8 +177,8 @@ export function CrudView({
               <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
                 <tr>
                   <th className="p-3.5 pl-4 w-12 text-center">No</th>
-                  {headers.map((h) => (
-                    <th key={h} className="p-3.5">
+                  {headers.map((h, hIdx) => (
+                    <th key={`head-${h}-${hIdx}`} className="p-3.5">
                       {h}
                     </th>
                   ))}
@@ -188,7 +188,7 @@ export function CrudView({
               <tbody className="divide-y divide-slate-100">
                 {displayedRows.length > 0 ? (
                   displayedRows.map((row, idx) => (
-                    <tr key={row._rowIndex} className="hover:bg-slate-50/50 transition-colors">
+                    <tr key={`row-${row._rowIndex || idx}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                       <td className="p-3.5 pl-4 text-center text-slate-400 font-bold">{idx + 1}</td>
                       {row.data.map((val, cIdx) => (
                         <td key={cIdx} className="p-3.5 font-semibold text-slate-700 text-sm">

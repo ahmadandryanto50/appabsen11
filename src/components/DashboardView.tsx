@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { User, AttendanceRecord, AppCustomization } from '../types';
 import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, ExternalLink, ClipboardList } from 'lucide-react';
 import { apiClient } from '../api';
@@ -34,6 +34,11 @@ export function DashboardView({
   const [loadingTendik, setLoadingTendik] = useState(false);
   const [guruHeaders, setGuruHeaders] = useState<string[]>([]);
 
+  const isFullAccess =
+    currentUser?.role === 'Admin' ||
+    (customization?.fullAccessUsernames?.includes(currentUser?.username || '') ?? false) ||
+    (currentUser?.nip ? (customization?.fullAccessUsernames?.includes(currentUser.nip) ?? false) : false);
+
   useEffect(() => {
     // Fetch Master_Guru headers to accurately resolve column indices dynamically
     apiClient.getCrud('Master_Guru')
@@ -44,8 +49,23 @@ export function DashboardView({
       })
       .catch((err) => console.error('Failed to load Master_Guru headers in DashboardView:', err));
 
-    if (currentUser?.role === 'Tendik') {
-      setLoadingTendik(true);
+    if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') {
+      const cached = localStorage.getItem('absensi_history_tendik_absen');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setTendikList(parsed);
+          } else {
+            setLoadingTendik(true);
+          }
+        } catch (e) {
+          setLoadingTendik(true);
+        }
+      } else {
+        setLoadingTendik(true);
+      }
+
       apiClient.getTendikAttendanceHistory('')
         .then(res => {
           if (res.status === 'success' && res.history) {
@@ -55,7 +75,7 @@ export function DashboardView({
         .catch(err => console.error(err))
         .finally(() => setLoadingTendik(false));
     }
-  }, [currentUser]);
+  }, [currentUser, isFullAccess]);
 
   // Dynamic index helpers based on headers with robust fallback based on array length
   const getRoleIndex = (rowLength: number): number => {
@@ -104,77 +124,110 @@ export function DashboardView({
   };
 
   // Build a map of class description for additional context matching
-  const classDescriptionMap: Record<string, string> = {};
-  try {
-    const localClasses = localStorage.getItem('absensi_master_kelas');
-    if (localClasses) {
-      const parsedClasses = JSON.parse(localClasses);
-      parsedClasses.forEach((c: any) => {
-        if (c && c.data && c.data[1]) {
-          const classNameKey = c.data[1].trim().toUpperCase();
-          classDescriptionMap[classNameKey] = c.data[2] || '';
+  const classDescriptionMap: Record<string, string> = useMemo(() => {
+    const map: Record<string, string> = {};
+    try {
+      const localClasses = localStorage.getItem('absensi_master_kelas');
+      if (localClasses) {
+        const parsedClasses = JSON.parse(localClasses);
+        parsedClasses.forEach((c: any) => {
+          if (c && c.data && c.data[1]) {
+            const classNameKey = c.data[1].trim().toUpperCase();
+            map[classNameKey] = c.data[2] || '';
+          }
+        });
+      }
+    } catch (e) {
+      console.error('Failed to parse classes for stats map:', e);
+    }
+    return map;
+  }, []);
+
+  // Filter active students (useMemo)
+  const { activeStudents, totalStudents, totalStudentsMale, totalStudentsFemale } = useMemo(() => {
+    let finalStudents = allStudents || [];
+    if (finalStudents.length === 0) {
+      try {
+        const local = localStorage.getItem('absensi_master_siswa');
+        if (local) {
+          finalStudents = JSON.parse(local);
         }
-      });
-    }
-  } catch (e) {
-    console.error('Failed to parse classes for stats map:', e);
-  }
-
-  // Fallback to local storage if prop is empty (so it works instantly in both modes and avoids blank states)
-  let finalStudents = allStudents || [];
-  if (finalStudents.length === 0) {
-    try {
-      const local = localStorage.getItem('absensi_master_siswa');
-      if (local) {
-        finalStudents = JSON.parse(local);
+      } catch (e) {
+        console.error('Failed to load offline student list fallback:', e);
       }
-    } catch (e) {
-      console.error('Failed to load offline student list fallback:', e);
     }
-  }
 
-  // 1. Filter active students (exclude headers or empty records)
-  const activeStudents = finalStudents.filter(
-    (s) => s.data && s.data[0] && s.data[0] !== 'ID' && s.data[2] && s.data[5] !== 'Nonaktif'
-  );
+    const filtered = finalStudents.filter(
+      (s) => s.data && s.data[0] && s.data[0] !== 'ID' && s.data[2] && s.data[5] !== 'Nonaktif'
+    );
 
-  // Total Students Overall
-  const totalStudents = activeStudents.length;
-  const totalStudentsMale = activeStudents.filter(
-    (s) => isMaleStudent(s.data[4])
-  ).length;
-  const totalStudentsFemale = activeStudents.filter(
-    (s) => isFemaleStudent(s.data[4])
-  ).length;
+    const male = filtered.filter((s) => isMaleStudent(s.data[4])).length;
+    const female = filtered.filter((s) => isFemaleStudent(s.data[4])).length;
 
-  let finalTeachers = allTeachers || [];
-  if (finalTeachers.length === 0) {
-    try {
-      const local = localStorage.getItem('absensi_master_guru');
-      if (local) {
-        finalTeachers = JSON.parse(local);
+    return {
+      activeStudents: filtered,
+      totalStudents: filtered.length,
+      totalStudentsMale: male,
+      totalStudentsFemale: female,
+    };
+  }, [allStudents]);
+
+  // Filter active teachers & tendik (useMemo)
+  const { activeTeachers, totalTeachers, activeTendik, totalTendik } = useMemo(() => {
+    let finalTeachers = allTeachers || [];
+    if (finalTeachers.length === 0) {
+      try {
+        const local = localStorage.getItem('absensi_master_guru');
+        if (local) {
+          finalTeachers = JSON.parse(local);
+        }
+      } catch (e) {
+        console.error('Failed to load offline teacher list fallback:', e);
       }
-    } catch (e) {
-      console.error('Failed to load offline teacher list fallback:', e);
     }
-  }
 
-  // 2. Filter active teachers (exclude headers, empty records, and roles like Admin, Administrasi, Tata Usaha, Staff)
-  const activeTeachers = finalTeachers.filter((t) => {
-    if (!t.data || !t.data[0] || t.data[0] === 'ID' || !t.data[2]) return false;
-    
-    const statusIdx = getStatusIndex(t.data.length);
-    if (t.data[statusIdx] && t.data[statusIdx].trim() === 'Nonaktif') return false;
+    const filteredTeachers = finalTeachers.filter((t) => {
+      if (!t.data || !t.data[0] || t.data[0] === 'ID' || !t.data[2]) return false;
+      
+      const statusIdx = getStatusIndex(t.data.length);
+      if (t.data[statusIdx] && t.data[statusIdx].trim() === 'Nonaktif') return false;
 
-    const roleIdx = getRoleIndex(t.data.length);
-    const role = (t.data[roleIdx] || '').trim().toUpperCase();
+      const roleIdx = getRoleIndex(t.data.length);
+      const role = (t.data[roleIdx] || '').trim().toUpperCase();
 
-    // Strictly count as Guru only if the role is GURU
-    return role === 'GURU';
-  });
+      return role === 'GURU';
+    });
 
-  // Total Teachers Overall
-  const totalTeachers = activeTeachers.length;
+    const filteredTendik = finalTeachers.filter((t) => {
+      if (!t.data || !t.data[0] || t.data[0] === 'ID' || !t.data[2]) return false;
+      
+      const statusIdx = getStatusIndex(t.data.length);
+      if (t.data[statusIdx] && t.data[statusIdx].trim() === 'Nonaktif') return false;
+
+      const roleIdx = getRoleIndex(t.data.length);
+      const role = (t.data[roleIdx] || '').trim().toUpperCase();
+      
+      if (role === 'ADMIN') return false;
+      if (role === 'GURU') return false;
+      
+      return (
+        role === 'TENDIK' ||
+        role.includes('STAFF') ||
+        role.includes('STAF') ||
+        role.includes('TU') ||
+        role.includes('TATA') ||
+        role.includes('KARYAWAN') ||
+        role.includes('ADMINISTRASI')
+      );
+    });
+
+    return {
+      activeTeachers: filteredTeachers,
+      totalTeachers: filteredTeachers.length,
+      activeTendik: filteredTendik,
+      totalTendik: filteredTendik.length,
+    };
+  }, [allTeachers, guruHeaders]);
 
   // Helper to get actual or guessed gender of a teacher
   const getTeacherGender = (t: any): 'Laki-laki' | 'Perempuan' => {
@@ -301,32 +354,7 @@ export function DashboardView({
     totalTeachersFemale = 15;
   }
 
-  // 2.1 Filter active Tendik
-  const activeTendik = finalTeachers.filter((t) => {
-    if (!t.data || !t.data[0] || t.data[0] === 'ID' || !t.data[2]) return false;
-    
-    const statusIdx = getStatusIndex(t.data.length);
-    if (t.data[statusIdx] && t.data[statusIdx].trim() === 'Nonaktif') return false;
-
-    const roleIdx = getRoleIndex(t.data.length);
-    const role = (t.data[roleIdx] || '').trim().toUpperCase();
-    
-    // Explicitly exclude any admin roles and teacher roles from Tendik count
-    if (role === 'ADMIN') return false;
-    if (role === 'GURU') return false;
-    
-    return (
-      role === 'TENDIK' ||
-      role.includes('STAFF') ||
-      role.includes('STAF') ||
-      role.includes('TU') ||
-      role.includes('TATA') ||
-      role.includes('KARYAWAN') ||
-      role.includes('ADMINISTRASI')
-    );
-  });
-
-  const totalTendik = activeTendik.length;
+  // 2.1 Tendik Gender Stats
   const totalTendikMale = activeTendik.filter(
     (t) => getTeacherGender(t) === 'Laki-laki'
   ).length;
@@ -526,7 +554,7 @@ export function DashboardView({
         {/* Bento Grid Top Level Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Card 1: Students overall */}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
             <div className="p-5 bg-blue-50/40 rounded-xl border border-blue-100/60 flex items-center justify-between">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total Siswa Keseluruhan</span>
@@ -550,7 +578,7 @@ export function DashboardView({
           )}
 
           {/* Card 2: Teachers overall */}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
             <div className="p-5 bg-emerald-50/40 rounded-xl border border-emerald-100/60 flex items-center justify-between">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Total Guru Keseluruhan</span>
@@ -599,7 +627,7 @@ export function DashboardView({
         </div>
 
         {/* Breakdown detail rows */}
-        {currentUser?.role !== 'Tendik' && (
+        {(currentUser?.role !== 'Tendik' || isFullAccess) && (
           <div className="space-y-4 pt-2">
             <div>
               <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider">Rincian Siswa per Jenjang Kelas & Rincian per Kelas</h5>
@@ -904,7 +932,7 @@ export function DashboardView({
       {/* Live Feed Rekap Presensi Terbaru */}
       <div className="space-y-6">
         {/* Render Rekap Sesi Absensi Mengajar Terbaru if Guru or Admin */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
               <div>
@@ -939,8 +967,8 @@ export function DashboardView({
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {historyList.length > 0 ? (
-                    historyList.slice(0, 5).map((log) => (
-                      <tr key={log.rowIndex} className="hover:bg-slate-50/50 transition-colors">
+                    historyList.slice(0, 5).map((log, idx) => (
+                      <tr key={`hist-${log.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                         <td className="p-3 pl-4 font-mono text-slate-400 font-bold whitespace-nowrap">
                           {log.tanggal} <span className="text-slate-300">|</span> {log.waktu}
                         </td>
@@ -1036,7 +1064,7 @@ export function DashboardView({
                     </tr>
                   ) : tendikList.length > 0 ? (
                     tendikList.slice(0, 5).map((log, idx) => (
-                      <tr key={log.rowIndex || idx} className="hover:bg-slate-50/50 transition-colors">
+                      <tr key={`tendik-${log.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                         <td className="p-3 pl-4 font-mono text-slate-400 font-bold whitespace-nowrap">
                           {log.tanggal} <span className="text-slate-300">|</span> {log.waktu}
                         </td>
@@ -1079,7 +1107,7 @@ export function DashboardView({
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Absen Siswa Sekarang (Visible for Admin and Guru) */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
           <div
             onClick={() => onNavigate('absen-siswa')}
             className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-blue-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
@@ -1095,7 +1123,7 @@ export function DashboardView({
         )}
 
         {/* Form Izin / Sakit Guru (Visible for Admin and Guru) */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
           <div
             onClick={() => onNavigate('izin-guru')}
             className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-emerald-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"

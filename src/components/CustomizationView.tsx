@@ -41,7 +41,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
   const [syncMessage, setSyncMessage] = useState('');
 
   // Loaded teachers for granting access
-  const [teachers, setTeachers] = useState<{ username: string; nama: string; nip: string; role: string }[]>([]);
+  const [teachers, setTeachers] = useState<{ accessKey: string; username: string; nama: string; nip: string; role: string }[]>([]);
   const [isLoadingTeachers, setIsLoadingTeachers] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -71,12 +71,22 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
       try {
         const res = await apiClient.getCrud('Master_Guru');
         if (res.status === 'success' && res.rows) {
-          const list = res.rows.map((row: any) => ({
-            username: row.data[3] || '',
-            nama: row.data[2] || '',
-            nip: row.data[1] || '',
-            role: row.data[4] || 'Guru',
-          })).filter((t) => t.username !== 'admin'); // admin always has full access
+          const list = res.rows.map((row: any, idx: number) => {
+            const d = row.data || [];
+            const is7col = d.length >= 7;
+            const nip = (d[1] || '').toString().trim();
+            const nama = (d[2] || '').toString().trim();
+            const rawUsername = (is7col ? d[4] : d[3] || '').toString().trim();
+            const role = (is7col ? d[5] : d[4] || 'Guru').toString().trim();
+            const accessKey = rawUsername || nip || `user_${idx}`;
+            return {
+              accessKey,
+              username: rawUsername || nip,
+              nama: nama || 'Tanpa Nama',
+              nip,
+              role: role || 'Guru',
+            };
+          }).filter((t: any) => t.username.toLowerCase() !== 'admin' && t.accessKey.toLowerCase() !== 'admin' && t.role.toLowerCase() !== 'admin');
           setTeachers(list);
         }
       } catch (err) {
@@ -88,12 +98,15 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
     checkSyncAndLoadTeachers();
   }, []);
 
-  const handleToggleAccess = (username: string) => {
+  const handleToggleAccess = (teacher: { accessKey: string; username: string; nip: string }) => {
+    const keysToCheck = [teacher.accessKey, teacher.username, teacher.nip].filter(Boolean);
     setFullAccessUsernames((prev) => {
-      if (prev.includes(username)) {
-        return prev.filter((u) => u !== username);
+      const isAlreadyGranted = keysToCheck.some((k) => prev.includes(k));
+      if (isAlreadyGranted) {
+        return prev.filter((u) => !keysToCheck.includes(u));
       } else {
-        return [...prev, username];
+        const keyToAdd = teacher.username || teacher.nip || teacher.accessKey;
+        return [...prev, keyToAdd];
       }
     });
   };
@@ -410,17 +423,17 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
               </div>
             </div>
 
-            {/* Right side: Teacher access rights */}
+            {/* Right side: Teacher & Tendik access rights */}
             <div className="space-y-4 flex flex-col">
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-100 flex items-center justify-between">
-                <span>Hak Akses Guru (Akses Full Admin)</span>
+                <span>Hak Akses Guru & Tendik (Akses Full)</span>
                 <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full text-[10px] font-bold">
                   {fullAccessUsernames.length} Akun Terpilih
                 </span>
               </h4>
 
               <p className="text-xs text-slate-500 leading-relaxed">
-                Secara default, hanya akun <strong>admin</strong> yang bisa mengelola Master Data (Siswa, Guru, Kelas, Mapel). Tandai akun guru di bawah ini agar mereka juga bisa mengakses <strong>manajemen master data lengkap</strong> secara penuh.
+                Secara default, akun Guru/Tendik hanya memiliki <strong>4 menu utama</strong>. Centang akun di bawah untuk memberikan <strong>Akses Full</strong> (Master Data Siswa, Kelas, Mapel). Menu <em>Data Guru & Tendik</em>, <em>Pengaturan Aplikasi</em>, dan <em>Kode Apps Script</em> tetap khusus untuk <strong>Admin Utama</strong>.
               </p>
 
               {/* Search Bar */}
@@ -432,7 +445,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Cari NIP, nama, atau username guru..."
+                  placeholder="Cari NIP, nama, atau username..."
                   className="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
                 />
               </div>
@@ -445,19 +458,26 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                     <span className="text-xs font-semibold">Memuat daftar akun...</span>
                   </div>
                 ) : filteredTeachers.length > 0 ? (
-                  filteredTeachers.map((teacher) => {
-                    const isGranted = fullAccessUsernames.includes(teacher.username);
+                  filteredTeachers.map((teacher, idx) => {
+                    const keysToCheck = [teacher.accessKey, teacher.username, teacher.nip].filter(Boolean);
+                    const isGranted = keysToCheck.some((k) => fullAccessUsernames.includes(k));
+                    const itemKey = `${teacher.accessKey}_${teacher.nip || idx}`;
                     return (
                       <div
-                        key={teacher.username}
-                        onClick={() => handleToggleAccess(teacher.username)}
+                        key={itemKey}
+                        onClick={() => handleToggleAccess(teacher)}
                         className={`p-3 flex items-center justify-between hover:bg-slate-50 transition-colors cursor-pointer select-none ${
                           isGranted ? 'bg-blue-50/30' : ''
                         }`}
                       >
                         <div className="space-y-0.5 max-w-[80%]">
-                          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                          <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5 flex-wrap">
                             <span>{teacher.nama}</span>
+                            <span className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase ${
+                              teacher.role === 'Tendik' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700'
+                            }`}>
+                              {teacher.role}
+                            </span>
                             {isGranted && (
                               <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-blue-100 text-blue-800 rounded-md text-[9px] font-extrabold uppercase">
                                 <ShieldCheck className="w-2.5 h-2.5" />
@@ -466,7 +486,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                             )}
                           </p>
                           <p className="text-[10px] text-slate-500 font-mono">
-                            NIP: {teacher.nip || '-'} <span className="text-slate-300">•</span> Username: <strong className="text-slate-600">{teacher.username}</strong>
+                            NIP: {teacher.nip || '-'} <span className="text-slate-300">•</span> Username: <strong className="text-slate-600">{teacher.username || '-'}</strong>
                           </p>
                         </div>
                         <div className="flex-shrink-0">
@@ -483,7 +503,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                   })
                 ) : (
                   <div className="py-12 text-center text-slate-400 font-medium">
-                    Tidak ada data guru yang cocok.
+                    Tidak ada data pengguna yang cocok.
                   </div>
                 )}
               </div>
@@ -536,8 +556,8 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
               </div>
 
               {/* Teachers Rows */}
-              {teachers.map((teacher) => (
-                <div key={teacher.username} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm flex items-center gap-3">
+              {teachers.map((teacher, idx) => (
+                <div key={`t-${teacher.username || teacher.nip || 'user'}-${idx}`} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-extrabold text-sm shadow-inner uppercase flex-shrink-0 overflow-hidden`}>
                     {userPhotos[teacher.username]?.trim() ? (
                       <img

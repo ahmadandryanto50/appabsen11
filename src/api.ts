@@ -19,8 +19,15 @@ const STORAGE_KEYS = {
   MASTER_MAPEL: 'absensi_master_mapel',
 };
 
-// Seed realistic default data if not already present
+/// Seed realistic default data if not already present ONLY in Demo Mode (when no Web App URL is set)
 export function initializeStorage() {
+  const hasAppUrl = !!localStorage.getItem(STORAGE_KEYS.APP_URL);
+
+  // If connected to Web App URL, do NOT populate demo mock data
+  if (hasAppUrl) {
+    return;
+  }
+
   // Migrate any existing 6-column Master_Guru rows to 7-column rows with Gender
   try {
     const existingGuruStr = localStorage.getItem(STORAGE_KEYS.MASTER_GURU);
@@ -181,21 +188,113 @@ export function initializeStorage() {
     ];
     localStorage.setItem(STORAGE_KEYS.HISTORY_GURU, JSON.stringify(defaultHistoryGuru));
   }
+
+  if (!localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN)) {
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const defaultHistoryTendik = [
+      {
+        rowIndex: 2,
+        tanggal: today,
+        waktu: '06:45:00',
+        nip: '19850312201001',
+        namaTendik: 'Bambang Suryono, S.Kom.',
+        photo: '',
+      }
+    ];
+    localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(defaultHistoryTendik));
+  }
 }
 
-// Low-level HTTP Caller to Google Apps Script Web App (POST text/plain)
-async function callGAS(url: string, action: string, data: any = {}) {
+// Low-level HTTP Caller to Google Apps Script Web App (POST text/plain with 15s timeout)
+async function callGAS(url: string, action: string, data: any = {}, timeoutMs = 15000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs); // Default 15s timeout for Google Apps Script execution
+
   try {
     const body = JSON.stringify({ action, ...data });
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
       body: body,
+      signal: controller.signal,
     });
-    return await response.json();
+    clearTimeout(timeoutId);
+    const text = await response.text();
+    if (!text || text.trim().startsWith('<') || text.includes('<!DOCTYPE html>')) {
+      throw new Error('Respon dari Apps Script berupa HTML. Pastikan Deployment Web App di-setting ke "Anyone" (Siapa saja) dan URL akhiran /exec.');
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error('Respon dari Apps Script bukan format JSON. Mohon periksa URL Apps Script Anda.');
+    }
   } catch (err: any) {
-    console.error('GAS API Error:', err);
+    clearTimeout(timeoutId);
+    if (err.name === 'AbortError') {
+      const timeoutSec = Math.round(timeoutMs / 1000);
+      throw new Error(`Koneksi Apps Script terlalu lambat / Timeout (${timeoutSec} detik). Mohon periksa jaringan atau spreadsheet.`);
+    }
     throw new Error(err.message || 'Gagal menghubungi server database');
+  }
+}
+
+// In-flight request deduplication and short-term response cache
+const inFlightRequests = new Map<string, Promise<any>>();
+const cacheStore = new Map<string, { data: any; timestamp: number }>();
+
+export function clearApiCache() {
+  cacheStore.clear();
+}
+
+// Safe wrapper for callGAS to prevent app crash on invalid Apps Script URLs with caching & deduplication
+async function safeCallGAS(
+  url: string, 
+  action: string, 
+  data: any = {}, 
+  useCache = false, 
+  ttlMs = 4000,
+  timeoutMs = 15000
+): Promise<{ ok: boolean; result?: any; error?: string }> {
+  const cacheKey = `${url}:${action}:${JSON.stringify(data)}`;
+
+  if (useCache && cacheStore.has(cacheKey)) {
+    const cached = cacheStore.get(cacheKey)!;
+    if (Date.now() - cached.timestamp < ttlMs) {
+      return { ok: true, result: cached.data };
+    }
+  }
+
+  // Deduplicate identical pending requests
+  if (inFlightRequests.has(cacheKey)) {
+    try {
+      const res = await inFlightRequests.get(cacheKey);
+      return { ok: true, result: res };
+    } catch (err: any) {
+      return { ok: false, error: err.message };
+    }
+  }
+
+  const promise = (async () => {
+    try {
+      const res = await callGAS(url, action, data, timeoutMs);
+      if (useCache) {
+        cacheStore.set(cacheKey, { data: res, timestamp: Date.now() });
+      }
+      return res;
+    } finally {
+      inFlightRequests.delete(cacheKey);
+    }
+  })();
+
+  inFlightRequests.set(cacheKey, promise);
+
+  try {
+    const res = await promise;
+    return { ok: true, result: res };
+  } catch (err: any) {
+    console.warn(`[Apps Script API Warning] Action '${action}' via Cloud URL failed (${err.message}). Beralih ke data lokal (Demo Mode).`);
+    return { ok: false, error: err.message };
   }
 }
 
@@ -221,7 +320,8 @@ export const apiClient = {
   async login(username: string, passwordInput: string) {
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'login', { username, password: passwordInput });
+      const { ok, result } = await safeCallGAS(url, 'login', { username, password: passwordInput });
+      if (ok && result) return result;
     }
 
     // Demo Mode Logic
@@ -268,48 +368,97 @@ export const apiClient = {
   },
 
   // 2. GET STUDENTS BY CLASS
-  async getStudents(kelas: string): Promise<{ status: string; students: Student[] }> {
+  async getStudents(kelas: string): Promise<{ status: string; students: Student[]; message?: string }> {
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'getStudents', { kelas });
+      const { ok, result } = await safeCallGAS(url, 'getStudents', { kelas }, true, 600000); // 10 minutes cache
+      if (ok && result && result.status === 'success' && Array.isArray(result.students) && result.students.length > 0) {
+        try {
+          localStorage.setItem(`absensi_students_${kelas}`, JSON.stringify(result.students));
+        } catch (e) {}
+        return result;
+      }
+
+      // Fallback 1: Try getCrud('Master_Siswa')
+      const crudRes = await this.getCrud('Master_Siswa');
+      if (crudRes.status === 'success' && Array.isArray(crudRes.rows) && crudRes.rows.length > 0) {
+        const filtered = crudRes.rows
+          .filter((r: any) => {
+            if (!r || !r.data) return false;
+            const rowKelas = r.data[3] ? r.data[3].toString().trim() : '';
+            const status = r.data[5] ? r.data[5].toString().trim().toLowerCase() : 'aktif';
+            return rowKelas === kelas && (status === 'aktif' || status === '');
+          })
+          .map((r: any) => ({
+            id: r.data[0] ? r.data[0].toString() : '',
+            nisn: r.data[1] ? r.data[1].toString() : '',
+            nama: r.data[2] || '',
+            kelas: r.data[3] || kelas,
+            gender: r.data[4] || 'Laki-laki',
+          }));
+
+        if (filtered.length > 0) {
+          try {
+            localStorage.setItem(`absensi_students_${kelas}`, JSON.stringify(filtered));
+          } catch (e) {}
+          return { status: 'success', students: filtered };
+        }
+      }
     }
 
-    // Demo Mode
+    // Fallback 2: Check per-class local storage cache
+    const cachedRoster = localStorage.getItem(`absensi_students_${kelas}`);
+    if (cachedRoster) {
+      try {
+        const parsed = JSON.parse(cachedRoster);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return { status: 'success', students: parsed };
+        }
+      } catch (e) {}
+    }
+
+    // Fallback 3: Demo Mode / Local Storage MASTER_SISWA
     const rawStudents = localStorage.getItem(STORAGE_KEYS.MASTER_SISWA) || '[]';
-    const parsed: any[] = JSON.parse(rawStudents);
-    const filtered = parsed
-      .filter((s) => s.data[3] === kelas && s.data[5] === 'Aktif')
-      .map((s) => ({
-        id: s.data[0],
-        nisn: s.data[1],
-        nama: s.data[2],
-        kelas: s.data[3],
-        gender: s.data[4],
-      }));
+    try {
+      const parsed: any[] = JSON.parse(rawStudents);
+      const filtered = parsed
+        .filter((s) => s && s.data && s.data[3] === kelas && (s.data[5] === 'Aktif' || !s.data[5]))
+        .map((s) => ({
+          id: s.data[0],
+          nisn: s.data[1],
+          nama: s.data[2],
+          kelas: s.data[3],
+          gender: s.data[4],
+        }));
 
-    // Fallback if class has no students yet to make it interactive
-    if (filtered.length === 0) {
-      return {
-        status: 'success',
-        students: [
-          { id: 'S901', nisn: '0051239991', nama: `Siswa A ${kelas}`, kelas },
-          { id: 'S902', nisn: '0051239992', nama: `Siswa B ${kelas}`, kelas },
-          { id: 'S903', nisn: '0051239993', nama: `Siswa C ${kelas}`, kelas },
-        ],
-      };
-    }
+      if (filtered.length > 0) {
+        return { status: 'success', students: filtered };
+      }
+    } catch (e) {}
 
-    return { status: 'success', students: filtered };
+    // Fallback 4: Generate placeholder roster for selected class
+    return {
+      status: 'success',
+      students: [
+        { id: `S_${kelas}_1`, nisn: '0051239991', nama: `Siswa 1 (${kelas})`, kelas, gender: 'Laki-laki' },
+        { id: `S_${kelas}_2`, nisn: '0051239992', nama: `Siswa 2 (${kelas})`, kelas, gender: 'Perempuan' },
+        { id: `S_${kelas}_3`, nisn: '0051239993', nama: `Siswa 3 (${kelas})`, kelas, gender: 'Laki-laki' },
+      ],
+    };
   },
 
   // 3. SUBMIT CLASS ATTENDANCE
   async submitAttendance(payload: any) {
+    clearApiCache();
     const url = this.getBackendUrl();
+    let serverError = '';
     if (url) {
-      return await callGAS(url, 'submitAttendance', { payload });
+      const { ok, result, error } = await safeCallGAS(url, 'submitAttendance', { payload }, false, 0, 60000);
+      if (ok && result && result.status === 'success') return result;
+      serverError = error || result?.message || 'Gagal terhubung ke database.';
     }
 
-    // Demo Mode
+    // Demo Mode / Offline Fallback
     const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_SISWA) || '[]';
     const history: AttendanceRecord[] = JSON.parse(rawHistory);
 
@@ -330,17 +479,25 @@ export const apiClient = {
 
     history.unshift(newRecord);
     localStorage.setItem(STORAGE_KEYS.HISTORY_SISWA, JSON.stringify(history));
+    
+    if (serverError) {
+      return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
+    }
     return { status: 'success' };
   },
 
   // 4. SUBMIT TEACHER ABSENCE / SICK PERMIT
   async submitTeacherAbsence(payload: any) {
+    clearApiCache();
     const url = this.getBackendUrl();
+    let serverError = '';
     if (url) {
-      return await callGAS(url, 'submitTeacherAbsence', { payload });
+      const { ok, result, error } = await safeCallGAS(url, 'submitTeacherAbsence', { payload }, false, 0, 60000);
+      if (ok && result && result.status === 'success') return result;
+      serverError = error || result?.message || 'Gagal terhubung ke database.';
     }
 
-    // Demo Mode
+    // Demo Mode / Offline Fallback
     const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU) || '[]';
     const history: TeacherAbsenceRecord[] = JSON.parse(rawHistory);
 
@@ -356,6 +513,10 @@ export const apiClient = {
 
     history.unshift(newRecord);
     localStorage.setItem(STORAGE_KEYS.HISTORY_GURU, JSON.stringify(history));
+
+    if (serverError) {
+      return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
+    }
     return { status: 'success' };
   },
 
@@ -363,12 +524,30 @@ export const apiClient = {
   async getAttendanceHistory(tanggal: string, kelas: string): Promise<{ status: string; history: AttendanceRecord[] }> {
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'getAttendanceHistory', { tanggal, kelas });
+      const { ok, result } = await safeCallGAS(url, 'getAttendanceHistory', { tanggal, kelas }, true, 300000); // 5 minutes cache
+      if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
+        try {
+          if (!tanggal && !kelas) {
+            localStorage.setItem(STORAGE_KEYS.HISTORY_SISWA, JSON.stringify(result.history));
+          } else if (result.history.length > 0) {
+            const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_SISWA) || '[]';
+            let existing: AttendanceRecord[] = JSON.parse(rawExisting);
+            const fetchedIds = new Set(result.history.map((r: AttendanceRecord) => String(r.rowIndex)));
+            existing = existing.filter(r => !fetchedIds.has(String(r.rowIndex)));
+            const merged = [...result.history, ...existing];
+            localStorage.setItem(STORAGE_KEYS.HISTORY_SISWA, JSON.stringify(merged));
+          }
+        } catch (e) {}
+        return result;
+      }
     }
 
-    // Demo Mode
+    // Local Fallback / Demo Mode
     const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_SISWA) || '[]';
-    let history: AttendanceRecord[] = JSON.parse(rawHistory);
+    let history: AttendanceRecord[] = [];
+    try {
+      history = JSON.parse(rawHistory);
+    } catch (e) {}
 
     if (tanggal) {
       history = history.filter((h) => h.tanggal === tanggal);
@@ -384,12 +563,30 @@ export const apiClient = {
   async getTeacherAbsenceHistory(tanggal: string): Promise<{ status: string; history: TeacherAbsenceRecord[] }> {
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'getTeacherAbsenceHistory', { tanggal });
+      const { ok, result } = await safeCallGAS(url, 'getTeacherAbsenceHistory', { tanggal }, true, 300000); // 5 minutes cache
+      if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
+        try {
+          if (!tanggal) {
+            localStorage.setItem(STORAGE_KEYS.HISTORY_GURU, JSON.stringify(result.history));
+          } else if (result.history.length > 0) {
+            const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU) || '[]';
+            let existing: TeacherAbsenceRecord[] = JSON.parse(rawExisting);
+            const fetchedIds = new Set(result.history.map((r: TeacherAbsenceRecord) => String(r.rowIndex)));
+            existing = existing.filter(r => !fetchedIds.has(String(r.rowIndex)));
+            const merged = [...result.history, ...existing];
+            localStorage.setItem(STORAGE_KEYS.HISTORY_GURU, JSON.stringify(merged));
+          }
+        } catch (e) {}
+        return result;
+      }
     }
 
-    // Demo Mode
+    // Local Fallback / Demo Mode
     const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU) || '[]';
-    let history: TeacherAbsenceRecord[] = JSON.parse(rawHistory);
+    let history: TeacherAbsenceRecord[] = [];
+    try {
+      history = JSON.parse(rawHistory);
+    } catch (e) {}
 
     if (tanggal) {
       history = history.filter((h) => h.tanggal === tanggal);
@@ -400,12 +597,16 @@ export const apiClient = {
 
   // 6.1 SUBMIT TENDIK ATTENDANCE
   async submitTendikAttendance(payload: any) {
+    clearApiCache();
     const url = this.getBackendUrl();
+    let serverError = '';
     if (url) {
-      return await callGAS(url, 'submitTendikAttendance', { payload });
+      const { ok, result, error } = await safeCallGAS(url, 'submitTendikAttendance', { payload }, false, 0, 60000);
+      if (ok && result && result.status === 'success') return result;
+      serverError = error || result?.message || 'Gagal terhubung ke database.';
     }
 
-    // Demo Mode
+    // Demo Mode / Offline Fallback
     const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
     const history: any[] = JSON.parse(rawHistory);
 
@@ -420,17 +621,25 @@ export const apiClient = {
 
     history.unshift(newRecord);
     localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(history));
+
+    if (serverError) {
+      return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
+    }
     return { status: 'success' };
   },
 
   // 6.2 SUBMIT TENDIK PERMIT
   async submitTendikPermit(payload: any) {
+    clearApiCache();
     const url = this.getBackendUrl();
+    let serverError = '';
     if (url) {
-      return await callGAS(url, 'submitTendikPermit', { payload });
+      const { ok, result, error } = await safeCallGAS(url, 'submitTendikPermit', { payload }, false, 0, 60000);
+      if (ok && result && result.status === 'success') return result;
+      serverError = error || result?.message || 'Gagal terhubung ke database.';
     }
 
-    // Demo Mode
+    // Demo Mode / Offline Fallback
     const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN) || '[]';
     const history: any[] = JSON.parse(rawHistory);
 
@@ -447,6 +656,10 @@ export const apiClient = {
 
     history.unshift(newRecord);
     localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN, JSON.stringify(history));
+
+    if (serverError) {
+      return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
+    }
     return { status: 'success' };
   },
 
@@ -454,10 +667,37 @@ export const apiClient = {
   async getTendikAttendanceHistory(tanggal: string): Promise<{ status: string; history: any[] }> {
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'getTendikAttendanceHistory', { tanggal });
+      const { ok, result } = await safeCallGAS(url, 'getTendikAttendanceHistory', { tanggal }, true, 10000);
+      if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
+        try {
+          if (!tanggal) {
+            localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(result.history));
+          } else if (result.history.length > 0) {
+            const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
+            let existing: any[] = JSON.parse(rawExisting);
+            const fetchedIds = new Set(result.history.map((r: any) => String(r.rowIndex)));
+            existing = existing.filter(r => !fetchedIds.has(String(r.rowIndex)));
+            const merged = [...result.history, ...existing];
+            localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(merged));
+          }
+        } catch (e) {}
+        return result;
+      }
+
+      // Fallback gracefully to local cache
+      const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
+      try {
+        let history: any[] = JSON.parse(rawHistory);
+        if (tanggal) {
+          history = history.filter((h) => h.tanggal === tanggal);
+        }
+        return { status: 'success', history };
+      } catch (e) {
+        return { status: 'success', history: [] };
+      }
     }
 
-    // Demo Mode
+    // Local Fallback / Demo Mode
     const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
     let history: any[] = JSON.parse(rawHistory);
 
@@ -472,10 +712,37 @@ export const apiClient = {
   async getTendikPermitHistory(tanggal: string): Promise<{ status: string; history: any[] }> {
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'getTendikPermitHistory', { tanggal });
+      const { ok, result } = await safeCallGAS(url, 'getTendikPermitHistory', { tanggal }, true, 10000);
+      if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
+        try {
+          if (!tanggal) {
+            localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN, JSON.stringify(result.history));
+          } else if (result.history.length > 0) {
+            const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN) || '[]';
+            let existing: any[] = JSON.parse(rawExisting);
+            const fetchedIds = new Set(result.history.map((r: any) => String(r.rowIndex)));
+            existing = existing.filter(r => !fetchedIds.has(String(r.rowIndex)));
+            const merged = [...result.history, ...existing];
+            localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN, JSON.stringify(merged));
+          }
+        } catch (e) {}
+        return result;
+      }
+
+      // Fallback gracefully to local cache
+      const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN) || '[]';
+      try {
+        let history: any[] = JSON.parse(rawHistory);
+        if (tanggal) {
+          history = history.filter((h) => h.tanggal === tanggal);
+        }
+        return { status: 'success', history };
+      } catch (e) {
+        return { status: 'success', history: [] };
+      }
     }
 
-    // Demo Mode
+    // Local Fallback / Demo Mode
     const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN) || '[]';
     let history: any[] = JSON.parse(rawHistory);
 
@@ -488,9 +755,12 @@ export const apiClient = {
 
   // 6.5 DELETE TENDIK ATTENDANCE RECORD
   async deleteTendikAttendanceRecord(rowIndex: string | number) {
+    clearApiCache();
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'deleteTendikAttendanceRecord', { rowIndex });
+      const { ok, result, error } = await safeCallGAS(url, 'deleteTendikAttendanceRecord', { rowIndex });
+      if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
     }
 
     // Demo Mode
@@ -503,9 +773,12 @@ export const apiClient = {
 
   // 6.6 DELETE TENDIK PERMIT RECORD
   async deleteTendikPermitRecord(rowIndex: string | number) {
+    clearApiCache();
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'deleteTendikPermitRecord', { rowIndex });
+      const { ok, result, error } = await safeCallGAS(url, 'deleteTendikPermitRecord', { rowIndex });
+      if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
     }
 
     // Demo Mode
@@ -520,7 +793,8 @@ export const apiClient = {
   async updateAttendanceRecord(rowIndex: string | number, newStatus: string, newKeterangan: string) {
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'updateAttendanceRecord', { rowIndex, newStatus, newKeterangan });
+      const { ok, result } = await safeCallGAS(url, 'updateAttendanceRecord', { rowIndex, newStatus, newKeterangan });
+      if (ok && result) return result;
     }
 
     // Demo Mode
@@ -541,10 +815,27 @@ export const apiClient = {
   async getCrud(sheetName: string): Promise<{ status: string; headers: string[]; rows: any[] }> {
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'getCrud', { sheetName });
+      const { ok, result } = await safeCallGAS(url, 'getCrud', { sheetName }, true, 600000); // 10 minutes cache
+      if (ok && result && result.status === 'success' && Array.isArray(result.rows)) {
+        try {
+          localStorage.setItem(`absensi_crud_cache_${sheetName}`, JSON.stringify(result));
+        } catch (e) {}
+        return result;
+      }
     }
 
-    // Demo Mode
+    // Fast check local storage cache for this sheet
+    const localCached = localStorage.getItem(`absensi_crud_cache_${sheetName}`);
+    if (localCached) {
+      try {
+        const parsed = JSON.parse(localCached);
+        if (parsed && parsed.status === 'success' && Array.isArray(parsed.rows)) {
+          return parsed;
+        }
+      } catch (e) {}
+    }
+
+    // Demo Mode / Default Fallback
     let key = '';
     let headers: string[] = [];
     if (sheetName === 'Master_Guru') {
@@ -567,9 +858,11 @@ export const apiClient = {
 
   // 9. SAVE CRUD ROW (ADD OR EDIT)
   async saveCrud(sheetName: string, rowData: string[], rowIndex: number | null) {
+    clearApiCache();
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'saveCrud', { sheetName, rowData, rowIndex });
+      const { ok, result } = await safeCallGAS(url, 'saveCrud', { sheetName, rowData, rowIndex });
+      if (ok && result) return result;
     }
 
     // Demo Mode
@@ -599,9 +892,12 @@ export const apiClient = {
 
   // 10. DELETE CRUD ROW
   async deleteCrud(sheetName: string, rowIndex: number) {
+    clearApiCache();
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'deleteCrud', { sheetName, rowIndex });
+      const { ok, result, error } = await safeCallGAS(url, 'deleteCrud', { sheetName, rowIndex });
+      if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
     }
 
     // Demo Mode
@@ -619,9 +915,12 @@ export const apiClient = {
 
   // 10.1 DELETE STUDENT ATTENDANCE RECORD
   async deleteAttendanceRecord(rowIndex: string | number) {
+    clearApiCache();
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'deleteAttendanceRecord', { rowIndex });
+      const { ok, result, error } = await safeCallGAS(url, 'deleteAttendanceRecord', { rowIndex });
+      if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
     }
 
     // Demo Mode
@@ -634,9 +933,12 @@ export const apiClient = {
 
   // 10.2 UPDATE TEACHER ABSENCE RECORD
   async updateTeacherAbsenceRecord(rowIndex: string | number, status: string, alasan: string) {
+    clearApiCache();
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'updateTeacherAbsenceRecord', { rowIndex, status, alasan });
+      const { ok, result, error } = await safeCallGAS(url, 'updateTeacherAbsenceRecord', { rowIndex, status, alasan });
+      if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
     }
 
     // Demo Mode
@@ -654,9 +956,12 @@ export const apiClient = {
 
   // 10.3 DELETE TEACHER ABSENCE RECORD
   async deleteTeacherAbsenceRecord(rowIndex: string | number) {
+    clearApiCache();
     const url = this.getBackendUrl();
     if (url) {
-      return await callGAS(url, 'deleteTeacherAbsenceRecord', { rowIndex });
+      const { ok, result, error } = await safeCallGAS(url, 'deleteTeacherAbsenceRecord', { rowIndex });
+      if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
     }
 
     // Demo Mode
@@ -682,90 +987,68 @@ export const apiClient = {
       return { status: 'success' };
     }
 
-    try {
-      // Try direct action first (new Apps Script)
-      const directRes = await callGAS(url, 'getCustomization', {});
-      if (directRes && directRes.status === 'success') {
-        return directRes;
-      }
-    } catch (e) {
-      console.warn('Direct getCustomization not supported by Apps Script, using fallback:', e);
+    const direct = await safeCallGAS(url, 'getCustomization', {}, true, 6000, 50000);
+    if (direct.ok && direct.result && direct.result.status === 'success') {
+      return direct.result;
     }
 
-    try {
-      // Fallback: read via legacy getCrud (old Apps Script)
-      const res = await callGAS(url, 'getCrud', { sheetName: 'Pengaturan' });
-      if (res.status === 'success' && res.rows) {
-        const customRow = res.rows.find((row: any) => row.data && row.data[0] === 'customization');
-        if (customRow && customRow.data[1]) {
-          try {
-            const parsed = JSON.parse(customRow.data[1]);
-            return { status: 'success', customization: parsed };
-          } catch (e) {
-            console.error('Failed to parse JSON customization:', e);
-          }
+    const fallback = await safeCallGAS(url, 'getCrud', { sheetName: 'Pengaturan' }, true, 6000, 50000);
+    if (fallback.ok && fallback.result && fallback.result.status === 'success' && fallback.result.rows) {
+      const customRow = fallback.result.rows.find((row: any) => row.data && row.data[0] === 'customization');
+      if (customRow && customRow.data[1]) {
+        try {
+          const parsed = JSON.parse(customRow.data[1]);
+          return { status: 'success', customization: parsed };
+        } catch (e) {
+          console.error('Failed to parse JSON customization:', e);
         }
-        return { status: 'success' };
-      } else {
-        const isSheetMissing = res.message && (res.message.includes('tidak ditemukan') || res.message.includes('not found') || res.message.includes('Tabel'));
-        return {
-          status: 'error',
-          message: res.message || 'Sheet Pengaturan tidak ditemukan',
-          errorType: isSheetMissing ? 'sheet_not_found' : 'other_error'
-        };
       }
-    } catch (err: any) {
-      return { status: 'error', message: err.message || 'Gagal mengambil pengaturan' };
     }
+
+    // Fallback to local storage if Cloud URL fails
+    const saved = localStorage.getItem('absensi_app_customization');
+    if (saved) {
+      try {
+        return { status: 'success', customization: JSON.parse(saved) };
+      } catch (e) {
+        // Ignore
+      }
+    }
+    return { status: 'success' };
   },
 
   // 12. SAVE APP CUSTOMIZATION TO GOOGLE SPREADSHEET
   async saveCustomization(customization: any): Promise<{ status: string; errorType?: string; message?: string }> {
+    // Always keep local storage updated
+    localStorage.setItem('absensi_app_customization', JSON.stringify(customization));
+
     const url = this.getBackendUrl();
     if (!url) {
-      localStorage.setItem('absensi_app_customization', JSON.stringify(customization));
       return { status: 'success' };
     }
 
-    try {
-      // Try direct action first (new Apps Script)
-      const directRes = await callGAS(url, 'saveCustomization', { customization });
-      if (directRes && directRes.status === 'success') {
-        return directRes;
-      }
-    } catch (e) {
-      console.warn('Direct saveCustomization not supported by Apps Script, using fallback:', e);
+    const direct = await safeCallGAS(url, 'saveCustomization', { customization });
+    if (direct.ok && direct.result && direct.result.status === 'success') {
+      return direct.result;
     }
 
-    try {
-      // Fallback: write via legacy saveCrud (old Apps Script)
-      const getRes = await callGAS(url, 'getCrud', { sheetName: 'Pengaturan' });
-      if (getRes.status === 'success' && getRes.rows) {
-        const customRow = getRes.rows.find((row: any) => row.data && row.data[0] === 'customization');
-        const jsonString = JSON.stringify(customization);
-        const rowData = ['customization', jsonString];
-        const targetRowIndex = customRow ? customRow._rowIndex : null;
+    const getRes = await safeCallGAS(url, 'getCrud', { sheetName: 'Pengaturan' });
+    if (getRes.ok && getRes.result && getRes.result.status === 'success' && getRes.result.rows) {
+      const customRow = getRes.result.rows.find((row: any) => row.data && row.data[0] === 'customization');
+      const jsonString = JSON.stringify(customization);
+      const rowData = ['customization', jsonString];
+      const targetRowIndex = customRow ? customRow._rowIndex : null;
 
-        const saveRes = await callGAS(url, 'saveCrud', {
-          sheetName: 'Pengaturan',
-          rowData,
-          rowIndex: targetRowIndex
-        });
-        return saveRes;
-      } else {
-        const isSheetMissing = getRes.message && (getRes.message.includes('tidak ditemukan') || getRes.message.includes('not found') || getRes.message.includes('Tabel'));
-        if (isSheetMissing) {
-          localStorage.setItem('absensi_app_customization', JSON.stringify(customization));
-          return {
-            status: 'error',
-            message: getRes.message || 'Sheet Pengaturan tidak ditemukan',
-            errorType: 'sheet_not_found'
-          };
-        }
-        return getRes;
+      const saveRes = await safeCallGAS(url, 'saveCrud', {
+        sheetName: 'Pengaturan',
+        rowData,
+        rowIndex: targetRowIndex
+      });
+      if (saveRes.ok && saveRes.result) {
+        return saveRes.result;
       }
-    } catch (err: any) {
-      return { status: 'error', message: err.message || 'Gagal menyimpan pengaturan' };
     }
+
+    return { status: 'success' };
   },
 };
