@@ -55,6 +55,7 @@ export default function App() {
 
   // Global Lists
   const [kelasList, setKelasList] = useState<string[]>(['X-A', 'X-B', 'XI-A', 'XI-B', 'XII-A', 'XII-B']);
+  const [mapelList, setMapelList] = useState<string[]>([]);
   const [historyList, setHistoryList] = useState<AttendanceRecord[]>(() => {
     try {
       if (!apiClient.isDemoMode()) {
@@ -159,6 +160,20 @@ export default function App() {
     }
   }, []);
 
+  const fetchMapelList = useCallback(async () => {
+    try {
+      const res = await apiClient.getCrud('Master_Mapel');
+      if (res && res.status === 'success' && res.rows && res.rows.length > 0) {
+        const list = res.rows.map((r) => r.data[2]).filter(Boolean); // Asumsi indeks ke-2 adalah Nama Mata Pelajaran
+        if (list.length > 0) {
+          setMapelList([...new Set(list)]);
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching mapel list:', e);
+    }
+  }, []);
+
   // Fetch student & teacher master data dynamically for stats (in parallel)
   const fetchMasterData = useCallback(async () => {
     try {
@@ -202,6 +217,7 @@ export default function App() {
     try {
       await Promise.all([
         fetchKelasList(),
+        fetchMapelList(),
         fetchMasterData(),
         loadHistoryData()
       ]);
@@ -211,7 +227,7 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchKelasList, fetchMasterData, loadHistoryData, addToast]);
+  }, [fetchKelasList, fetchMapelList, fetchMasterData, loadHistoryData, addToast]);
 
   // Load app customization from Google Spreadsheet & local storage cache
   const loadCustomization = useCallback(async () => {
@@ -260,6 +276,7 @@ export default function App() {
     Promise.all([
       loadCustomization(),
       fetchKelasList(),
+      fetchMapelList(),
       fetchMasterData()
     ]);
 
@@ -274,7 +291,7 @@ export default function App() {
         localStorage.removeItem('absensi_user');
       }
     }
-  }, [addToast, fetchKelasList, fetchMasterData, loadCustomization]);
+  }, [addToast, fetchKelasList, fetchMapelList, fetchMasterData, loadCustomization]);
 
   // Load history data once logged in
   useEffect(() => {
@@ -556,6 +573,9 @@ export default function App() {
         if (currentCrudSheet === 'Master_Kelas') {
           await fetchKelasList();
         }
+        if (currentCrudSheet === 'Master_Mapel') {
+          await fetchMapelList();
+        }
       }
     } catch (err: any) {
       addToast(err.message || 'Gagal menambahkan data.', 'error');
@@ -572,6 +592,9 @@ export default function App() {
         if (currentCrudSheet === 'Master_Kelas') {
           await fetchKelasList();
         }
+        if (currentCrudSheet === 'Master_Mapel') {
+          await fetchMapelList();
+        }
       }
     } catch (err: any) {
       addToast(err.message || 'Gagal memperbarui data.', 'error');
@@ -587,6 +610,9 @@ export default function App() {
         await fetchMasterData();
         if (currentCrudSheet === 'Master_Kelas') {
           await fetchKelasList();
+        }
+        if (currentCrudSheet === 'Master_Mapel') {
+          await fetchMapelList();
         }
       }
     } catch (err: any) {
@@ -1020,6 +1046,7 @@ export default function App() {
                 <AttendanceView
                   currentUser={currentUser}
                   kelasList={kelasList}
+                  mapelList={mapelList}
                   onLoadStudents={handleLoadStudentsForAttendance}
                   onSubmit={handleSubmitAttendance}
                   currentTimeString={currentTimeString}

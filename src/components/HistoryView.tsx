@@ -1178,14 +1178,16 @@ export function HistoryView({
                             >
                               <PenSquare className="w-4 h-4" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openDeleteConfirmModal(item.rowIndex, 'siswa')}
-                              className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
-                              title="Hapus log"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {currentUser?.role === 'Admin' && (
+                              <button
+                                type="button"
+                                onClick={() => openDeleteConfirmModal(item.rowIndex, 'siswa')}
+                                className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
+                                title="Hapus log"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1298,14 +1300,16 @@ export function HistoryView({
                             >
                               <PenSquare className="w-4 h-4" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => openDeleteConfirmModal(item.rowIndex, 'guru')}
-                              className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
-                              title="Hapus izin guru"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {currentUser?.role === 'Admin' && (
+                              <button
+                                type="button"
+                                onClick={() => openDeleteConfirmModal(item.rowIndex, 'guru')}
+                                className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
+                                title="Hapus izin guru"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1405,14 +1409,16 @@ export function HistoryView({
                         </td>
                         <td className="p-3.5 pr-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => openDeleteConfirmModal(item.rowIndex, 'tendik-absen')}
-                              className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
-                              title="Hapus presensi tendik"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {currentUser?.role === 'Admin' && (
+                              <button
+                                type="button"
+                                onClick={() => openDeleteConfirmModal(item.rowIndex, 'tendik-absen')}
+                                className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
+                                title="Hapus presensi tendik"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1526,14 +1532,16 @@ export function HistoryView({
                         </td>
                         <td className="p-3.5 pr-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => openDeleteConfirmModal(item.rowIndex, 'tendik-izin')}
-                              className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
-                              title="Hapus izin tendik"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {currentUser?.role === 'Admin' && (
+                              <button
+                                type="button"
+                                onClick={() => openDeleteConfirmModal(item.rowIndex, 'tendik-izin')}
+                                className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
+                                title="Hapus izin tendik"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

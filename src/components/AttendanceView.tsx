@@ -10,6 +10,7 @@ import { Camera, FileImage, Trash2, CheckCircle, Clock, CheckSquare, Sparkles, L
 interface AttendanceViewProps {
   currentUser: User | null;
   kelasList: string[];
+  mapelList: string[];
   onLoadStudents: (kelas: string) => Promise<Student[]>;
   onSubmit: (payload: any) => Promise<void>;
   currentTimeString: string;
@@ -18,6 +19,7 @@ interface AttendanceViewProps {
 export function AttendanceView({
   currentUser,
   kelasList,
+  mapelList,
   onLoadStudents,
   onSubmit,
   currentTimeString,
@@ -283,13 +285,26 @@ export function AttendanceView({
           {/* Mapel */}
           <div>
             <label className="block text-xs font-bold text-slate-600 uppercase mb-1.5">2. Mata Pelajaran</label>
-            <input
-              type="text"
-              value={selectedMapel}
-              onChange={(e) => setSelectedMapel(e.target.value)}
-              placeholder="Contoh: Matematika, Bahasa Inggris..."
-              className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
-            />
+            {mapelList && mapelList.length > 0 ? (
+              <select
+                value={selectedMapel}
+                onChange={(e) => setSelectedMapel(e.target.value)}
+                className="w-full p-3 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm appearance-none"
+              >
+                <option value="" disabled>-- Pilih Mata Pelajaran --</option>
+                {mapelList.map((mapel) => (
+                  <option key={mapel} value={mapel}>{mapel}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={selectedMapel}
+                onChange={(e) => setSelectedMapel(e.target.value)}
+                placeholder="Contoh: Matematika, Bahasa Inggris..."
+                className="w-full p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+              />
+            )}
           </div>
 
           {/* Time & Guru Info */}
