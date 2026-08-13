@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
-import { Code, Copy, Check, ExternalLink, FileCode2, Database, ListOrdered, CheckCircle2, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Code, Copy, Check, ExternalLink, FileCode2, Database, ListOrdered, CheckCircle2, AlertCircle, Lock, KeyRound, Save, X } from 'lucide-react';
+import { apiClient } from '../api';
 
 interface AppsScriptViewProps {
   customization?: {
@@ -15,6 +16,78 @@ interface AppsScriptViewProps {
 export function AppsScriptView({ customization }: AppsScriptViewProps) {
   const [activeTab, setActiveTab] = useState<'code' | 'guide' | 'schema'>('code');
   const [copied, setCopied] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const [authError, setAuthError] = useState('');
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [changePasswordSuccess, setChangePasswordSuccess] = useState('');
+
+  useEffect(() => {
+    const fetchPassword = async () => {
+      try {
+        const res = await apiClient.getCrud('Pengaturan');
+        if (res.status === 'success' && res.rows) {
+          const passRow = res.rows.find((row: any) => row.data && row.data[0] === 'apps_script_password');
+          if (passRow && passRow.data[1]) {
+            localStorage.setItem('absensi_as_password', passRow.data[1]);
+          } else {
+            localStorage.setItem('absensi_as_password', 'ahmad91');
+          }
+        }
+      } catch (e) {
+        if (!localStorage.getItem('absensi_as_password')) {
+           localStorage.setItem('absensi_as_password', 'ahmad91');
+        }
+      } finally {
+        setIsLoadingAuth(false);
+      }
+    };
+    fetchPassword();
+  }, []);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const stored = localStorage.getItem('absensi_as_password') || 'ahmad91';
+    if (passwordInput === stored) {
+      setIsAuthenticated(true);
+      setAuthError('');
+    } else {
+      setAuthError('Kata sandi salah.');
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPassword.trim()) {
+      setAuthError('Kata sandi tidak boleh kosong.');
+      return;
+    }
+    setIsChangingPassword(true);
+    setChangePasswordSuccess('');
+    setAuthError('');
+    
+    try {
+      const res = await apiClient.getCrud('Pengaturan');
+      let targetRowIndex = null;
+      if (res.status === 'success' && res.rows) {
+        const passRow = res.rows.find((row: any) => row.data && row.data[0] === 'apps_script_password');
+        if (passRow) targetRowIndex = passRow._rowIndex;
+      }
+
+      await apiClient.saveCrud('Pengaturan', ['apps_script_password', newPassword], targetRowIndex);
+      localStorage.setItem('absensi_as_password', newPassword);
+      setChangePasswordSuccess('Kata sandi berhasil diubah!');
+      setNewPassword('');
+      setTimeout(() => setShowChangePassword(false), 2000);
+    } catch (e) {
+      setAuthError('Gagal menyimpan kata sandi baru.');
+    } finally {
+      setIsChangingPassword(false);
+    }
+  };
 
   const appsScriptCode = `/**
  * GOOGLE APPS SCRIPT - BACKEND E-ABSENSI SEKOLAH DIGITAL
@@ -954,6 +1027,58 @@ function deleteTendikPermitRecord(rowIndex) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  if (isLoadingAuth) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-8 h-8 border-4 border-slate-200 border-t-blue-600 rounded-full animate-spin" />
+          <p className="text-sm text-slate-500 font-medium">Memverifikasi keamanan...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex items-center justify-center min-h-[500px] p-4">
+        <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 max-w-sm w-full">
+          <div className="w-12 h-12 bg-indigo-50 rounded-2xl flex items-center justify-center mb-6 text-indigo-600">
+            <Lock className="w-6 h-6" />
+          </div>
+          <h2 className="text-xl font-bold text-slate-800 mb-2">Area Terbatas</h2>
+          <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+            Silakan masukkan kata sandi Anda untuk mengakses Kode Apps Script dan konfigurasi database.
+          </p>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <input
+                type="password"
+                placeholder="Kata Sandi"
+                value={passwordInput}
+                onChange={(e) => {
+                  setPasswordInput(e.target.value);
+                  setAuthError('');
+                }}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-sm outline-none"
+                autoFocus
+              />
+            </div>
+            {authError && (
+              <p className="text-xs text-rose-500 font-medium">{authError}</p>
+            )}
+            <button
+              type="submit"
+              className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold transition-all shadow-sm active:scale-[0.98] cursor-pointer"
+            >
+              Akses Sekarang
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {/* Header card with developer instructions */}
@@ -964,6 +1089,13 @@ function deleteTendikPermitRecord(rowIndex) {
               <FileCode2 className="w-3.5 h-3.5" />
               <span>Google Apps Script (.gs)</span>
             </span>
+            <button 
+              onClick={() => setShowChangePassword(!showChangePassword)}
+              className="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 rounded-full text-[10px] font-bold border border-emerald-500/30 flex items-center gap-1 cursor-pointer transition-colors"
+            >
+              <KeyRound className="w-3 h-3" />
+              <span>Ubah Sandi</span>
+            </button>
           </div>
           <h3 className="text-xl font-extrabold tracking-tight">Koneksi Database & Integrasi Sheets</h3>
           <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
@@ -990,6 +1122,49 @@ function deleteTendikPermitRecord(rowIndex) {
         </div>
         <Code className="w-64 h-64 text-white/5 absolute -right-16 -bottom-16 pointer-events-none transform rotate-12" />
       </div>
+
+      {showChangePassword && (
+        <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+              <KeyRound className="w-4 h-4 text-emerald-600" />
+              Ubah Sandi Menu Apps Script
+            </h4>
+            <button 
+              onClick={() => setShowChangePassword(false)}
+              className="p-1 hover:bg-slate-100 rounded-lg cursor-pointer"
+            >
+              <X className="w-4 h-4 text-slate-400" />
+            </button>
+          </div>
+          <form onSubmit={handleChangePassword} className="flex flex-col sm:flex-row gap-3">
+            <input
+              type="text"
+              placeholder="Masukkan sandi baru..."
+              value={newPassword}
+              onChange={(e) => {
+                setNewPassword(e.target.value);
+                setAuthError('');
+              }}
+              className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all text-sm outline-none"
+            />
+            <button
+              type="submit"
+              disabled={isChangingPassword}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-bold transition-all shadow-sm active:scale-95 cursor-pointer flex items-center justify-center gap-2"
+            >
+              {isChangingPassword ? (
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              Simpan Sandi
+            </button>
+          </form>
+          {authError && <p className="mt-2 text-xs text-rose-500 font-medium">{authError}</p>}
+          {changePasswordSuccess && <p className="mt-2 text-xs text-emerald-600 font-medium flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5" />{changePasswordSuccess}</p>}
+        </div>
+      )}
 
       {/* Tabs navigation */}
       <div className="flex border-b border-slate-200">
