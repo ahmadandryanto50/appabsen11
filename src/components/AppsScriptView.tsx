@@ -92,10 +92,10 @@ export function AppsScriptView({ customization }: AppsScriptViewProps) {
   const appsScriptCode = `/**
  * GOOGLE APPS SCRIPT - BACKEND E-ABSENSI SEKOLAH DIGITAL
  * Author: AI Coding Agent & Admin
- * Spreadsheet ID: 108dYMsw03-1jhD3HbOvuvPwW2rrx9uBJ3RbhgwhNBV4
+ * Spreadsheet ID: ID_DARI_URL_SPREADSHEET
  */
 
-const SPREADSHEET_ID = "108dYMsw03-1jhD3HbOvuvPwW2rrx9uBJ3RbhgwhNBV4";
+const SPREADSHEET_ID = "ID_DARI_URL_SPREADSHEET";
 
 function getDb() {
   try {
