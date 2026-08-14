@@ -330,7 +330,7 @@ async function safeCallGAS(
 // MAIN API CLIENT
 export const apiClient = {
   getBackendUrl(): string {
-    return localStorage.getItem(STORAGE_KEYS.APP_URL) || '';
+    return localStorage.getItem(STORAGE_KEYS.APP_URL) || import.meta.env.VITE_GAS_URL || '';
   },
 
   async syncConfigFromServer(): Promise<{ webAppUrl?: string; customization?: any }> {
@@ -802,11 +802,19 @@ export const apiClient = {
               const rawTgl = tglIdx !== -1 && rowData[tglIdx] ? String(rowData[tglIdx]).trim() : '';
               const rawWkt = wktIdx !== -1 && rowData[wktIdx] ? String(rowData[wktIdx]).trim() : '';
 
+              let finalTs = rawTs;
+              if (rawTs && !rawTs.includes('-') && !rawTs.includes('/') && rawTgl) {
+                // rawTs is just a time string, prepend the date
+                finalTs = `${rawTgl} ${rawTs}`;
+              } else if (!rawTs) {
+                finalTs = `${rawTgl} ${rawWkt}`;
+              }
+
               return normalizeRecord({
                 rowIndex: row._rowIndex || row.rowIndex,
-                timestamp: rawTs || `${rawTgl} ${rawWkt}`,
-                tanggal: rawTgl || rawTs.split(' ')[0],
-                waktu: rawWkt || rawTs.split(' ')[1] || '-',
+                timestamp: finalTs,
+                tanggal: rawTgl || finalTs.split(' ')[0],
+                waktu: rawWkt || finalTs.split(' ')[1] || '-',
                 nisn: rowData[nisnIdx] ? String(rowData[nisnIdx]).trim() : '',
                 nama: rowData[namaIdx] ? String(rowData[namaIdx]).trim() : '',
                 kelas: rowData[kelasIdx] ? String(rowData[kelasIdx]).trim() : '',

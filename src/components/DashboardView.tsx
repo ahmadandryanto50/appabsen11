@@ -110,15 +110,24 @@ export function DashboardView({
     // Fetch Live Kiosk Presensi Masuk Siswa Hari Ini
     fetchKioskTodayData();
 
-    // Auto-refresh when tab is focused (e.g. switching back to the laptop browser)
+    // Auto-refresh when tab is focused (e.g. switching back to the browser)
     const handleFocus = () => {
       fetchKioskTodayData();
     };
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchKioskTodayData();
+      }
+    };
+    
     window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
 
     // Auto-refresh every 30 seconds for live monitor displays
     const intervalId = setInterval(() => {
-      fetchKioskTodayData();
+      if (!document.hidden) {
+        fetchKioskTodayData();
+      }
     }, 30000);
 
     if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') {
@@ -150,6 +159,7 @@ export function DashboardView({
 
     return () => {
       window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
       clearInterval(intervalId);
     };
   }, [currentUser, isFullAccess, fetchKioskTodayData]);
@@ -1269,8 +1279,13 @@ export function DashboardView({
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={6} className="p-10 text-center text-slate-400 font-medium space-y-2">
+                      <td colSpan={6} className="p-10 text-center text-slate-400 font-medium space-y-3">
                         <p>Belum ada siswa yang melakukan scan presensi masuk hari ini.</p>
+                        {apiClient.isDemoMode() && (
+                          <div className="mx-auto max-w-sm bg-amber-50 text-amber-800 text-xs p-3 rounded-lg border border-amber-200">
+                            <strong>Mode Demo Aktif:</strong> Data tidak disinkronkan. Buka Pengaturan untuk menghubungkan URL Apps Script, atau Scan QR Code perangkat.
+                          </div>
+                        )}
                         {isFullAccess && (
                           <button
                             type="button"
