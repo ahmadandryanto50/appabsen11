@@ -1,11 +1,59 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CrudRow } from '../types';
-import QRCode from 'react-qr-code';
+import QRCode from 'qrcode';
 import { Printer, Filter, Users } from 'lucide-react';
 
 interface CetakBarcodeViewProps {
   students: CrudRow[];
   kelasList: string[];
+}
+
+function QRCodeCard({ value, size = 120 }: { value: string; size?: number }) {
+  const [dataUrl, setDataUrl] = useState<string>('');
+
+  useEffect(() => {
+    let isMounted = true;
+    QRCode.toDataURL(value, {
+      width: size * 2,
+      margin: 1,
+      errorCorrectionLevel: 'H',
+      color: {
+        dark: '#000000',
+        light: '#ffffff',
+      },
+    })
+      .then((url) => {
+        if (isMounted) setDataUrl(url);
+      })
+      .catch((err) => {
+        console.error('Error generating QR code', err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [value, size]);
+
+  if (!dataUrl) {
+    return (
+      <div 
+        style={{ width: size, height: size }} 
+        className="flex items-center justify-center bg-slate-50 text-slate-400 text-xs rounded"
+      >
+        Memuat QR...
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={dataUrl}
+      alt={`QR-${value}`}
+      width={size}
+      height={size}
+      className="w-full h-auto max-w-[120px] object-contain block mx-auto"
+      referrerPolicy="no-referrer"
+    />
+  );
 }
 
 export function CetakBarcodeView({ students, kelasList }: CetakBarcodeViewProps) {
@@ -47,7 +95,7 @@ export function CetakBarcodeView({ students, kelasList }: CetakBarcodeViewProps)
             <button
               onClick={handlePrint}
               disabled={filteredStudents.length === 0}
-              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto justify-center"
+              className="flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold transition-all shadow-md shadow-indigo-500/20 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto justify-center cursor-pointer"
             >
               <Printer className="w-5 h-5" />
               <span>Cetak Sekarang</span>
@@ -84,12 +132,7 @@ export function CetakBarcodeView({ students, kelasList }: CetakBarcodeViewProps)
                   </div>
                   <div className="p-6 flex flex-col items-center bg-white flex-grow justify-between gap-4">
                     <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
-                       <QRCode 
-                        value={nisn} 
-                        size={120} 
-                        level="H"
-                        className="w-full h-auto max-w-[120px]"
-                      />
+                      <QRCodeCard value={nisn} size={120} />
                     </div>
                     <div className="text-center w-full">
                       <p className="font-black text-slate-800 text-sm truncate uppercase" title={nama}>{nama}</p>
