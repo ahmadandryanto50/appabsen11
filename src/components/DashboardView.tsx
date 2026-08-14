@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { User, AttendanceRecord, AppCustomization } from '../types';
-import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, ExternalLink, ClipboardList } from 'lucide-react';
+import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, ExternalLink, ClipboardList, QrCode, Scan, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiClient } from '../api';
+import { normalizeImageUrl, getUserPhotoUrl, handleImageFallbackError } from '../utils/imageUrl';
 
 interface DashboardViewProps {
   currentUser: User | null;
@@ -27,17 +28,72 @@ export function DashboardView({
 }: DashboardViewProps) {
   const [photoError, setPhotoError] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
-  const userPhoto = currentUser && customization?.userPhotos?.[currentUser.username];
+  const userPhoto = getUserPhotoUrl(customization, currentUser);
 
   // State and hook for Tendik history inside Dashboard
   const [tendikList, setTendikList] = useState<any[]>([]);
   const [loadingTendik, setLoadingTendik] = useState(false);
   const [guruHeaders, setGuruHeaders] = useState<string[]>([]);
 
+  // State for Live Kiosk (Presensi Masuk Siswa Hari Ini)
+  const [kioskTodayList, setKioskTodayList] = useState<any[]>([]);
+  const [loadingKioskToday, setLoadingKioskToday] = useState(false);
+
   const isFullAccess =
     currentUser?.role === 'Admin' ||
     (customization?.fullAccessUsernames?.includes(currentUser?.username || '') ?? false) ||
     (currentUser?.nip ? (customization?.fullAccessUsernames?.includes(currentUser.nip) ?? false) : false);
+
+  const getLocalDateString = (d: Date = new Date()) => {
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
+  const fetchKioskTodayData = useCallback(async () => {
+    setLoadingKioskToday(true);
+    const todayStr = getLocalDateString(new Date());
+
+    // Check instant cache first
+    const cachedScans = localStorage.getItem('absensi_kiosk_all_scans');
+    if (cachedScans) {
+      try {
+        const parsed = JSON.parse(cachedScans);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const todayCached = parsed.filter((item: any) => {
+            const itemDate = (item.tanggal || (item.timestamp ? String(item.timestamp).split(' ')[0] : '')).trim();
+            return itemDate === todayStr || (item.timestamp && String(item.timestamp).includes(todayStr));
+          });
+          setKioskTodayList(todayCached.length > 0 ? todayCached : parsed.slice(0, 10));
+        }
+      } catch (e) {}
+    }
+
+    try {
+      // 1. Query with today's date parameter
+      const res = await apiClient.getKioskAttendanceHistory(todayStr);
+      if (res.status === 'success' && Array.isArray(res.history) && res.history.length > 0) {
+        setKioskTodayList(res.history);
+      } else {
+        // 2. Query all scans to handle timezone / date format differences
+        const resAll = await apiClient.getKioskAttendanceHistory('');
+        if (resAll.status === 'success' && Array.isArray(resAll.history) && resAll.history.length > 0) {
+          const todayFiltered = resAll.history.filter((item: any) => {
+            const itemDate = (item.tanggal || (item.timestamp ? String(item.timestamp).split(' ')[0] : '')).trim();
+            return itemDate === todayStr || (item.timestamp && String(item.timestamp).includes(todayStr));
+          });
+          setKioskTodayList(todayFiltered.length > 0 ? todayFiltered : resAll.history.slice(0, 10));
+        } else if (res.status === 'success' && Array.isArray(res.history)) {
+          setKioskTodayList(res.history);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load Live Kiosk today in Dashboard:', err);
+    } finally {
+      setLoadingKioskToday(false);
+    }
+  }, []);
 
   useEffect(() => {
     // Fetch Master_Guru headers to accurately resolve column indices dynamically
@@ -48,6 +104,9 @@ export function DashboardView({
         }
       })
       .catch((err) => console.error('Failed to load Master_Guru headers in DashboardView:', err));
+
+    // Fetch Live Kiosk Presensi Masuk Siswa Hari Ini
+    fetchKioskTodayData();
 
     if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') {
       const cached = localStorage.getItem('absensi_history_tendik_absen');
@@ -75,7 +134,7 @@ export function DashboardView({
         .catch(err => console.error(err))
         .finally(() => setLoadingTendik(false));
     }
-  }, [currentUser, isFullAccess]);
+  }, [currentUser, isFullAccess, fetchKioskTodayData]);
 
   // Dynamic index helpers based on headers with robust fallback based on array length
   const getRoleIndex = (rowLength: number): number => {
@@ -143,6 +202,47 @@ export function DashboardView({
     return map;
   }, []);
 
+  // Universal parser for student item (handles array, object, and nested data)
+  const parseStudentItem = (s: any) => {
+    if (!s) return null;
+    let id = '', nisn = '', nama = '', kelas = '', gender = '', status = 'Aktif';
+    if (Array.isArray(s.data)) {
+      id = String(s.data[0] || '').trim();
+      nisn = String(s.data[1] || '').trim();
+      nama = String(s.data[2] || '').trim();
+      kelas = String(s.data[3] || '').trim();
+      gender = String(s.data[4] || '').trim();
+      status = String(s.data[5] || 'Aktif').trim();
+    } else if (Array.isArray(s)) {
+      id = String(s[0] || '').trim();
+      nisn = String(s[1] || '').trim();
+      nama = String(s[2] || '').trim();
+      kelas = String(s[3] || '').trim();
+      gender = String(s[4] || '').trim();
+      status = String(s[5] || 'Aktif').trim();
+    } else if (typeof s === 'object') {
+      id = String(s.id || s.ID || s._rowIndex || '').trim();
+      nisn = String(s.nisn || s.NISN || '').trim();
+      nama = String(s.nama || s.namaSiswa || s['Nama Siswa'] || s.name || '').trim();
+      kelas = String(s.kelas || s['Kelas'] || '').trim();
+      gender = String(s.gender || s.jenisKelamin || s['Jenis Kelamin'] || '').trim();
+      status = String(s.status || s['Status'] || 'Aktif').trim();
+    }
+
+    if (!nama || nama.toLowerCase() === 'nama siswa' || nama.toLowerCase() === 'nama' || id.toLowerCase() === 'id') return null;
+    if (status.toLowerCase() === 'nonaktif' || status.toLowerCase() === 'inactive' || status.toLowerCase() === 'alumni' || status.toLowerCase() === 'keluar') return null;
+
+    return {
+      id,
+      nisn,
+      nama,
+      kelas,
+      gender,
+      status,
+      data: [id, nisn, nama, kelas, gender, status]
+    };
+  };
+
   // Filter active students (useMemo)
   const { activeStudents, totalStudents, totalStudentsMale, totalStudentsFemale } = useMemo(() => {
     let finalStudents = allStudents || [];
@@ -157,20 +257,33 @@ export function DashboardView({
       }
     }
 
-    const filtered = finalStudents.filter(
-      (s) => s.data && s.data[0] && s.data[0] !== 'ID' && s.data[2] && s.data[5] !== 'Nonaktif'
-    );
+    const parsedList = finalStudents
+      .map(parseStudentItem)
+      .filter((s): s is NonNullable<typeof s> => s !== null);
 
-    const male = filtered.filter((s) => isMaleStudent(s.data[4])).length;
-    const female = filtered.filter((s) => isFemaleStudent(s.data[4])).length;
+    const male = parsedList.filter((s) => isMaleStudent(s.gender)).length;
+    const female = parsedList.filter((s) => isFemaleStudent(s.gender)).length;
 
     return {
-      activeStudents: filtered,
-      totalStudents: filtered.length,
+      activeStudents: parsedList,
+      totalStudents: parsedList.length,
       totalStudentsMale: male,
       totalStudentsFemale: female,
     };
   }, [allStudents]);
+
+  // Live Kiosk Stats for Today
+  const kioskTodayStats = useMemo(() => {
+    const totalScan = kioskTodayList.length;
+    const tepatWaktu = kioskTodayList.filter(k => (k.status || '').toLowerCase() === 'hadir').length;
+    const terlambat = kioskTodayList.filter(k => (k.status || '').toLowerCase() === 'terlambat').length;
+    return {
+      totalScan,
+      tepatWaktu,
+      terlambat,
+      attendanceRate: totalStudents > 0 ? Math.round((totalScan / totalStudents) * 100) : 0,
+    };
+  }, [kioskTodayList, totalStudents]);
 
   // Filter active teachers & tendik (useMemo)
   const { activeTeachers, totalTeachers, activeTendik, totalTendik } = useMemo(() => {
@@ -534,7 +647,9 @@ export function DashboardView({
               alt={currentUser?.nama}
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
-              onError={() => setPhotoError(true)}
+              onError={(e) => {
+                handleImageFallbackError(e, () => setPhotoError(true));
+              }}
             />
           </div>
         )}
@@ -922,6 +1037,53 @@ export function DashboardView({
                     </div>
                   </div>
                 )}
+
+                {gradeCounts['Lainnya'].total > 0 && (
+                  <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/60 flex flex-col justify-between space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-200/40">
+                        <span className="font-extrabold text-slate-700 text-xs">Kelas Lainnya / Umum</span>
+                        <span className="px-2 py-0.5 bg-slate-200 text-slate-700 rounded text-[9px] font-extrabold border border-slate-300">UMUM</span>
+                      </div>
+                      <div className="py-2.5 flex items-baseline justify-between">
+                        <span className="text-2xl font-extrabold text-slate-800">
+                          {gradeCounts['Lainnya'].total} <span className="text-[10px] text-slate-400 font-medium">Siswa</span>
+                        </span>
+                        <div className="flex gap-2 text-[10px] font-bold text-slate-600 bg-white px-2 py-0.5 rounded border border-slate-200 shadow-2xs">
+                          <span>L: {gradeCounts['Lainnya'].L}</span>
+                          <span className="text-slate-300">|</span>
+                          <span>P: {gradeCounts['Lainnya'].P}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 mt-2 pt-2 border-t border-slate-200/40">
+                        <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Rincian Kelas:</span>
+                        <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                          {classesForGrade('Lainnya').length > 0 ? (
+                            classesForGrade('Lainnya').map((cls, idx) => (
+                              <div key={`class-lainnya-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-slate-200 shadow-3xs space-y-1">
+                                <div className="flex justify-between items-start gap-1">
+                                  <span className="font-bold text-slate-800 text-[11px] leading-tight">
+                                    {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
+                                  </span>
+                                  <span className="text-[9px] font-extrabold text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded flex-shrink-0">
+                                    {cls.total} Siswa
+                                  </span>
+                                </div>
+                                <div className="flex justify-between text-[10px] text-slate-600 font-medium">
+                                  <span>L: <strong className="text-slate-800 font-bold">{cls.L}</strong></span>
+                                  <span>P: <strong className="text-slate-800 font-bold">{cls.P}</strong></span>
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-[10px] text-slate-400 italic text-center py-1">Tidak ada data kelas</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -929,8 +1091,180 @@ export function DashboardView({
       )}
     </div>
 
-      {/* Live Feed Rekap Presensi Terbaru */}
+      {/* LIVE FEED REKAP PRESENSI TERBARU */}
       <div className="space-y-6">
+        {/* PANEL 1: LIVE PRESENSI MASUK SISWA (GERBANG / KIOSK / BARCODE) */}
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                  </span>
+                  <h4 className="font-extrabold text-slate-900 text-sm sm:text-base tracking-tight flex items-center gap-2">
+                    <Scan className="w-4 h-4 text-blue-600" />
+                    <span>Live Presensi Masuk Siswa Hari Ini (Kiosk / Barcode)</span>
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  Pantauan langsung data scan barcode/QR presensi siswa yang masuk ke database presensi gerbang sekolah.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 self-start sm:self-center">
+                <button
+                  type="button"
+                  onClick={fetchKioskTodayData}
+                  disabled={loadingKioskToday}
+                  title="Muat Ulang Data Presensi Masuk"
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-xl transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${loadingKioskToday ? 'animate-spin text-blue-600' : ''}`} />
+                  <span>Refresh</span>
+                </button>
+                {isFullAccess && (
+                  <button
+                    type="button"
+                    onClick={() => onNavigate('kiosk-scanner')}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <QrCode className="w-3.5 h-3.5" />
+                    <span>Buka Scanner Kiosk</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onNavigate('riwayat')}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-bold transition-all cursor-pointer hover:underline ml-1"
+                >
+                  Riwayat Masuk →
+                </button>
+              </div>
+            </div>
+
+            {/* Metric Counters for Today Kiosk */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="p-4 bg-slate-50 rounded-xl border border-slate-200/70 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Total Siswa Masuk Hari Ini</span>
+                  <span className="text-2xl font-black text-slate-900 mt-0.5 block">
+                    {kioskTodayStats.totalScan}{' '}
+                    <span className="text-xs font-semibold text-slate-400">
+                      / {totalStudents} Siswa ({kioskTodayStats.attendanceRate}%)
+                    </span>
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center flex-shrink-0">
+                  <Users className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="p-4 bg-emerald-50/60 rounded-xl border border-emerald-100 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider block">Hadir Tepat Waktu</span>
+                  <span className="text-2xl font-black text-emerald-800 mt-0.5 block">
+                    {kioskTodayStats.tepatWaktu}{' '}
+                    <span className="text-xs font-semibold text-emerald-600">Siswa</span>
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center flex-shrink-0">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="p-4 bg-rose-50/60 rounded-xl border border-rose-100 flex items-center justify-between">
+                <div>
+                  <span className="text-[10px] font-bold text-rose-700 uppercase tracking-wider block">Terlambat Masuk</span>
+                  <span className="text-2xl font-black text-rose-800 mt-0.5 block">
+                    {kioskTodayStats.terlambat}{' '}
+                    <span className="text-xs font-semibold text-rose-600">Siswa</span>
+                  </span>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center flex-shrink-0">
+                  <AlertCircle className="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Live Table for Kiosk Presensi Masuk Siswa */}
+            <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-slate-50/20">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200/60">
+                  <tr>
+                    <th className="p-3 pl-4 w-28">Waktu Scan</th>
+                    <th className="p-3 w-32">NISN</th>
+                    <th className="p-3">Nama Siswa</th>
+                    <th className="p-3 text-center w-24">Kelas</th>
+                    <th className="p-3 text-center w-28">Status Masuk</th>
+                    <th className="p-3 text-center w-36">Keterlambatan</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {loadingKioskToday ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400 font-medium">
+                        <span className="inline-block animate-spin mr-2">⏳</span> Mengambil data presensi masuk terkini...
+                      </td>
+                    </tr>
+                  ) : kioskTodayList.length > 0 ? (
+                    kioskTodayList.slice(0, 6).map((item, idx) => (
+                      <tr key={`kiosk-today-${item.rowIndex || idx}`} className="hover:bg-slate-50/70 transition-colors">
+                        <td className="p-3 pl-4 font-mono font-bold text-slate-700 whitespace-nowrap">
+                          {item.waktu && item.waktu !== '-' ? item.waktu : (item.timestamp ? String(item.timestamp).split(' ')[1] || item.timestamp : '-')}
+                        </td>
+                        <td className="p-3 font-mono text-slate-500 text-xs">{item.nisn || '-'}</td>
+                        <td className="p-3 font-bold text-slate-900">{item.nama || '-'}</td>
+                        <td className="p-3 text-center">
+                          <span className="inline-block px-2 py-0.5 bg-blue-50 text-blue-700 font-bold rounded text-[10px] border border-blue-150">
+                            {item.kelas || '-'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          {(item.status || '').toLowerCase() === 'terlambat' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-rose-50 text-rose-700 font-extrabold rounded-full border border-rose-200 text-[10px]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                              Terlambat
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 font-extrabold rounded-full border border-emerald-200 text-[10px]">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                              Hadir
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 text-center font-medium text-slate-600">
+                          {item.keterlambatan && item.keterlambatan !== '-' ? (
+                            <span className="text-rose-600 font-bold">{item.keterlambatan}</span>
+                          ) : (
+                            <span className="text-slate-400">Tepat Waktu</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="p-10 text-center text-slate-400 font-medium space-y-2">
+                        <p>Belum ada siswa yang melakukan scan presensi masuk hari ini.</p>
+                        {isFullAccess && (
+                          <button
+                            type="button"
+                            onClick={() => onNavigate('kiosk-scanner')}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+                          >
+                            <QrCode className="w-3.5 h-3.5" />
+                            <span>Buka Kiosk Scanner untuk Scan Siswa Masuk</span>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         {/* Render Rekap Sesi Absensi Mengajar Terbaru if Guru or Admin */}
         {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">

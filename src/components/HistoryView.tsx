@@ -60,6 +60,8 @@ export function HistoryView({
   onDeleteTeacherRecord,
   customization,
 }: HistoryViewProps) {
+  const isFullAccess = currentUser?.role === 'Admin' || String(currentUser?.role || '').toLowerCase().includes('admin') || Boolean(currentUser?.username?.toLowerCase().includes('admin'));
+
   const [subTab, setSubTab] = useState<'siswa' | 'kiosk-siswa' | 'guru' | 'tendik-absen' | 'tendik-izin' | 'rekap-pdf'>(
     currentUser?.role === 'Tendik' ? 'tendik-absen' : 'siswa'
   );
@@ -129,7 +131,8 @@ export function HistoryView({
   // Delete Confirm Modal States
   const [showDeleteConfirmModal, setShowDeleteConfirmModal] = useState(false);
   const [deletingRowIndex, setDeletingRowIndex] = useState<string | number | null>(null);
-  const [deletingRecordType, setDeletingRecordType] = useState<'siswa' | 'guru' | 'tendik-absen' | 'tendik-izin' | null>(null);
+  const [deletingRecordType, setDeletingRecordType] = useState<'siswa' | 'kiosk-siswa' | 'guru' | 'tendik-absen' | 'tendik-izin' | null>(null);
+  const [deletingKioskItem, setDeletingKioskItem] = useState<KioskScanRecord | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
   // PDF Recap States
@@ -365,9 +368,14 @@ export function HistoryView({
     }
   }, [subTab, filterTendikTanggal]);
 
-  const openDeleteConfirmModal = (rowIndex: string | number, type: 'siswa' | 'kiosk-siswa' | 'guru' | 'tendik-absen' | 'tendik-izin') => {
+  const openDeleteConfirmModal = (
+    rowIndex: string | number,
+    type: 'siswa' | 'kiosk-siswa' | 'guru' | 'tendik-absen' | 'tendik-izin',
+    kioskItem?: KioskScanRecord
+  ) => {
     setDeletingRowIndex(rowIndex);
     setDeletingRecordType(type);
+    setDeletingKioskItem(kioskItem || null);
     setShowDeleteConfirmModal(true);
   };
 
@@ -379,7 +387,19 @@ export function HistoryView({
         await onDeleteRecord(deletingRowIndex);
         await onFilterHistory(filterSiswaTanggal, filterSiswaKelas);
       } else if (deletingRecordType === 'kiosk-siswa') {
-        await apiClient.deleteKioskAttendanceRecord(deletingRowIndex);
+        // Optimistic instant removal from UI
+        setKioskHistory((prev) =>
+          prev.filter((k) => {
+            if (k.rowIndex && String(k.rowIndex) === String(deletingRowIndex)) return false;
+            if (deletingKioskItem && k.timestamp === deletingKioskItem.timestamp && k.nisn === deletingKioskItem.nisn) return false;
+            return true;
+          })
+        );
+        await apiClient.deleteKioskAttendanceRecord(
+          deletingRowIndex,
+          deletingKioskItem?.timestamp,
+          deletingKioskItem?.nisn
+        );
         await handleApplyKioskFilter();
       } else if (deletingRecordType === 'guru') {
         await onDeleteTeacherRecord(deletingRowIndex);
@@ -392,8 +412,9 @@ export function HistoryView({
         await handleApplyTendikFilter();
       }
       setShowDeleteConfirmModal(false);
+      setDeletingKioskItem(null);
     } catch (e) {
-      console.error(e);
+      console.error('Delete execution failed:', e);
     } finally {
       setIsDeleting(false);
     }
@@ -1522,7 +1543,7 @@ export function HistoryView({
                     <th className="p-3.5 w-24 text-center">Kelas</th>
                     <th className="p-3.5 w-32 text-center">Status Masuk</th>
                     <th className="p-3.5 w-36 text-center">Keterlambatan</th>
-                    {currentUser?.role === 'Admin' && <th className="p-3.5 pr-4 text-center w-20">Aksi</th>}
+                    {(currentUser?.role === 'Admin' || isFullAccess) && <th className="p-3.5 pr-4 text-center w-20">Aksi</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1575,11 +1596,11 @@ export function HistoryView({
                               <span className="text-slate-400 font-bold">-</span>
                             )}
                           </td>
-                          {currentUser?.role === 'Admin' && (
+                          {(currentUser?.role === 'Admin' || isFullAccess) && (
                             <td className="p-3.5 pr-4 text-center">
                               <button
                                 type="button"
-                                onClick={() => openDeleteConfirmModal(item.rowIndex || idx, 'kiosk-siswa')}
+                                onClick={() => openDeleteConfirmModal(item.rowIndex || idx + 2, 'kiosk-siswa', item)}
                                 className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                 title="Hapus Data Presensi"
                               >
@@ -2318,7 +2339,19 @@ export function HistoryView({
             </div>
             
             <p className="text-xs text-slate-500 leading-relaxed">
-              Apakah Anda yakin ingin menghapus data log {deletingRecordType === 'siswa' ? 'presensi siswa' : 'izin guru'} ini? Tindakan ini bersifat permanen dan data tidak dapat dikembalikan.
+              Apakah Anda yakin ingin menghapus data log{' '}
+              <span className="font-bold text-slate-700">
+                {deletingRecordType === 'siswa'
+                  ? 'presensi pembelajaran siswa'
+                  : deletingRecordType === 'kiosk-siswa'
+                  ? 'presensi masuk kiosk/barcode siswa'
+                  : deletingRecordType === 'guru'
+                  ? 'izin guru'
+                  : deletingRecordType === 'tendik-absen'
+                  ? 'presensi tendik'
+                  : 'izin tendik'}
+              </span>
+              ? Tindakan ini bersifat permanen dan data akan dihapus dari Google Sheets.
             </p>
 
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">

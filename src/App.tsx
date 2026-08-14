@@ -28,6 +28,7 @@ import {
 
 import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString } from './types';
 import { apiClient, initializeStorage, clearApiCache } from './api';
+import { normalizeImageUrl, getUserPhotoUrl, handleImageFallbackError } from './utils/imageUrl';
 
 // Components
 import { ToastContainer } from './components/ToastContainer';
@@ -241,7 +242,14 @@ export default function App() {
     if (savedCustomization) {
       try {
         const parsed = JSON.parse(savedCustomization);
-        setCustomization((prev) => ({ ...prev, ...parsed }));
+        setCustomization((prev) => ({
+          ...prev,
+          ...parsed,
+          userPhotos: { ...(prev.userPhotos || {}), ...(parsed.userPhotos || {}) },
+          fullAccessUsernames: Array.isArray(parsed.fullAccessUsernames) && parsed.fullAccessUsernames.length > 0
+            ? parsed.fullAccessUsernames
+            : prev.fullAccessUsernames,
+        }));
       } catch (e) {
         console.error('Error loading customization cache:', e);
       }
@@ -250,9 +258,32 @@ export default function App() {
     // 2. Fetch background live values from Google Spreadsheet
     try {
       const res = await apiClient.getCustomization();
-      if (res.status === 'success' && res.customization) {
-        setCustomization(res.customization);
-        localStorage.setItem('absensi_app_customization', JSON.stringify(res.customization));
+      if (res.status === 'success' && res.customization && typeof res.customization === 'object' && Object.keys(res.customization).length > 0) {
+        const c = res.customization;
+        const normalizedPhotos: Record<string, string> = {};
+        if (c.userPhotos && typeof c.userPhotos === 'object') {
+          Object.entries(c.userPhotos).forEach(([k, v]) => {
+            if (v && typeof v === 'string') {
+              normalizedPhotos[k] = normalizeImageUrl(v.trim());
+            }
+          });
+        }
+
+        const merged: AppCustomization = {
+          appName: c.appName?.trim() || 'E-ABSENSI',
+          appSubtitle: c.appSubtitle?.trim() || 'SEKOLAH DIGITAL',
+          logoEmoji: c.logoEmoji || '🎓',
+          logoColor: c.logoColor || 'bg-blue-600',
+          logoUrl: c.logoUrl ? normalizeImageUrl(c.logoUrl.trim()) : '',
+          fullAccessUsernames: Array.isArray(c.fullAccessUsernames) ? c.fullAccessUsernames : [],
+          userPhotos: normalizedPhotos,
+          kepalaSekolahNama: c.kepalaSekolahNama?.trim() || '',
+          kepalaSekolahNip: c.kepalaSekolahNip?.trim() || '',
+          batasWaktuMasuk: c.batasWaktuMasuk?.trim() || '07:00',
+        };
+
+        setCustomization(merged);
+        localStorage.setItem('absensi_app_customization', JSON.stringify(merged));
       }
     } catch (err) {
       console.error('Background load customization error:', err);
@@ -362,13 +393,27 @@ export default function App() {
 
   // SAVE APP CUSTOMIZATION SETTINGS
   const handleSaveCustomization = async (newCust: AppCustomization) => {
-    setCustomization(newCust);
-    localStorage.setItem('absensi_app_customization', JSON.stringify(newCust));
+    const normalizedPhotos: Record<string, string> = {};
+    if (newCust.userPhotos && typeof newCust.userPhotos === 'object') {
+      Object.entries(newCust.userPhotos).forEach(([k, v]) => {
+        if (v && typeof v === 'string' && v.trim()) {
+          normalizedPhotos[k] = normalizeImageUrl(v.trim());
+        }
+      });
+    }
+    const cleanCust: AppCustomization = {
+      ...newCust,
+      logoUrl: newCust.logoUrl ? normalizeImageUrl(newCust.logoUrl.trim()) : '',
+      userPhotos: normalizedPhotos,
+    };
+
+    setCustomization(cleanCust);
+    localStorage.setItem('absensi_app_customization', JSON.stringify(cleanCust));
     
     try {
-      const res = await apiClient.saveCustomization(newCust);
+      const res = await apiClient.saveCustomization(cleanCust);
       if (res.status === 'success') {
-        addToast('Pengaturan identitas & hak akses berhasil disimpan dan disinkronkan ke Spreadsheet!', 'success');
+        addToast('Pengaturan identitas & foto profil berhasil disimpan dan disinkronkan ke Spreadsheet!', 'success');
       } else if (res.errorType === 'sheet_not_found') {
         addToast('Pengaturan disimpan lokal! Buat Sheet bernama "Pengaturan" di Google Sheets Anda untuk mengaktifkan Cloud Sync.', 'warning');
       } else {
@@ -667,7 +712,7 @@ export default function App() {
                 <div className={`w-10 h-10 rounded-xl ${customization.logoColor || 'bg-blue-600'} flex items-center justify-center text-white font-bold text-xl shadow-md shadow-blue-600/10 overflow-hidden`}>
                   {customization.logoUrl?.trim() ? (
                     <img
-                      src={customization.logoUrl.trim()}
+                      src={normalizeImageUrl(customization.logoUrl.trim())}
                       alt="Logo"
                       className="w-full h-full object-cover"
                       referrerPolicy="no-referrer"
@@ -699,22 +744,28 @@ export default function App() {
             {/* Logged in user detail box */}
             <div className="p-4 bg-slate-850/40 border-b border-slate-800 flex items-center gap-3">
               <div className={`w-9 h-9 rounded-full ${customization.logoColor || 'bg-blue-700'} text-white flex items-center justify-center font-extrabold text-sm shadow-inner uppercase overflow-hidden flex-shrink-0`}>
-                {currentUser && customization.userPhotos?.[currentUser.username]?.trim() && !failedUserPhotos[currentUser.username] ? (
-                  <img
-                    src={customization.userPhotos[currentUser.username].trim()}
-                    alt={currentUser.nama}
-                    className="w-full h-full object-cover"
-                    referrerPolicy="no-referrer"
-                    onError={() => {
-                      setFailedUserPhotos((prev) => ({
-                        ...prev,
-                        [currentUser.username]: true,
-                      }));
-                    }}
-                  />
-                ) : (
-                  currentUser?.nama ? currentUser.nama.charAt(0) : 'U'
-                )}
+                {(() => {
+                  const photoUrl = getUserPhotoUrl(customization, currentUser);
+                  if (currentUser && photoUrl && !failedUserPhotos[currentUser.username]) {
+                    return (
+                      <img
+                        src={photoUrl}
+                        alt={currentUser.nama}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          handleImageFallbackError(e, () => {
+                            setFailedUserPhotos((prev) => ({
+                              ...prev,
+                              [currentUser.username]: true,
+                            }));
+                          });
+                        }}
+                      />
+                    );
+                  }
+                  return currentUser?.nama ? currentUser.nama.charAt(0) : 'U';
+                })()}
               </div>
               <div className="overflow-hidden">
                 <p className="text-xs font-bold text-white truncate" title={currentUser?.nama}>
@@ -1129,7 +1180,7 @@ export default function App() {
               {/* VIEW: CETAK BARCODE (Strictly for Admin Utama and Admin) */}
               {activeView === 'cetak-barcode' && (
                 hasFullAccess(currentUser) ? (
-                  <CetakBarcodeView students={allStudents} kelasList={kelasList} />
+                  <CetakBarcodeView students={allStudents} kelasList={kelasList} customization={customization} />
                 ) : (
                   <div className="p-10 text-center bg-white rounded-3xl border border-slate-200 shadow-sm max-w-lg mx-auto mt-8">
                     <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 mx-auto mb-4 flex items-center justify-center">

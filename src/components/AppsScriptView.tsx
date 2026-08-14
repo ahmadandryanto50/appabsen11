@@ -157,7 +157,7 @@ function doPost(e) {
         result = getKioskAttendanceHistory(contents.tanggal, contents.kelas);
         break;
       case "deleteKioskAttendanceRecord":
-        result = deleteKioskAttendanceRecord(contents.rowIndex);
+        result = deleteKioskAttendanceRecord(contents.rowIndex, contents.timestamp, contents.nisn);
         break;
       case "submitTeacherAbsence":
         result = submitTeacherAbsence(contents.payload);
@@ -518,36 +518,94 @@ function submitKioskScan(payload) {
 function getKioskAttendanceHistory(tanggal, kelas) {
   try {
     const ss = getDb();
-    const sheet = ss.getSheetByName("Presensi");
+    let sheet = ss.getSheetByName("Presensi");
+    if (!sheet) {
+      sheet = ss.getSheetByName("Presensi_Kiosk") || ss.getSheetByName("Presensi Masuk") || ss.getSheetByName("Log_Presensi");
+    }
     if (!sheet) return { status: "success", history: [] };
 
     const values = sheet.getDataRange().getValues();
+    if (!values || values.length <= 1) return { status: "success", history: [] };
+
+    const headers = values[0].map(function(h) { return (h || "").toString().toLowerCase().trim(); });
+    
+    // Dynamic column index resolution
+    var tsIdx = -1, nisnIdx = -1, namaIdx = -1, kelasIdx = -1, statusIdx = -1, telatIdx = -1, tglIdx = -1, wktIdx = -1;
+    for (var j = 0; j < headers.length; j++) {
+      var h = headers[j];
+      if (tsIdx === -1 && (h.indexOf("timestamp") !== -1 || h.indexOf("waktu scan") !== -1)) tsIdx = j;
+      if (tglIdx === -1 && (h === "tanggal" || h.indexOf("tgl") !== -1)) tglIdx = j;
+      if (wktIdx === -1 && (h === "waktu" || h === "jam" || h.indexOf("pukul") !== -1)) wktIdx = j;
+      if (nisnIdx === -1 && (h.indexOf("nisn") !== -1 || h.indexOf("nis") !== -1 || h.indexOf("no induk") !== -1)) nisnIdx = j;
+      if (namaIdx === -1 && h.indexOf("nama") !== -1) namaIdx = j;
+      if (kelasIdx === -1 && (h.indexOf("kelas") !== -1 || h.indexOf("rombel") !== -1)) kelasIdx = j;
+      if (statusIdx === -1 && (h.indexOf("status") !== -1 || h.indexOf("kehadiran") !== -1 || h.indexOf("presensi") !== -1)) statusIdx = j;
+      if (telatIdx === -1 && (h.indexOf("terlambat") !== -1 || h.indexOf("keterlambatan") !== -1 || h.indexOf("menit") !== -1)) telatIdx = j;
+    }
+
+    if (tsIdx === -1) tsIdx = 0;
+    if (nisnIdx === -1) nisnIdx = 1;
+    if (namaIdx === -1) namaIdx = 2;
+    if (kelasIdx === -1) kelasIdx = 3;
+    if (statusIdx === -1) statusIdx = 4;
+    if (telatIdx === -1) telatIdx = 5;
+
     const history = [];
     const tz = Session.getScriptTimeZone();
 
-    for (let i = 1; i < values.length; i++) {
-      let rowTimestamp = values[i][0];
-      if (rowTimestamp instanceof Date) {
-        rowTimestamp = Utilities.formatDate(rowTimestamp, tz, "yyyy-MM-dd HH:mm:ss");
+    function normalizeDateForMatch(dVal) {
+      if (!dVal) return "";
+      if (dVal instanceof Date) {
+        return Utilities.formatDate(dVal, tz, "yyyy-MM-dd");
+      }
+      var str = dVal.toString().trim();
+      var ymd = str.match(/^(\d{4})[-/\.](\d{1,2})[-/\.](\d{1,2})/);
+      if (ymd) {
+        var m = ("0" + ymd[2]).slice(-2);
+        var d = ("0" + ymd[3]).slice(-2);
+        return ymd[1] + "-" + m + "-" + d;
+      }
+      var dmy = str.match(/^(\d{1,2})[-/\.](\d{1,2})[-/\.](\d{4})/);
+      if (dmy) {
+        var m2 = ("0" + dmy[2]).slice(-2);
+        var d2 = ("0" + dmy[1]).slice(-2);
+        return dmy[3] + "-" + m2 + "-" + d2;
+      }
+      return str.split(" ")[0] || "";
+    }
+
+    var targetNormalized = tanggal ? normalizeDateForMatch(tanggal) : "";
+
+    for (var i = 1; i < values.length; i++) {
+      var row = values[i];
+      if (!row || row.length === 0) continue;
+
+      var rawTs = row[tsIdx];
+      var rowTimestamp = "";
+      if (rawTs instanceof Date) {
+        rowTimestamp = Utilities.formatDate(rawTs, tz, "yyyy-MM-dd HH:mm:ss");
       } else {
-        rowTimestamp = rowTimestamp ? rowTimestamp.toString() : "";
+        rowTimestamp = rawTs ? rawTs.toString() : "";
       }
 
-      const rowNisn = values[i][1] ? values[i][1].toString() : "";
-      const rowNama = values[i][2] ? values[i][2].toString() : "";
-      const rowKelas = values[i][3] ? values[i][3].toString() : "";
-      const rowStatus = values[i][4] ? values[i][4].toString() : "Hadir";
-      const rowKeterlambatan = values[i][5] ? values[i][5].toString() : "-";
+      var rowTanggal = tglIdx !== -1 && row[tglIdx] ? normalizeDateForMatch(row[tglIdx]) : normalizeDateForMatch(rawTs || rowTimestamp);
+      var rowWaktu = wktIdx !== -1 && row[wktIdx] ? row[wktIdx].toString() : (rowTimestamp.split(" ")[1] || "-");
 
-      const rowDateOnly = rowTimestamp.split(" ")[0] || "";
-      const rowClockOnly = rowTimestamp.split(" ")[1] || "-";
+      var rowNisn = row[nisnIdx] ? row[nisnIdx].toString().trim() : "";
+      var rowNama = row[namaIdx] ? row[namaIdx].toString().trim() : "";
+      var rowKelas = row[kelasIdx] ? row[kelasIdx].toString().trim() : "";
+      var rowStatus = row[statusIdx] ? row[statusIdx].toString().trim() : "Hadir";
+      var rowKeterlambatan = row[telatIdx] ? row[telatIdx].toString().trim() : "-";
 
-      if ((!tanggal || rowDateOnly === tanggal || rowTimestamp.indexOf(tanggal) === 0) && (!kelas || rowKelas === kelas)) {
+      var dateMatches = !targetNormalized || rowTanggal === targetNormalized || rowTimestamp.indexOf(tanggal) === 0 || (rawTs && rawTs.toString().indexOf(tanggal) !== -1);
+      var classMatches = !kelas || rowKelas.toLowerCase() === kelas.toString().toLowerCase().trim();
+
+      if (dateMatches && classMatches) {
         history.unshift({
           rowIndex: i + 1,
-          timestamp: rowTimestamp,
-          tanggal: rowDateOnly,
-          waktu: rowClockOnly,
+          timestamp: rowTimestamp || rawTs,
+          tanggal: rowTanggal,
+          waktu: rowWaktu,
           nisn: rowNisn,
           nama: rowNama,
           kelas: rowKelas,
@@ -563,19 +621,34 @@ function getKioskAttendanceHistory(tanggal, kelas) {
   }
 }
 
-function deleteKioskAttendanceRecord(rowIndex) {
+function deleteKioskAttendanceRecord(rowIndex, timestamp, nisn) {
   try {
     const ss = getDb();
-    const sheet = ss.getSheetByName("Presensi");
+    let sheet = ss.getSheetByName("Presensi");
+    if (!sheet) {
+      sheet = ss.getSheetByName("Presensi_Kiosk") || ss.getSheetByName("Presensi Masuk") || ss.getSheetByName("Log_Presensi");
+    }
     if (!sheet) return { status: "error", message: "Tabel Presensi tidak ditemukan." };
 
     const rIdx = Number(rowIndex);
-    if (!rIdx || rIdx < 2 || rIdx > sheet.getLastRow()) {
-      return { status: "error", message: "Baris data tidak valid." };
+    if (rIdx && rIdx >= 2 && rIdx <= sheet.getLastRow()) {
+      sheet.deleteRow(rIdx);
+      return { status: "success", message: "Data presensi berhasil dihapus." };
     }
 
-    sheet.deleteRow(rIdx);
-    return { status: "success", message: "Data presensi berhasil dihapus." };
+    if (timestamp || nisn) {
+      var data = sheet.getDataRange().getValues();
+      for (var i = data.length - 1; i >= 1; i--) {
+        var rowTs = data[i][0] ? data[i][0].toString() : "";
+        var rowNisn = data[i][1] ? data[i][1].toString() : "";
+        if ((timestamp && rowTs.indexOf(timestamp) !== -1) || (nisn && rowNisn === nisn.toString())) {
+          sheet.deleteRow(i + 1);
+          return { status: "success", message: "Data presensi berhasil dihapus." };
+        }
+      }
+    }
+
+    return { status: "error", message: "Baris data presensi tidak ditemukan." };
   } catch (err) {
     return { status: "error", message: err.message };
   }

@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { GraduationCap, User, Lock, Loader2, ShieldCheck, UserCheck } from 'lucide-react';
 import { AppCustomization } from '../types';
+import { normalizeImageUrl } from '../utils/imageUrl';
 
 interface LoginViewProps {
   onLogin: (username: string, passwordInput: string) => Promise<void>;
@@ -34,7 +35,7 @@ export function LoginView({ onLogin, isLoading, customization }: LoginViewProps)
         <div className={`w-16 h-16 ${customization?.logoColor || 'bg-blue-600'} rounded-2xl flex items-center justify-center text-white mx-auto shadow-lg shadow-blue-500/20 overflow-hidden`}>
           {customization?.logoUrl?.trim() ? (
             <img
-              src={customization.logoUrl.trim()}
+              src={normalizeImageUrl(customization.logoUrl.trim())}
               alt="Logo"
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"

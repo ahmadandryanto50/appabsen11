@@ -525,10 +525,68 @@ export const apiClient = {
 
   // 3.6 GET KIOSK ATTENDANCE HISTORY (PRESENSI SISWA MASUK)
   async getKioskAttendanceHistory(tanggal?: string, kelas?: string): Promise<{ status: string; history: any[] }> {
-    const normalizeRecord = (item: any) => {
+    const normalizeDateStr = (dateInput: any): string => {
+      if (!dateInput) return '';
+      if (dateInput instanceof Date) {
+        const y = dateInput.getFullYear();
+        const m = String(dateInput.getMonth() + 1).padStart(2, '0');
+        const d = String(dateInput.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+      const trimmed = String(dateInput).trim();
+      if (!trimmed) return '';
+
+      // If YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
+      const ymd = trimmed.match(/^(\d{4})[-/\. ](\d{1,2})[-/\. ](\d{1,2})/);
+      if (ymd) {
+        return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
+      }
+      // If DD/MM/YYYY or DD-MM-YYYY
+      const dmy = trimmed.match(/^(\d{1,2})[-/\. ](\d{1,2})[-/\. ](\d{4})/);
+      if (dmy) {
+        return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+      }
+
+      // Indonesian month names fallback (e.g. 14 Agustus 2026)
+      const indoMonths: Record<string, string> = {
+        jan: '01', januari: '01', feb: '02', februari: '02', mar: '03', maret: '03',
+        apr: '04', april: '04', mei: '05', may: '05', jun: '06', juni: '06',
+        jul: '07', juli: '07', agu: '08', agt: '08', agustus: '08', aug: '08',
+        sep: '09', september: '09', okt: '10', oktober: '10', oct: '10',
+        nov: '11', november: '11', des: '12', desember: '12', dec: '12'
+      };
+      const textMatch = trimmed.toLowerCase().match(/^(\d{1,2})\s+([a-z]+)\s+(\d{4})/);
+      if (textMatch && indoMonths[textMatch[2]]) {
+        return `${textMatch[3]}-${indoMonths[textMatch[2]]}-${textMatch[1].padStart(2, '0')}`;
+      }
+
+      return trimmed.split(' ')[0] || trimmed;
+    };
+
+    // Load student database cache for resolving student names/class if missing in Presensi sheet
+    let studentMap: Record<string, { nama: string; kelas: string }> = {};
+    try {
+      const cachedSiswa = localStorage.getItem('absensi_master_siswa');
+      if (cachedSiswa) {
+        const list = JSON.parse(cachedSiswa);
+        if (Array.isArray(list)) {
+          list.forEach((s: any) => {
+            const sNisn = String(s.nisn || s.data?.[1] || '').trim();
+            const sNama = String(s.nama || s.data?.[2] || '').trim();
+            const sKelas = String(s.kelas || s.data?.[3] || '').trim();
+            if (sNisn) {
+              studentMap[sNisn] = { nama: sNama, kelas: sKelas };
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    const normalizeRecord = (item: any, fallbackRowIndex?: number) => {
       const raw = item.timestamp ? String(item.timestamp).trim() : '';
-      let itemTanggal = item.tanggal || '';
-      let itemWaktu = item.waktu || '';
+      let itemTanggal = item.tanggal ? String(item.tanggal).trim() : '';
+      let itemWaktu = item.waktu ? String(item.waktu).trim() : '';
+
       if (!itemTanggal || !itemWaktu) {
         if (raw.includes('T')) {
           const parts = raw.split('T');
@@ -543,61 +601,200 @@ export const apiClient = {
           itemWaktu = '-';
         }
       }
+
+      const stdDate = normalizeDateStr(itemTanggal || raw);
+      const nisnVal = String(item.nisn || '').trim();
+      let namaVal = String(item.nama || '').trim();
+      let kelasVal = String(item.kelas || '').trim();
+
+      if ((!namaVal || namaVal === '-' || namaVal.toLowerCase() === 'nama siswa') && nisnVal && studentMap[nisnVal]) {
+        namaVal = studentMap[nisnVal].nama;
+        if (!kelasVal || kelasVal === '-') {
+          kelasVal = studentMap[nisnVal].kelas;
+        }
+      }
+
       return {
         ...item,
-        tanggal: itemTanggal,
-        waktu: itemWaktu,
+        rowIndex: item.rowIndex || fallbackRowIndex || item._rowIndex || Date.now(),
+        timestamp: raw || `${itemTanggal} ${itemWaktu}`,
+        tanggal: stdDate || itemTanggal,
+        rawTanggal: itemTanggal,
+        waktu: itemWaktu || '-',
+        nisn: nisnVal,
+        nama: namaVal,
+        kelas: kelasVal,
+        status: String(item.status || 'Hadir').trim(),
+        keterlambatan: String(item.keterlambatan || '-').trim(),
+        menitTerlambat: Number(item.menitTerlambat) || 0,
       };
     };
 
+    const targetDateIso = tanggal ? normalizeDateStr(tanggal) : '';
     const url = this.getBackendUrl();
+
     if (url) {
-      const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, true, 60000);
-      if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
-        const normalized = result.history.map(normalizeRecord);
+      // 1. Try dedicated getKioskAttendanceHistory action from GAS
+      const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, true, 10000);
+      if (ok && result && result.status === 'success' && Array.isArray(result.history) && result.history.length > 0) {
+        let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
+
+        if (targetDateIso) {
+          normalized = normalized.filter((h: any) => {
+            const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
+            return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
+          });
+        }
+        if (kelas) {
+          normalized = normalized.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
+        }
+
         try {
           if (!tanggal && !kelas) {
             localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(normalized));
           }
         } catch (e) {}
-        return { status: 'success', history: normalized };
+
+        if (normalized.length > 0) {
+          return { status: 'success', history: normalized };
+        }
+      }
+
+      // 2. Direct Fallback: Read directly from sheet 'Presensi' (or synonyms) via getCrud
+      const possibleSheetNames = ['Presensi', 'Presensi_Kiosk', 'Presensi_Masuk', 'Presensi Masuk', 'Log_Presensi'];
+      for (const sheetName of possibleSheetNames) {
+        try {
+          const crudPresensi = await this.getCrud(sheetName);
+          if (crudPresensi.status === 'success' && Array.isArray(crudPresensi.rows) && crudPresensi.rows.length > 0) {
+            const headersLower = (crudPresensi.headers || []).map((h: string) => (h || '').toLowerCase().trim());
+            
+            let tsIdx = headersLower.findIndex((h: string) => h.includes('timestamp') || h.includes('waktu scan'));
+            if (tsIdx === -1) tsIdx = 0;
+            const tglIdx = headersLower.findIndex((h: string) => h === 'tanggal' || h.includes('tgl'));
+            const wktIdx = headersLower.findIndex((h: string) => h === 'waktu' || h === 'jam' || h.includes('pukul'));
+            let nisnIdx = headersLower.findIndex((h: string) => h.includes('nisn') || h.includes('nis') || h.includes('no induk'));
+            if (nisnIdx === -1) nisnIdx = 1;
+            let namaIdx = headersLower.findIndex((h: string) => h.includes('nama'));
+            if (namaIdx === -1) namaIdx = 2;
+            let kelasIdx = headersLower.findIndex((h: string) => h.includes('kelas') || h.includes('rombel'));
+            if (kelasIdx === -1) kelasIdx = 3;
+            let statusIdx = headersLower.findIndex((h: string) => h.includes('status') || h.includes('kehadiran') || h.includes('presensi'));
+            if (statusIdx === -1) statusIdx = 4;
+            let telatIdx = headersLower.findIndex((h: string) => h.includes('terlambat') || h.includes('keterlambatan') || h.includes('menit'));
+            if (telatIdx === -1) telatIdx = 5;
+
+            const parsedFromSheet = crudPresensi.rows.map((row: any) => {
+              const rowData = row.data || [];
+              const rawTs = rowData[tsIdx] ? String(rowData[tsIdx]).trim() : '';
+              const rawTgl = tglIdx !== -1 && rowData[tglIdx] ? String(rowData[tglIdx]).trim() : '';
+              const rawWkt = wktIdx !== -1 && rowData[wktIdx] ? String(rowData[wktIdx]).trim() : '';
+
+              return normalizeRecord({
+                rowIndex: row._rowIndex || row.rowIndex,
+                timestamp: rawTs || `${rawTgl} ${rawWkt}`,
+                tanggal: rawTgl || rawTs.split(' ')[0],
+                waktu: rawWkt || rawTs.split(' ')[1] || '-',
+                nisn: rowData[nisnIdx] ? String(rowData[nisnIdx]).trim() : '',
+                nama: rowData[namaIdx] ? String(rowData[namaIdx]).trim() : '',
+                kelas: rowData[kelasIdx] ? String(rowData[kelasIdx]).trim() : '',
+                status: rowData[statusIdx] ? String(rowData[statusIdx]).trim() : 'Hadir',
+                keterlambatan: rowData[telatIdx] ? String(rowData[telatIdx]).trim() : '-',
+              }, row._rowIndex);
+            });
+
+            // Sort latest first
+            let filteredSheet = parsedFromSheet.reverse();
+
+            if (targetDateIso) {
+              filteredSheet = filteredSheet.filter((h: any) => {
+                const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
+                return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
+              });
+            }
+            if (kelas) {
+              filteredSheet = filteredSheet.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
+            }
+
+            if (filteredSheet.length > 0) {
+              try {
+                if (!tanggal && !kelas) {
+                  localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(filteredSheet));
+                }
+              } catch (e) {}
+              return { status: 'success', history: filteredSheet };
+            }
+          }
+        } catch (crudErr) {
+          // continue checking next possible sheet
+        }
       }
     }
 
-    // Local Fallback / Offline
+    // 3. Local Storage Cache / Offline Fallback
     const raw = localStorage.getItem('absensi_kiosk_all_scans') || '[]';
     let history: any[] = [];
     try {
       history = JSON.parse(raw);
     } catch (e) {}
 
-    history = history.map(normalizeRecord);
+    history = history.map((h, i) => normalizeRecord(h, i + 2));
 
-    if (tanggal) {
-      history = history.filter((h) => (h.tanggal || h.timestamp || '').startsWith(tanggal));
+    if (targetDateIso) {
+      history = history.filter((h: any) => {
+        const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
+        return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
+      });
     }
     if (kelas) {
-      history = history.filter((h) => (h.kelas || '').toLowerCase() === kelas.toLowerCase());
+      history = history.filter((h) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
     }
 
     return { status: 'success', history };
   },
 
   // 3.7 DELETE KIOSK ATTENDANCE RECORD
-  async deleteKioskAttendanceRecord(rowIndex: string | number) {
+  async deleteKioskAttendanceRecord(rowIndex: string | number, timestamp?: string, nisn?: string) {
     clearApiCache();
     const url = this.getBackendUrl();
     if (url) {
-      const { ok, result, error } = await safeCallGAS(url, 'deleteKioskAttendanceRecord', { rowIndex });
-      if (ok && result) return result;
-      if (error) return { status: 'error', message: error };
+      // 1. Try dedicated GAS deleteKioskAttendanceRecord
+      const { ok, result, error } = await safeCallGAS(url, 'deleteKioskAttendanceRecord', { rowIndex, timestamp, nisn });
+      if (ok && result && result.status === 'success') {
+        this.removeKioskLocalScan(rowIndex, timestamp, nisn);
+        return result;
+      }
+
+      // 2. Fallback: try deleteCrud on sheet 'Presensi'
+      if (rowIndex && !isNaN(Number(rowIndex))) {
+        try {
+          const crudRes = await this.deleteCrud('Presensi', Number(rowIndex));
+          if (crudRes && crudRes.status === 'success') {
+            this.removeKioskLocalScan(rowIndex, timestamp, nisn);
+            return crudRes;
+          }
+        } catch (e) {}
+      }
+
+      if (error) {
+        console.warn('deleteKioskAttendanceRecord warning:', error);
+      }
     }
 
-    const raw = localStorage.getItem('absensi_kiosk_all_scans') || '[]';
-    let history: any[] = JSON.parse(raw);
-    history = history.filter((h) => String(h.rowIndex) !== String(rowIndex));
-    localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(history));
-    return { status: 'success' };
+    this.removeKioskLocalScan(rowIndex, timestamp, nisn);
+    return { status: 'success', message: 'Data presensi berhasil dihapus.' };
+  },
+
+  removeKioskLocalScan(rowIndex?: string | number, timestamp?: string, nisn?: string) {
+    try {
+      const raw = localStorage.getItem('absensi_kiosk_all_scans') || '[]';
+      let history: any[] = JSON.parse(raw);
+      history = history.filter((h) => {
+        if (rowIndex && String(h.rowIndex) === String(rowIndex)) return false;
+        if (timestamp && nisn && String(h.timestamp) === String(timestamp) && String(h.nisn) === String(nisn)) return false;
+        return true;
+      });
+      localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(history));
+    } catch (e) {}
   },
 
   // 4. SUBMIT TEACHER ABSENCE / SICK PERMIT

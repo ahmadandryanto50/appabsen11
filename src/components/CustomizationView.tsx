@@ -5,8 +5,9 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppCustomization, User } from '../types';
-import { Save, ShieldAlert, Sparkles, Check, RefreshCw, Search, ShieldCheck, Link2, Cloud, Database, AlertCircle, Eye, Clock } from 'lucide-react';
+import { Save, ShieldAlert, Sparkles, Check, RefreshCw, Search, ShieldCheck, Link2, Cloud, Database, AlertCircle, Eye, Clock, DownloadCloud } from 'lucide-react';
 import { apiClient } from '../api';
+import { normalizeImageUrl, getUserPhotoUrl, handleImageFallbackError } from '../utils/imageUrl';
 
 interface CustomizationViewProps {
   customization: AppCustomization;
@@ -119,16 +120,51 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
     }));
   };
 
+  const handleReloadFromCloud = async () => {
+    setSyncStatus('checking');
+    try {
+      const check = await apiClient.getCustomization();
+      if (check.status === 'success' && check.customization && Object.keys(check.customization).length > 0) {
+        const c = check.customization;
+        if (c.appName) setAppName(c.appName);
+        if (c.appSubtitle) setAppSubtitle(c.appSubtitle);
+        if (c.logoEmoji) setLogoEmoji(c.logoEmoji);
+        if (c.logoColor) setLogoColor(c.logoColor);
+        if (c.logoUrl !== undefined) setLogoUrl(c.logoUrl);
+        if (Array.isArray(c.fullAccessUsernames)) setFullAccessUsernames(c.fullAccessUsernames);
+        if (c.userPhotos && typeof c.userPhotos === 'object') setUserPhotos(c.userPhotos);
+        if (c.kepalaSekolahNama !== undefined) setKepalaSekolahNama(c.kepalaSekolahNama);
+        if (c.kepalaSekolahNip !== undefined) setKepalaSekolahNip(c.kepalaSekolahNip);
+        if (c.batasWaktuMasuk !== undefined) setBatasWaktuMasuk(c.batasWaktuMasuk);
+        setSyncStatus('synced');
+      } else if (check.errorType === 'sheet_not_found') {
+        setSyncStatus('sheet_missing');
+      } else {
+        setSyncStatus('synced');
+      }
+    } catch (err) {
+      setSyncStatus('error');
+    }
+  };
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedLogo = normalizeImageUrl(logoUrl.trim());
+    const normalizedPhotos: Record<string, string> = {};
+    Object.entries(userPhotos).forEach(([k, v]) => {
+      if (v && typeof v === 'string' && v.trim()) {
+        normalizedPhotos[k] = normalizeImageUrl(v.trim());
+      }
+    });
+
     onSave({
       appName: appName.trim(),
       appSubtitle: appSubtitle.trim(),
       logoEmoji: logoEmoji,
       logoColor: logoColor,
-      logoUrl: logoUrl.trim(),
+      logoUrl: normalizedLogo,
       fullAccessUsernames: fullAccessUsernames,
-      userPhotos: userPhotos,
+      userPhotos: normalizedPhotos,
       kepalaSekolahNama: kepalaSekolahNama.trim(),
       kepalaSekolahNip: kepalaSekolahNip.trim(),
       batasWaktuMasuk: batasWaktuMasuk.trim(),
@@ -159,21 +195,32 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
         )}
 
         {syncStatus === 'synced' && (
-          <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex items-start gap-3">
-            <div className="bg-emerald-500 text-white p-1.5 rounded-lg flex-shrink-0">
-              <Cloud className="w-4 h-4" />
-            </div>
-            <div className="text-xs space-y-1">
-              <span className="font-extrabold text-emerald-800 flex items-center gap-1">
-                <span>Tersinkronisasi Cloud Aktif</span>
-                <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase">
-                  Connected
+          <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="bg-emerald-500 text-white p-1.5 rounded-lg flex-shrink-0">
+                <Cloud className="w-4 h-4" />
+              </div>
+              <div className="text-xs space-y-1">
+                <span className="font-extrabold text-emerald-800 flex items-center gap-1">
+                  <span>Tersinkronisasi Cloud Aktif</span>
+                  <span className="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase">
+                    Connected
+                  </span>
                 </span>
-              </span>
-              <p className="text-emerald-700 font-medium">
-                Semua perubahan identitas dan hak akses guru akan disimpan langsung ke sheet <strong>'Pengaturan'</strong> di Google Spreadsheet Anda sehingga sinkron secara multi-perangkat.
-              </p>
+                <p className="text-emerald-700 font-medium">
+                  Semua perubahan identitas, logo, foto profil, dan hak akses guru tersimpan ke sheet <strong>'Pengaturan'</strong> di Google Spreadsheet Anda sehingga otomatis tersinkron saat pindah browser.
+                </p>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={handleReloadFromCloud}
+              className="self-end sm:self-center px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm flex-shrink-0"
+              title="Tarik ulang data pengaturan terbaru dari Google Spreadsheet"
+            >
+              <DownloadCloud className="w-3.5 h-3.5" />
+              <span>Tarik dari Cloud</span>
+            </button>
           </div>
         )}
 
@@ -284,11 +331,11 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                   type="url"
                   value={logoUrl}
                   onChange={(e) => setLogoUrl(e.target.value)}
-                  placeholder="Contoh: https://i.imgur.com/your-logo.png"
+                  placeholder="Contoh: https://i.imgur.com/your-logo.png atau link Google Drive"
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
                 />
-                <p className="text-[10px] text-slate-400 mt-1">
-                  *Masukkan link URL gambar langsung (PNG/JPG). Jika diisi, link gambar ini akan diutamakan. Jika dikosongkan, logo akan otomatis menggunakan Emoji di bawah ini.
+                <p className="text-[10px] text-slate-500 mt-1">
+                  *Mendukung link langsung (PNG/JPG), link <strong>Google Drive</strong> (otomatis dikonversi), Dropbox, atau Imgur. Jika dikosongkan, logo otomatis menggunakan Emoji di bawah.
                 </p>
               </div>
 
@@ -439,7 +486,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                   <div className={`w-10 h-10 rounded-xl ${logoColor} flex items-center justify-center text-white font-bold text-xl shadow-md overflow-hidden`}>
                     {logoUrl.trim() ? (
                       <img
-                        src={logoUrl.trim()}
+                        src={normalizeImageUrl(logoUrl.trim())}
                         alt="Logo Preview"
                         className="w-full h-full object-cover"
                         referrerPolicy="no-referrer"
@@ -569,13 +616,11 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                 <div className={`w-10 h-10 rounded-full ${logoColor} text-white flex items-center justify-center font-extrabold text-sm shadow-inner uppercase flex-shrink-0 overflow-hidden`}>
                   {userPhotos['admin']?.trim() ? (
                     <img
-                      src={userPhotos['admin'].trim()}
+                      src={normalizeImageUrl(userPhotos['admin'].trim())}
                       alt="Admin"
                       className="w-full h-full object-cover"
                       referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display = 'none';
-                      }}
+                      onError={(e) => handleImageFallbackError(e)}
                     />
                   ) : (
                     'A'
@@ -597,38 +642,48 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
               </div>
 
               {/* Teachers Rows */}
-              {teachers.map((teacher, idx) => (
-                <div key={`t-${teacher.username || teacher.nip || 'user'}-${idx}`} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-extrabold text-sm shadow-inner uppercase flex-shrink-0 overflow-hidden`}>
-                    {userPhotos[teacher.username]?.trim() ? (
-                      <img
-                        src={userPhotos[teacher.username].trim()}
-                        alt={teacher.nama}
-                        className="w-full h-full object-cover"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : (
-                      teacher.nama.charAt(0)
-                    )}
-                  </div>
-                  <div className="flex-1 space-y-1.5 min-w-0">
-                    <div className="text-[11px] truncate" title={teacher.nama}>
-                      <span className="font-extrabold text-slate-800">{teacher.nama}</span>
-                      <span className="text-slate-400 font-mono ml-1">({teacher.username})</span>
+              {teachers.map((teacher, idx) => {
+                const photoKey = teacher.username || teacher.nip || teacher.accessKey;
+                const photoVal = userPhotos[teacher.username] || userPhotos[teacher.nip] || userPhotos[teacher.accessKey] || userPhotos[teacher.nama] || '';
+                return (
+                  <div key={`t-${photoKey}-${idx}`} className="bg-white p-3 rounded-xl border border-slate-200/80 shadow-sm flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-extrabold text-sm shadow-inner uppercase flex-shrink-0 overflow-hidden`}>
+                      {photoVal?.trim() ? (
+                        <img
+                          src={normalizeImageUrl(photoVal.trim())}
+                          alt={teacher.nama}
+                          className="w-full h-full object-cover"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => handleImageFallbackError(e)}
+                        />
+                      ) : (
+                        teacher.nama.charAt(0)
+                      )}
                     </div>
-                    <input
-                      type="url"
-                      value={userPhotos[teacher.username] || ''}
-                      onChange={(e) => handlePhotoUrlChange(teacher.username, e.target.value)}
-                      placeholder="Link Foto (https://...)"
-                      className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
-                    />
+                    <div className="flex-1 space-y-1.5 min-w-0">
+                      <div className="text-[11px] truncate" title={teacher.nama}>
+                        <span className="font-extrabold text-slate-800">{teacher.nama}</span>
+                        <span className="text-slate-400 font-mono ml-1">({teacher.username || teacher.nip})</span>
+                      </div>
+                      <input
+                        type="url"
+                        value={photoVal}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setUserPhotos((prev) => ({
+                            ...prev,
+                            [photoKey]: val,
+                            ...(teacher.username ? { [teacher.username]: val } : {}),
+                            ...(teacher.nip ? { [teacher.nip]: val } : {}),
+                          }));
+                        }}
+                        placeholder="Link Foto (https://...)"
+                        className="w-full px-2 py-1.5 rounded-lg border border-slate-200 text-[10px] font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                      />
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 

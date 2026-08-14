@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { CrudRow } from '../types';
+import { CrudRow, AppCustomization } from '../types';
 import QRCode from 'qrcode';
 import { Printer, Filter, Users } from 'lucide-react';
+import { normalizeImageUrl } from '../utils/imageUrl';
 
 interface CetakBarcodeViewProps {
   students: CrudRow[];
   kelasList: string[];
+  customization?: AppCustomization;
 }
 
 function QRCodeCard({ value, size = 120 }: { value: string; size?: number }) {
@@ -56,7 +58,7 @@ function QRCodeCard({ value, size = 120 }: { value: string; size?: number }) {
   );
 }
 
-export function CetakBarcodeView({ students, kelasList }: CetakBarcodeViewProps) {
+export function CetakBarcodeView({ students, kelasList, customization }: CetakBarcodeViewProps) {
   const [selectedKelas, setSelectedKelas] = useState<string>('');
 
   const filteredStudents = selectedKelas 
@@ -126,9 +128,26 @@ export function CetakBarcodeView({ students, kelasList }: CetakBarcodeViewProps)
 
               return (
                 <div key={idx} className="border-2 border-slate-800 rounded-2xl overflow-hidden flex flex-col print:border-slate-800 print:break-inside-avoid">
-                  <div className="bg-slate-800 text-white text-center py-3 px-4">
-                    <h4 className="font-bold text-sm tracking-widest uppercase">Kartu Presensi</h4>
-                    <p className="text-[10px] font-medium opacity-80">Sekolah Digital</p>
+                  <div className="bg-slate-800 text-white text-center py-3 px-4 flex items-center justify-center gap-2">
+                    {customization?.logoUrl?.trim() ? (
+                      <img
+                        src={normalizeImageUrl(customization.logoUrl.trim())}
+                        alt="Logo"
+                        className="w-5 h-5 rounded object-cover"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                    ) : null}
+                    <div>
+                      <h4 className="font-bold text-sm tracking-widest uppercase truncate max-w-[150px]">
+                        {customization?.appName || 'Kartu Presensi'}
+                      </h4>
+                      <p className="text-[10px] font-medium opacity-80 uppercase truncate max-w-[150px]">
+                        {customization?.appSubtitle || 'Sekolah Digital'}
+                      </p>
+                    </div>
                   </div>
                   <div className="p-6 flex flex-col items-center bg-white flex-grow justify-between gap-4">
                     <div className="bg-white p-2 rounded-xl border border-slate-100 shadow-sm">
