@@ -189,20 +189,48 @@ export function initializeStorage() {
     localStorage.setItem(STORAGE_KEYS.HISTORY_GURU, JSON.stringify(defaultHistoryGuru));
   }
 
-  if (!localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN)) {
+  if (!localStorage.getItem('absensi_kiosk_all_scans')) {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const defaultHistoryTendik = [
+    const defaultKioskScans = [
       {
         rowIndex: 2,
+        timestamp: `${today} 15:52:33`,
         tanggal: today,
-        waktu: '06:45:00',
-        nip: '19850312201001',
-        namaTendik: 'Bambang Suryono, S.Kom.',
-        photo: '',
-      }
+        waktu: '15:52:33',
+        nisn: '0124567574',
+        nama: 'Maychel Owen',
+        kelas: 'IX. Diponegoro',
+        status: 'Terlambat',
+        keterlambatan: '532 menit',
+        menitTerlambat: 532,
+      },
+      {
+        rowIndex: 3,
+        timestamp: `${today} 15:52:27`,
+        tanggal: today,
+        waktu: '15:52:27',
+        nisn: '3135465222',
+        nama: 'Dalisya Lulu Mumtaza',
+        kelas: 'VIII. Ki Hadjar Dewantara',
+        status: 'Terlambat',
+        keterlambatan: '532 menit',
+        menitTerlambat: 532,
+      },
+      {
+        rowIndex: 4,
+        timestamp: `${today} 15:52:12`,
+        tanggal: today,
+        waktu: '15:52:12',
+        nisn: '3136743658',
+        nama: 'Abizar Putra Ramadhan',
+        kelas: 'VII. Ahmad Yani',
+        status: 'Terlambat',
+        keterlambatan: '532 menit',
+        menitTerlambat: 532,
+      },
     ];
-    localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(defaultHistoryTendik));
+    localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(defaultKioskScans));
   }
 }
 
@@ -304,12 +332,39 @@ export const apiClient = {
     return localStorage.getItem(STORAGE_KEYS.APP_URL) || '';
   },
 
-  setBackendUrl(url: string) {
-    if (url.trim()) {
-      localStorage.setItem(STORAGE_KEYS.APP_URL, url.trim());
+  async syncConfigFromServer(): Promise<{ webAppUrl?: string; customization?: any }> {
+    try {
+      const res = await fetch('/api/config');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.status === 'success') {
+          if (data.webAppUrl && data.webAppUrl.trim()) {
+            localStorage.setItem(STORAGE_KEYS.APP_URL, data.webAppUrl.trim());
+          }
+          return data;
+        }
+      }
+    } catch (e) {
+      // Ignore if offline / static
+    }
+    return {};
+  },
+
+  async setBackendUrl(url: string) {
+    const cleanUrl = url.trim();
+    if (cleanUrl) {
+      localStorage.setItem(STORAGE_KEYS.APP_URL, cleanUrl);
     } else {
       localStorage.removeItem(STORAGE_KEYS.APP_URL);
     }
+    // Broadcast & persist to server so all other preview windows / devices connect automatically
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webAppUrl: cleanUrl }),
+      });
+    } catch (e) {}
   },
 
   isDemoMode(): boolean {
@@ -660,6 +715,28 @@ export const apiClient = {
         }
       }
 
+      // 1b. If filtered by tanggal returned 0, try fetching all to handle any GAS date format mismatch
+      if (tanggal) {
+        const { ok: okAll, result: resAll } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: '', kelas: '' }, true, 10000);
+        if (okAll && resAll && resAll.status === 'success' && Array.isArray(resAll.history) && resAll.history.length > 0) {
+          let normalizedAll = resAll.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
+          try {
+            localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(normalizedAll));
+          } catch (e) {}
+
+          let filteredAll = normalizedAll.filter((h: any) => {
+            const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
+            return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal));
+          });
+          if (kelas) {
+            filteredAll = filteredAll.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
+          }
+          if (filteredAll.length > 0) {
+            return { status: 'success', history: filteredAll };
+          }
+        }
+      }
+
       // 2. Direct Fallback: Read directly from sheet 'Presensi' (or synonyms) via getCrud
       const possibleSheetNames = ['Presensi', 'Presensi_Kiosk', 'Presensi_Masuk', 'Presensi Masuk', 'Log_Presensi'];
       for (const sheetName of possibleSheetNames) {
@@ -730,7 +807,18 @@ export const apiClient = {
       }
     }
 
-    // 3. Local Storage Cache / Offline Fallback
+    // 3. Server Store & Local Storage Cache / Offline Fallback
+    try {
+      const srvRes = await fetch(`/api/kiosk-scans?tanggal=${encodeURIComponent(tanggal || '')}&kelas=${encodeURIComponent(kelas || '')}`);
+      if (srvRes.ok) {
+        const srvData = await srvRes.json();
+        if (srvData.status === 'success' && Array.isArray(srvData.scans) && srvData.scans.length > 0) {
+          const normalizedSrv = srvData.scans.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
+          return { status: 'success', history: normalizedSrv };
+        }
+      }
+    } catch (e) {}
+
     const raw = localStorage.getItem('absensi_kiosk_all_scans') || '[]';
     let history: any[] = [];
     try {
@@ -755,6 +843,15 @@ export const apiClient = {
   // 3.7 DELETE KIOSK ATTENDANCE RECORD
   async deleteKioskAttendanceRecord(rowIndex: string | number, timestamp?: string, nisn?: string) {
     clearApiCache();
+    // Delete from server store
+    try {
+      fetch('/api/kiosk-scans', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rowIndex, timestamp, nisn }),
+      }).catch(() => {});
+    } catch (e) {}
+
     const url = this.getBackendUrl();
     if (url) {
       // 1. Try dedicated GAS deleteKioskAttendanceRecord

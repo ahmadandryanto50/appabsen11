@@ -292,29 +292,45 @@ export default function App() {
 
   // Handle Init App
   useEffect(() => {
-    initializeStorage();
+    const initApp = async () => {
+      // 1. Sync backend URL and settings from server for cross-device & cross-domain persistence
+      try {
+        const srvConfig = await apiClient.syncConfigFromServer();
+        if (srvConfig.webAppUrl) {
+          setWebAppUrl(srvConfig.webAppUrl);
+          setIsDemoMode(false);
+        }
+        if (srvConfig.customization) {
+          setCustomization((prev) => ({ ...prev, ...srvConfig.customization }));
+        }
+      } catch (e) {}
 
-    // Check if there is gas_url in query parameters for instant setup
-    const params = new URLSearchParams(window.location.search);
-    const gasUrlParam = params.get('gas_url');
-    if (gasUrlParam) {
-      apiClient.setBackendUrl(gasUrlParam);
-      setWebAppUrl(gasUrlParam);
-      setIsDemoMode(false);
-      addToast('🎉 Berhasil menyinkronkan database & pengaturan via QR Code!', 'success');
+      // 2. Check if there is gas_url in query parameters for instant setup
+      const params = new URLSearchParams(window.location.search);
+      const gasUrlParam = params.get('gas_url');
+      if (gasUrlParam) {
+        await apiClient.setBackendUrl(gasUrlParam);
+        setWebAppUrl(gasUrlParam);
+        setIsDemoMode(false);
+        addToast('🎉 Berhasil menyinkronkan database & pengaturan via QR Code!', 'success');
 
-      // Clean up URL parameters
-      const newUrl = window.location.pathname + window.location.hash;
-      window.history.replaceState({}, document.title, newUrl);
-    }
+        // Clean up URL parameters
+        const newUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, document.title, newUrl);
+      }
 
-    // Fetch initial datasets in parallel
-    Promise.all([
-      loadCustomization(),
-      fetchKelasList(),
-      fetchMapelList(),
-      fetchMasterData()
-    ]);
+      initializeStorage();
+
+      // Fetch initial datasets in parallel
+      Promise.all([
+        loadCustomization(),
+        fetchKelasList(),
+        fetchMapelList(),
+        fetchMasterData()
+      ]);
+    };
+
+    initApp();
 
     // Auto load session
     const savedUser = localStorage.getItem('absensi_user');
