@@ -35,8 +35,22 @@ export function DashboardView({
   const [loadingTendik, setLoadingTendik] = useState(false);
   const [guruHeaders, setGuruHeaders] = useState<string[]>([]);
 
-  // State for Live Kiosk (Presensi Masuk Siswa Hari Ini)
-  const [kioskTodayList, setKioskTodayList] = useState<any[]>([]);
+  // State for Live Kiosk (Presensi Masuk Siswa Hari Ini) - initialize with cached list to prevent flicker/disappearing
+  const [kioskTodayList, setKioskTodayList] = useState<any[]>(() => {
+    try {
+      const rawToday = localStorage.getItem('absensi_kiosk_today_list');
+      if (rawToday) {
+        const parsed = JSON.parse(rawToday);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      const rawAll = localStorage.getItem('absensi_kiosk_all_scans');
+      if (rawAll) {
+        const parsed = JSON.parse(rawAll);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  });
   const [loadingKioskToday, setLoadingKioskToday] = useState(false);
 
   const isFullAccess =
@@ -51,51 +65,33 @@ export function DashboardView({
     return `${year}-${month}-${day}`;
   };
 
-  const fetchKioskTodayData = useCallback(async () => {
-    setLoadingKioskToday(true);
+  const fetchKioskTodayData = useCallback(async (isInitial: boolean = false) => {
+    // Only show loading indicator if we currently have NO data at all
+    if (isInitial && kioskTodayList.length === 0) {
+      setLoadingKioskToday(true);
+    }
     const todayStr = getLocalDateString(new Date());
 
-    // Check instant cache first
-    const cachedScans = localStorage.getItem('absensi_kiosk_all_scans');
-    if (cachedScans) {
-      try {
-        const parsed = JSON.parse(cachedScans);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          const todayCached = parsed.filter((item: any) => {
-            const itemDate = (item.tanggal || (item.timestamp ? String(item.timestamp).split(' ')[0] : '')).trim();
-            return itemDate === todayStr || (item.timestamp && String(item.timestamp).includes(todayStr));
-          });
-          setKioskTodayList(todayCached);
-        }
-      } catch (e) {}
-    }
-
     try {
-      // 1. Query with today's date parameter
+      // Direct query from Google Spreadsheet Database via API
       const res = await apiClient.getKioskAttendanceHistory(todayStr);
       if (res.status === 'success' && Array.isArray(res.history)) {
-        if (res.history.length > 0) {
-          setKioskTodayList(res.history);
-        } else {
-          // If backend says 0 for today, try fetching all just to make sure, but strictly filter for today.
-          const resAll = await apiClient.getKioskAttendanceHistory('');
-          if (resAll.status === 'success' && Array.isArray(resAll.history)) {
-            const todayFiltered = resAll.history.filter((item: any) => {
-              const itemDate = (item.tanggal || (item.timestamp ? String(item.timestamp).split(' ')[0] : '')).trim();
-              return itemDate === todayStr || (item.timestamp && String(item.timestamp).includes(todayStr));
-            });
-            setKioskTodayList(todayFiltered);
-          } else {
-            setKioskTodayList([]);
-          }
-        }
+        setKioskTodayList(res.history);
+        try {
+          localStorage.setItem('absensi_kiosk_today_list', JSON.stringify(res.history));
+        } catch (e) {}
+      } else {
+        setKioskTodayList([]);
+        try {
+          localStorage.setItem('absensi_kiosk_today_list', '[]');
+        } catch (e) {}
       }
     } catch (err) {
       console.error('Failed to load Live Kiosk today in Dashboard:', err);
     } finally {
       setLoadingKioskToday(false);
     }
-  }, []);
+  }, [kioskTodayList.length]);
 
   useEffect(() => {
     // Fetch Master_Guru headers to accurately resolve column indices dynamically
@@ -107,26 +103,30 @@ export function DashboardView({
       })
       .catch((err) => console.error('Failed to load Master_Guru headers in DashboardView:', err));
 
-    // Fetch Live Kiosk Presensi Masuk Siswa Hari Ini
-    fetchKioskTodayData();
+    // Fetch Live Kiosk Presensi Masuk Siswa Hari Ini (initial fetch)
+    fetchKioskTodayData(true);
 
-    // Auto-refresh when tab is focused (e.g. switching back to the browser)
+    // Auto-refresh seamlessly in background when tab is focused
     const handleFocus = () => {
-      fetchKioskTodayData();
+      fetchKioskTodayData(false);
     };
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        fetchKioskTodayData();
+        fetchKioskTodayData(false);
       }
+    };
+    const handleScanAdded = () => {
+      fetchKioskTodayData(false);
     };
     
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('kiosk-scan-added', handleScanAdded);
 
-    // Auto-refresh every 30 seconds for live monitor displays
+    // Auto-refresh every 30 seconds for live monitor displays (seamless background update)
     const intervalId = setInterval(() => {
       if (!document.hidden) {
-        fetchKioskTodayData();
+        fetchKioskTodayData(false);
       }
     }, 30000);
 
@@ -160,6 +160,7 @@ export function DashboardView({
     return () => {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('kiosk-scan-added', handleScanAdded);
       clearInterval(intervalId);
     };
   }, [currentUser, isFullAccess, fetchKioskTodayData]);

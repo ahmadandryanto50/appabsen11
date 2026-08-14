@@ -348,9 +348,12 @@ export function HistoryView({
       const res = await apiClient.getKioskAttendanceHistory(filterKioskTanggal, filterKioskKelas);
       if (res.status === 'success' && Array.isArray(res.history)) {
         setKioskHistory(res.history);
+      } else {
+        setKioskHistory([]);
       }
     } catch (err) {
       console.error('Failed to load Kiosk history:', err);
+      setKioskHistory([]);
     } finally {
       setIsLoadingKiosk(false);
     }

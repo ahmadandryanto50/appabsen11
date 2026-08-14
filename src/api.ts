@@ -26,6 +26,16 @@ export function initializeStorage() {
 
   // If connected to Web App URL, do NOT populate demo mock data
   if (hasAppUrl) {
+    // Purge lingering demo mock data if present
+    try {
+      const rawScans = localStorage.getItem('absensi_kiosk_all_scans');
+      if (rawScans) {
+        const parsed = JSON.parse(rawScans);
+        if (Array.isArray(parsed) && parsed.some((item: any) => item.nama === 'Ahmad Rizky' || item.nama === 'Anisa Putri' || item.rowIndex === 2)) {
+          localStorage.removeItem('absensi_kiosk_all_scans');
+        }
+      }
+    } catch (e) {}
     return;
   }
 
@@ -568,6 +578,15 @@ export const apiClient = {
       const allScans = JSON.parse(allScansRaw);
       allScans.unshift(newRecord);
       localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(allScans.slice(0, 500)));
+
+      const todayScansRaw = localStorage.getItem('absensi_kiosk_today_list') || '[]';
+      const todayScans = JSON.parse(todayScansRaw);
+      todayScans.unshift(newRecord);
+      localStorage.setItem('absensi_kiosk_today_list', JSON.stringify(todayScans.slice(0, 500)));
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('kiosk-scan-added', { detail: newRecord }));
+      }
     } catch (e) {}
 
     // Synchronize instantly with Node server store so all connected browsers get live updates
@@ -747,34 +766,82 @@ export const apiClient = {
     const url = this.getBackendUrl();
 
     if (url) {
-      // 1. Direct fetch from Google Spreadsheet via getCrud('Presensi')
-      const possibleSheetNames = ['Presensi', 'Presensi_Kiosk', 'Presensi_Masuk', 'Presensi Masuk', 'Log_Presensi'];
+      // 1. Direct query from GAS getKioskAttendanceHistory action FIRST
+      try {
+        const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, false, 0, 12000);
+        if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
+          if (result.history.length === 0) {
+            if (!tanggal && !kelas) {
+              try {
+                localStorage.setItem('absensi_kiosk_all_scans', '[]');
+              } catch (e) {}
+            }
+            return { status: 'success', history: [] };
+          }
+          let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
+
+          if (targetDateIso) {
+            const filteredByDate = normalized.filter((h: any) => {
+              const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
+              return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
+            });
+            return { status: 'success', history: filteredByDate };
+          }
+          return { status: 'success', history: normalized };
+        }
+      } catch (e) {}
+
+      // 2. Query all records without date filter from GAS getKioskAttendanceHistory
+      if (tanggal) {
+        try {
+          const { ok: okAll, result: resAll } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: '', kelas: kelas || '' }, false, 0, 12000);
+          if (okAll && resAll && resAll.status === 'success' && Array.isArray(resAll.history)) {
+            if (resAll.history.length === 0) {
+              return { status: 'success', history: [] };
+            }
+            let normalized = resAll.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
+            const filteredByDate = normalized.filter((h: any) => {
+              const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
+              return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
+            });
+            return { status: 'success', history: filteredByDate };
+          }
+        } catch (e) {}
+      }
+
+      // 3. Fallback: Query all possible sheet names via getCrud
+      const possibleSheetNames = ['Presensi', 'Presensi_Masuk', 'Presensi Masuk', 'Presensi_Kiosk', 'Log_Presensi', 'Log Presensi', 'Data_Presensi', 'Absensi', 'Presensi Siswa'];
       for (const sheetName of possibleSheetNames) {
         try {
-          const crudPresensi = await this.getCrud(sheetName);
-          if (crudPresensi.status === 'success' && Array.isArray(crudPresensi.rows) && crudPresensi.rows.length > 0) {
+          const { ok, result: crudPresensi } = await safeCallGAS(url, 'getCrud', { sheetName }, false, 0, 10000);
+          if (ok && crudPresensi && crudPresensi.status === 'success' && Array.isArray(crudPresensi.rows) && crudPresensi.rows.length > 0) {
             const headersLower = (crudPresensi.headers || []).map((h: string) => (h || '').toLowerCase().trim());
             
-            let tsIdx = headersLower.findIndex((h: string) => h.includes('timestamp') || h.includes('waktu scan'));
-            let tglIdx = headersLower.findIndex((h: string) => h === 'tanggal' || h.includes('tgl'));
-            let wktIdx = headersLower.findIndex((h: string) => h === 'waktu' || h === 'jam' || h.includes('pukul'));
-            let nisnIdx = headersLower.findIndex((h: string) => h.includes('nisn') || h.includes('nis') || h.includes('no induk'));
-            let namaIdx = headersLower.findIndex((h: string) => h.includes('nama'));
-            let kelasIdx = headersLower.findIndex((h: string) => h.includes('kelas') || h.includes('rombel'));
-            let statusIdx = headersLower.findIndex((h: string) => h.includes('status') || h.includes('kehadiran') || h.includes('presensi'));
-            let telatIdx = headersLower.findIndex((h: string) => h.includes('terlambat') || h.includes('keterlambatan') || h.includes('menit'));
+            let tsIdx = headersLower.findIndex((h: string) => h.includes('timestamp') || h.includes('waktu scan') || h.includes('scan'));
+            let tglIdx = headersLower.findIndex((h: string) => h === 'tanggal' || h.includes('tgl') || h.includes('date'));
+            let wktIdx = headersLower.findIndex((h: string) => h === 'waktu' || h === 'jam' || h.includes('pukul') || h.includes('time'));
+            let nisnIdx = headersLower.findIndex((h: string) => h.includes('nisn') || h.includes('nis') || h.includes('no induk') || h.includes('id'));
+            let namaIdx = headersLower.findIndex((h: string) => h.includes('nama') || h.includes('siswa'));
+            let kelasIdx = headersLower.findIndex((h: string) => h.includes('kelas') || h.includes('rombel') || h.includes('class'));
+            let statusIdx = headersLower.findIndex((h: string) => h.includes('status') || h.includes('kehadiran') || h.includes('presensi') || h.includes('ket'));
+            let telatIdx = headersLower.findIndex((h: string) => h.includes('terlambat') || h.includes('keterlambatan') || h.includes('menit') || h.includes('late'));
 
             const validRows = crudPresensi.rows.filter((row: any) => {
-              if (!row || !row.data) return false;
+              if (!row || !row.data || !Array.isArray(row.data)) return false;
+              const hasData = row.data.some((cell: any) => cell !== null && cell !== undefined && String(cell).trim() !== '');
+              if (!hasData) return false;
+
               const r0 = String(row.data[0] || '').toLowerCase().trim();
               const r1 = String(row.data[1] || '').toLowerCase().trim();
               const r2 = String(row.data[2] || '').toLowerCase().trim();
               // Filter out header row if present in data rows
-              if (r0 === 'tanggal' || r0 === 'tgl' || r0 === 'timestamp' || r1 === 'waktu scan' || r2 === 'nisn') {
+              if (r0 === 'tanggal' || r0 === 'tgl' || r0 === 'timestamp' || r1 === 'waktu scan' || r2 === 'nisn' || r0 === 'no') {
                 return false;
               }
               return true;
             });
+
+            if (validRows.length === 0) continue; // Skip empty sheet and keep checking next sheet name!
 
             const parsedFromSheet = validRows.map((row: any) => {
               const rowData = row.data || [];
@@ -785,8 +852,8 @@ export const apiClient = {
               let rNisn = nisnIdx !== -1 && rowData[nisnIdx] !== undefined ? String(rowData[nisnIdx]).trim() : '';
               let rNama = namaIdx !== -1 && rowData[namaIdx] !== undefined ? String(rowData[namaIdx]).trim() : '';
               let rKelas = kelasIdx !== -1 && rowData[kelasIdx] !== undefined ? String(rowData[kelasIdx]).trim() : '';
-              let rStatus = statusIdx !== -1 && rowData[statusIdx] !== undefined ? String(rowData[statusIdx]).trim() : 'Hadir';
-              let rTelat = telatIdx !== -1 && rowData[telatIdx] !== undefined ? String(rowData[telatIdx]).trim() : '-';
+              let rStatus = statusIdx !== -1 && rowData[statusIdx] !== undefined ? String(rowData[statusIdx]).trim() : '';
+              let rTelat = telatIdx !== -1 && rowData[telatIdx] !== undefined ? String(rowData[telatIdx]).trim() : '';
 
               // Position-based fallback if headers are default or unindexed:
               // Typical column order: [Tanggal, Waktu Scan, NISN, Nama, Kelas, Status, Keterlambatan]
@@ -795,8 +862,11 @@ export const apiClient = {
               if (!rNisn && rowData[2]) rNisn = String(rowData[2]).trim();
               if (!rNama && rowData[3]) rNama = String(rowData[3]).trim();
               if (!rKelas && rowData[4]) rKelas = String(rowData[4]).trim();
-              if ((!rStatus || rStatus === 'Hadir') && rowData[5]) rStatus = String(rowData[5]).trim();
-              if ((!rTelat || rTelat === '-') && rowData[6]) rTelat = String(rowData[6]).trim();
+              if (!rStatus && rowData[5]) rStatus = String(rowData[5]).trim();
+              if (!rTelat && rowData[6]) rTelat = String(rowData[6]).trim();
+
+              if (!rStatus) rStatus = 'Hadir';
+              if (!rTelat) rTelat = '-';
 
               let finalTs = rTs;
               if (rTs && !rTs.includes('-') && !rTs.includes('/') && rTanggal) {
@@ -821,10 +891,13 @@ export const apiClient = {
             let filteredSheet = parsedFromSheet.reverse();
 
             if (targetDateIso) {
-              filteredSheet = filteredSheet.filter((h: any) => {
+              const matchedByDate = filteredSheet.filter((h: any) => {
                 const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
                 return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
               });
+              if (matchedByDate.length > 0) {
+                filteredSheet = matchedByDate;
+              }
             }
             if (kelas) {
               filteredSheet = filteredSheet.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
@@ -844,16 +917,17 @@ export const apiClient = {
         }
       }
 
-      // 2. Try dedicated getKioskAttendanceHistory action from GAS if getCrud was empty/failed
-      const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, true, 2000);
+      // 4. Dedicated getKioskAttendanceHistory fallback
+      const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, false, 0);
       if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
         let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
 
         if (targetDateIso) {
-          normalized = normalized.filter((h: any) => {
+          const matchedByDate = normalized.filter((h: any) => {
             const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
             return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
           });
+          if (matchedByDate.length > 0) normalized = matchedByDate;
         }
         if (kelas) {
           normalized = normalized.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
