@@ -22,6 +22,8 @@ import {
   Sparkles,
   Code,
   RefreshCw,
+  ScanLine,
+  QrCode,
 } from 'lucide-react';
 
 import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString } from './types';
@@ -40,6 +42,8 @@ import { CrudView } from './components/CrudView';
 import { SettingsModal } from './components/SettingsModal';
 import { CustomizationView } from './components/CustomizationView';
 import { AppsScriptView } from './components/AppsScriptView';
+import { ScannerKioskView } from './components/ScannerKioskView';
+import { CetakBarcodeView } from './components/CetakBarcodeView';
 
 export default function App() {
   // Authentication & Navigation
@@ -106,6 +110,7 @@ export default function App() {
     logoColor: 'bg-blue-600',
     fullAccessUsernames: [],
     userPhotos: {},
+    batasWaktuMasuk: '07:00',
   });
 
   // Track failed user photos for fallback to initials
@@ -604,8 +609,8 @@ export default function App() {
   const handleDeleteCrudRow = async (rowIndex: number) => {
     try {
       const res = await apiClient.deleteCrud(currentCrudSheet, rowIndex);
-      if (res.status === 'success') {
-        addToast('Data berhasil dihapus.', 'info');
+      if (res && res.status === 'success') {
+        addToast(res.message || 'Data berhasil dihapus.', 'info');
         await loadCrudTable(currentCrudSheet);
         await fetchMasterData();
         if (currentCrudSheet === 'Master_Kelas') {
@@ -614,6 +619,8 @@ export default function App() {
         if (currentCrudSheet === 'Master_Mapel') {
           await fetchMapelList();
         }
+      } else {
+        addToast(res?.message || 'Gagal menghapus data.', 'error');
       }
     } catch (err: any) {
       addToast(err.message || 'Gagal menghapus data.', 'error');
@@ -634,6 +641,8 @@ export default function App() {
       'apps-script': 'Kode & Integrasi Google Apps Script',
       'absen-tendik': 'Formulir Presensi Mandiri Tendik',
       'izin-tendik': 'Formulir Permohonan Izin Tendik',
+      'kiosk-scanner': 'Kiosk Scanner Otomatis',
+      'cetak-barcode': 'Cetak Kartu QR Code Siswa',
     };
     return titles[activeView] || `${customization.appName} ${customization.appSubtitle}`;
   };
@@ -773,6 +782,41 @@ export default function App() {
                   >
                     <CalendarRange className="w-4 h-4 flex-shrink-0" />
                     <span>Form Izin Guru</span>
+                  </button>
+                </>
+              )}
+
+              {/* Kiosk Scanner & Cetak Barcode: Strictly for Admin Utama and Admin */}
+              {hasFullAccess(currentUser) && (
+                <>
+                  <button
+                    onClick={() => {
+                      setActiveView('kiosk-scanner');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeView === 'kiosk-scanner'
+                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <ScanLine className="w-4 h-4 flex-shrink-0" />
+                    <span>Kiosk Scanner</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setActiveView('cetak-barcode');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeView === 'cetak-barcode'
+                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <QrCode className="w-4 h-4 flex-shrink-0" />
+                    <span>Cetak Barcode</span>
                   </button>
                 </>
               )}
@@ -1050,7 +1094,60 @@ export default function App() {
                   onLoadStudents={handleLoadStudentsForAttendance}
                   onSubmit={handleSubmitAttendance}
                   currentTimeString={currentTimeString}
+                  customization={customization}
                 />
+              )}
+
+              {/* VIEW: KIOSK SCANNER (Strictly for Admin Utama and Admin) */}
+              {activeView === 'kiosk-scanner' && (
+                hasFullAccess(currentUser) ? (
+                  <ScannerKioskView
+                    students={allStudents}
+                    customization={customization}
+                    onUpdateCustomization={handleSaveCustomization}
+                  />
+                ) : (
+                  <div className="p-10 text-center bg-white rounded-3xl border border-slate-200 shadow-sm max-w-lg mx-auto mt-8">
+                    <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 mx-auto mb-4 flex items-center justify-center">
+                      <ShieldAlert className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800">Akses Dibatasi</h3>
+                    <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                      Fitur <strong>Kiosk Scanner</strong> hanya dapat diakses dan digunakan oleh <strong>Admin Utama</strong> dan <strong>Admin</strong>.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveView('dashboard')}
+                      className="mt-5 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer"
+                    >
+                      Kembali ke Dashboard
+                    </button>
+                  </div>
+                )
+              )}
+
+              {/* VIEW: CETAK BARCODE (Strictly for Admin Utama and Admin) */}
+              {activeView === 'cetak-barcode' && (
+                hasFullAccess(currentUser) ? (
+                  <CetakBarcodeView students={allStudents} kelasList={kelasList} />
+                ) : (
+                  <div className="p-10 text-center bg-white rounded-3xl border border-slate-200 shadow-sm max-w-lg mx-auto mt-8">
+                    <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 mx-auto mb-4 flex items-center justify-center">
+                      <ShieldAlert className="w-7 h-7" />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800">Akses Dibatasi</h3>
+                    <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                      Fitur <strong>Cetak Barcode</strong> hanya dapat diakses dan digunakan oleh <strong>Admin Utama</strong> dan <strong>Admin</strong>.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setActiveView('dashboard')}
+                      className="mt-5 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-md cursor-pointer"
+                    >
+                      Kembali ke Dashboard
+                    </button>
+                  </div>
+                )
               )}
 
               {/* VIEW 3: TEACHER PERMIT */}

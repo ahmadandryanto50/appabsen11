@@ -486,6 +486,120 @@ export const apiClient = {
     return { status: 'success' };
   },
 
+  // 3.5 SUBMIT KIOSK SCAN
+  async submitKioskScan(payload: any) {
+    clearApiCache();
+    // Also save to local all scans cache for immediate offline viewing in Riwayat
+    try {
+      const allScansRaw = localStorage.getItem('absensi_kiosk_all_scans') || '[]';
+      const allScans = JSON.parse(allScansRaw);
+      const now = new Date();
+      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const timeClockStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      const timeStr = `${dateStr} ${timeClockStr}`;
+      allScans.unshift({
+        rowIndex: Date.now(),
+        timestamp: timeStr,
+        tanggal: dateStr,
+        waktu: timeClockStr,
+        nisn: payload.nisn || '',
+        nama: payload.nama || '',
+        kelas: payload.kelas || '',
+        status: payload.status || 'Hadir',
+        keterlambatan: payload.keterlambatan || '-',
+        menitTerlambat: payload.menitTerlambat || 0,
+      });
+      localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(allScans.slice(0, 500)));
+    } catch (e) {}
+
+    const url = this.getBackendUrl();
+    if (url) {
+      const { ok, result, error } = await safeCallGAS(url, 'submitKioskScan', { payload }, false, 0, 30000);
+      if (ok && result && result.status === 'success') return result;
+      throw new Error(error || result?.message || 'Gagal mengirim data scan.');
+    }
+    
+    // Offline / Demo Mode simulation
+    return { status: 'success', message: 'Offline/Demo: Presensi berhasil disimpan.' };
+  },
+
+  // 3.6 GET KIOSK ATTENDANCE HISTORY (PRESENSI SISWA MASUK)
+  async getKioskAttendanceHistory(tanggal?: string, kelas?: string): Promise<{ status: string; history: any[] }> {
+    const normalizeRecord = (item: any) => {
+      const raw = item.timestamp ? String(item.timestamp).trim() : '';
+      let itemTanggal = item.tanggal || '';
+      let itemWaktu = item.waktu || '';
+      if (!itemTanggal || !itemWaktu) {
+        if (raw.includes('T')) {
+          const parts = raw.split('T');
+          itemTanggal = parts[0] || '';
+          itemWaktu = (parts[1] || '').split('.')[0] || '';
+        } else if (raw.includes(' ')) {
+          const parts = raw.split(' ');
+          itemTanggal = parts[0] || '';
+          itemWaktu = parts[1] || '';
+        } else {
+          itemTanggal = raw;
+          itemWaktu = '-';
+        }
+      }
+      return {
+        ...item,
+        tanggal: itemTanggal,
+        waktu: itemWaktu,
+      };
+    };
+
+    const url = this.getBackendUrl();
+    if (url) {
+      const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, true, 60000);
+      if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
+        const normalized = result.history.map(normalizeRecord);
+        try {
+          if (!tanggal && !kelas) {
+            localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(normalized));
+          }
+        } catch (e) {}
+        return { status: 'success', history: normalized };
+      }
+    }
+
+    // Local Fallback / Offline
+    const raw = localStorage.getItem('absensi_kiosk_all_scans') || '[]';
+    let history: any[] = [];
+    try {
+      history = JSON.parse(raw);
+    } catch (e) {}
+
+    history = history.map(normalizeRecord);
+
+    if (tanggal) {
+      history = history.filter((h) => (h.tanggal || h.timestamp || '').startsWith(tanggal));
+    }
+    if (kelas) {
+      history = history.filter((h) => (h.kelas || '').toLowerCase() === kelas.toLowerCase());
+    }
+
+    return { status: 'success', history };
+  },
+
+  // 3.7 DELETE KIOSK ATTENDANCE RECORD
+  async deleteKioskAttendanceRecord(rowIndex: string | number) {
+    clearApiCache();
+    const url = this.getBackendUrl();
+    if (url) {
+      const { ok, result, error } = await safeCallGAS(url, 'deleteKioskAttendanceRecord', { rowIndex });
+      if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
+    }
+
+    const raw = localStorage.getItem('absensi_kiosk_all_scans') || '[]';
+    let history: any[] = JSON.parse(raw);
+    history = history.filter((h) => String(h.rowIndex) !== String(rowIndex));
+    localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(history));
+    return { status: 'success' };
+  },
+
   // 4. SUBMIT TEACHER ABSENCE / SICK PERMIT
   async submitTeacherAbsence(payload: any) {
     clearApiCache();
@@ -859,10 +973,24 @@ export const apiClient = {
   // 9. SAVE CRUD ROW (ADD OR EDIT)
   async saveCrud(sheetName: string, rowData: string[], rowIndex: number | null) {
     clearApiCache();
+    try {
+      localStorage.removeItem(`absensi_crud_cache_${sheetName}`);
+      if (sheetName === 'Master_Siswa') {
+        // Clear all cached student class rosters
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('absensi_students_')) {
+            localStorage.removeItem(k);
+          }
+        }
+      }
+    } catch (e) {}
+
     const url = this.getBackendUrl();
     if (url) {
-      const { ok, result } = await safeCallGAS(url, 'saveCrud', { sheetName, rowData, rowIndex });
+      const { ok, result, error } = await safeCallGAS(url, 'saveCrud', { sheetName, rowData, rowIndex: rowIndex !== null ? Number(rowIndex) : null });
       if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
     }
 
     // Demo Mode
@@ -876,11 +1004,11 @@ export const apiClient = {
 
     if (rowIndex === null) {
       // Create new row
-      const newIndex = rows.length > 0 ? Math.max(...rows.map((r: any) => r._rowIndex)) + 1 : 2;
+      const newIndex = rows.length > 0 ? Math.max(...rows.map((r: any) => Number(r._rowIndex) || 0)) + 1 : 2;
       rows.push({ _rowIndex: newIndex, data: rowData });
     } else {
       // Update existing
-      const idx = rows.findIndex((r: any) => r._rowIndex === rowIndex);
+      const idx = rows.findIndex((r: any) => Number(r._rowIndex) === Number(rowIndex));
       if (idx !== -1) {
         rows[idx].data = rowData;
       }
@@ -893,10 +1021,37 @@ export const apiClient = {
   // 10. DELETE CRUD ROW
   async deleteCrud(sheetName: string, rowIndex: number) {
     clearApiCache();
+    try {
+      localStorage.removeItem(`absensi_crud_cache_${sheetName}`);
+      if (sheetName === 'Master_Siswa') {
+        // Clear all cached student class rosters
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('absensi_students_')) {
+            localStorage.removeItem(k);
+          }
+        }
+      }
+    } catch (e) {}
+
     const url = this.getBackendUrl();
     if (url) {
-      const { ok, result, error } = await safeCallGAS(url, 'deleteCrud', { sheetName, rowIndex });
-      if (ok && result) return result;
+      const { ok, result, error } = await safeCallGAS(url, 'deleteCrud', { sheetName, rowIndex: Number(rowIndex) });
+      if (ok && result) {
+        // Also update local storage if present
+        let key = '';
+        if (sheetName === 'Master_Guru') key = STORAGE_KEYS.MASTER_GURU;
+        else if (sheetName === 'Master_Siswa') key = STORAGE_KEYS.MASTER_SISWA;
+        else if (sheetName === 'Master_Kelas') key = STORAGE_KEYS.MASTER_KELAS;
+        else if (sheetName === 'Master_Mapel') key = STORAGE_KEYS.MASTER_MAPEL;
+
+        if (key) {
+          let rows = JSON.parse(localStorage.getItem(key) || '[]');
+          rows = rows.filter((r: any) => Number(r._rowIndex) !== Number(rowIndex));
+          localStorage.setItem(key, JSON.stringify(rows));
+        }
+        return result;
+      }
       if (error) return { status: 'error', message: error };
     }
 
@@ -908,7 +1063,7 @@ export const apiClient = {
     else if (sheetName === 'Master_Mapel') key = STORAGE_KEYS.MASTER_MAPEL;
 
     let rows = JSON.parse(localStorage.getItem(key) || '[]');
-    rows = rows.filter((r: any) => r._rowIndex !== rowIndex);
+    rows = rows.filter((r: any) => Number(r._rowIndex) !== Number(rowIndex));
     localStorage.setItem(key, JSON.stringify(rows));
     return { status: 'success' };
   },

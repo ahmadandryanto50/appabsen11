@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AppCustomization, User } from '../types';
-import { Save, ShieldAlert, Sparkles, Check, RefreshCw, Search, ShieldCheck, Link2, Cloud, Database, AlertCircle, Eye } from 'lucide-react';
+import { Save, ShieldAlert, Sparkles, Check, RefreshCw, Search, ShieldCheck, Link2, Cloud, Database, AlertCircle, Eye, Clock } from 'lucide-react';
 import { apiClient } from '../api';
 
 interface CustomizationViewProps {
@@ -35,6 +35,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
   const [customEmojiInput, setCustomEmojiInput] = useState('');
   const [kepalaSekolahNama, setKepalaSekolahNama] = useState(customization.kepalaSekolahNama || '');
   const [kepalaSekolahNip, setKepalaSekolahNip] = useState(customization.kepalaSekolahNip || '');
+  const [batasWaktuMasuk, setBatasWaktuMasuk] = useState(customization.batasWaktuMasuk || '07:00');
 
   // Sync status
   const [syncStatus, setSyncStatus] = useState<'demo' | 'checking' | 'synced' | 'sheet_missing' | 'error'>('checking');
@@ -130,6 +131,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
       userPhotos: userPhotos,
       kepalaSekolahNama: kepalaSekolahNama.trim(),
       kepalaSekolahNip: kepalaSekolahNip.trim(),
+      batasWaktuMasuk: batasWaktuMasuk.trim(),
     });
   };
 
@@ -319,6 +321,45 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                     className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
                   />
                 </div>
+              </div>
+
+              <div className="bg-amber-50/60 border border-amber-200/80 p-4 rounded-2xl">
+                <label className="block text-xs font-bold text-slate-800 uppercase mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-amber-600" />
+                    <span>Batas Jam Masuk Siswa (Presensi Pagi)</span>
+                  </span>
+                  <span className="text-[10px] text-amber-700 font-bold bg-amber-100 px-2 py-0.5 rounded">
+                    Saat ini: {batasWaktuMasuk || '07:00'} WIB
+                  </span>
+                </label>
+                <div className="flex flex-wrap items-center gap-2 mb-2">
+                  <input
+                    type="time"
+                    value={batasWaktuMasuk}
+                    onChange={(e) => setBatasWaktuMasuk(e.target.value)}
+                    className="p-2.5 rounded-xl border border-amber-300 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 bg-white"
+                  />
+                  <div className="flex flex-wrap items-center gap-1">
+                    {['06:45', '07:00', '07:15', '07:30'].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setBatasWaktuMasuk(preset)}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-all ${
+                          batasWaktuMasuk === preset
+                            ? 'bg-amber-600 text-white shadow-sm'
+                            : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-600 leading-relaxed">
+                  Siswa yang memindai kartu setelah jam ini akan otomatis dicatat <strong>"Terlambat"</strong> beserta hitungan menit keterlambatannya dan tersimpan langsung ke Google Spreadsheet.
+                </p>
               </div>
 
               <div>

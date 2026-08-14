@@ -150,6 +150,15 @@ function doPost(e) {
       case "submitAttendance":
         result = submitStudentAttendance(contents.payload);
         break;
+      case "submitKioskScan":
+        result = submitKioskScan(contents.payload);
+        break;
+      case "getKioskAttendanceHistory":
+        result = getKioskAttendanceHistory(contents.tanggal, contents.kelas);
+        break;
+      case "deleteKioskAttendanceRecord":
+        result = deleteKioskAttendanceRecord(contents.rowIndex);
+        break;
       case "submitTeacherAbsence":
         result = submitTeacherAbsence(contents.payload);
         break;
@@ -315,6 +324,13 @@ function setupDatabase() {
       sheetIzinTendik.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Tendik", "Status/Kategori", "Detail Alasan", "Foto Bukti Base64"]);
     }
 
+    // 10. Tabel Presensi (Kiosk Log)
+    let sheetKioskPresensi = ss.getSheetByName("Presensi");
+    if (!sheetKioskPresensi) {
+      sheetKioskPresensi = ss.insertSheet("Presensi");
+      sheetKioskPresensi.appendRow(["Timestamp", "NISN", "Nama", "Kelas", "Status Presensi"]);
+    }
+
     return { status: "success", message: "Setup Database Berhasil! Seluruh tabel dasar telah dibuat." };
   } catch (err) {
     return { status: "error", message: err.message };
@@ -463,6 +479,108 @@ function submitStudentAttendance(payload) {
   }
 }
 
+function submitKioskScan(payload) {
+  try {
+    const ss = getDb();
+    let sheet = ss.getSheetByName("Presensi");
+    if (!sheet) {
+      sheet = ss.insertSheet("Presensi");
+      sheet.appendRow(["Timestamp", "NISN", "Nama", "Kelas", "Status Presensi", "Keterlambatan"]);
+    } else {
+      // Pastikan header Keterlambatan tersedia pada kolom ke-6
+      const lastCol = sheet.getLastColumn();
+      if (lastCol < 6) {
+        sheet.getRange(1, 6).setValue("Keterlambatan");
+      }
+    }
+
+    const now = new Date();
+    const tz = Session.getScriptTimeZone();
+    const timestamp = Utilities.formatDate(now, tz, "yyyy-MM-dd HH:mm:ss");
+
+    const keterlambatan = payload.keterlambatan || (payload.menitTerlambat ? payload.menitTerlambat + " menit" : "-");
+
+    sheet.appendRow([
+      timestamp,
+      payload.nisn || "",
+      payload.nama || "",
+      payload.kelas || "",
+      payload.status || "Hadir",
+      keterlambatan
+    ]);
+
+    return { status: "success", message: "Scan Presensi " + payload.nama + " berhasil disimpan!" };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function getKioskAttendanceHistory(tanggal, kelas) {
+  try {
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Presensi");
+    if (!sheet) return { status: "success", history: [] };
+
+    const values = sheet.getDataRange().getValues();
+    const history = [];
+    const tz = Session.getScriptTimeZone();
+
+    for (let i = 1; i < values.length; i++) {
+      let rowTimestamp = values[i][0];
+      if (rowTimestamp instanceof Date) {
+        rowTimestamp = Utilities.formatDate(rowTimestamp, tz, "yyyy-MM-dd HH:mm:ss");
+      } else {
+        rowTimestamp = rowTimestamp ? rowTimestamp.toString() : "";
+      }
+
+      const rowNisn = values[i][1] ? values[i][1].toString() : "";
+      const rowNama = values[i][2] ? values[i][2].toString() : "";
+      const rowKelas = values[i][3] ? values[i][3].toString() : "";
+      const rowStatus = values[i][4] ? values[i][4].toString() : "Hadir";
+      const rowKeterlambatan = values[i][5] ? values[i][5].toString() : "-";
+
+      const rowDateOnly = rowTimestamp.split(" ")[0] || "";
+      const rowClockOnly = rowTimestamp.split(" ")[1] || "-";
+
+      if ((!tanggal || rowDateOnly === tanggal || rowTimestamp.indexOf(tanggal) === 0) && (!kelas || rowKelas === kelas)) {
+        history.unshift({
+          rowIndex: i + 1,
+          timestamp: rowTimestamp,
+          tanggal: rowDateOnly,
+          waktu: rowClockOnly,
+          nisn: rowNisn,
+          nama: rowNama,
+          kelas: rowKelas,
+          status: rowStatus,
+          keterlambatan: rowKeterlambatan
+        });
+      }
+    }
+
+    return { status: "success", history: history };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function deleteKioskAttendanceRecord(rowIndex) {
+  try {
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Presensi");
+    if (!sheet) return { status: "error", message: "Tabel Presensi tidak ditemukan." };
+
+    const rIdx = Number(rowIndex);
+    if (!rIdx || rIdx < 2 || rIdx > sheet.getLastRow()) {
+      return { status: "error", message: "Baris data tidak valid." };
+    }
+
+    sheet.deleteRow(rIdx);
+    return { status: "success", message: "Data presensi berhasil dihapus." };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
 function submitTeacherAbsence(payload) {
   try {
     const ss = getDb();
@@ -587,8 +705,9 @@ function saveMasterDataRow(sheetName, rowData, rowIndex) {
       }
     }
 
-    if (rowIndex && rowIndex > 1) {
-      const range = sheet.getRange(rowIndex, 1, 1, rowData.length);
+    const rowNum = Number(rowIndex);
+    if (rowNum && rowNum > 1) {
+      const range = sheet.getRange(rowNum, 1, 1, rowData.length);
       range.setValues([rowData]);
       return { status: "success", message: "Data berhasil diperbarui." };
     } else {
@@ -606,8 +725,9 @@ function deleteMasterDataRow(sheetName, rowIndex) {
     const sheet = ss.getSheetByName(sheetName);
     if (!sheet) return { status: "error", message: "Tabel " + sheetName + " tidak ditemukan." };
 
-    if (rowIndex && rowIndex > 1) {
-      sheet.deleteRow(rowIndex);
+    const rowNum = Number(rowIndex);
+    if (rowNum && rowNum > 1) {
+      sheet.deleteRow(rowNum);
       return { status: "success", message: "Data berhasil dihapus." };
     }
     return { status: "error", message: "Indeks baris tidak valid." };
@@ -1348,6 +1468,13 @@ function deleteTendikPermitRecord(rowIndex) {
                 <span className="text-indigo-600 font-extrabold uppercase text-[10px] tracking-wider block">6. Log_Guru (Absensi Guru)</span>
                 <p className="text-slate-500 font-mono bg-white p-2 rounded-xl border border-slate-100 select-all text-[11px]">
                   RowIndex, Tanggal, Waktu, NIP, Nama Guru, Status/Kategori, Detail Alasan
+                </p>
+              </div>
+
+              <div className="p-4 border border-slate-200/80 rounded-2xl bg-slate-50/50 space-y-2 md:col-span-2">
+                <span className="text-teal-600 font-extrabold uppercase text-[10px] tracking-wider block">7. Presensi (Kiosk Scanner Log)</span>
+                <p className="text-slate-500 font-mono bg-white p-2 rounded-xl border border-slate-100 select-all text-[11px]">
+                  Timestamp, NISN, Nama, Kelas, Status Presensi
                 </p>
               </div>
             </div>

@@ -5,7 +5,7 @@
 
 import React, { useState } from 'react';
 import { CrudRow } from '../types';
-import { Plus, Pencil, Trash2, FolderEdit, Save, X, Loader2, Database, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2, FolderEdit, Save, X, Loader2, Database, Search, AlertCircle } from 'lucide-react';
 
 interface CrudViewProps {
   currentCrudSheet: string;
@@ -36,6 +36,11 @@ export function CrudView({
   const [formRowValues, setFormRowValues] = useState<string[]>([]);
   const [editingRowIndex, setEditingRowIndex] = useState<number | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Delete Confirmation Modal states
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deletingRow, setDeletingRow] = useState<CrudRow | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const getFriendlySheetName = () => {
     if (currentCrudSheet === 'Master_Guru') return 'Data Guru & Tendik';
@@ -81,10 +86,22 @@ export function CrudView({
     }
   };
 
-  const handleDelete = async (row: CrudRow) => {
-    const displayVal = row.data[2] || row.data[1] || `Row #${row._rowIndex}`;
-    if (confirm(`Apakah Anda yakin ingin menghapus "${displayVal}" dari ${getFriendlySheetName()}?`)) {
-      await onDeleteRow(row._rowIndex);
+  const handleDelete = (row: CrudRow) => {
+    setDeletingRow(row);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!deletingRow) return;
+    setIsDeleting(true);
+    try {
+      await onDeleteRow(deletingRow._rowIndex);
+      setShowDeleteModal(false);
+      setDeletingRow(null);
+    } catch (err) {
+      console.error('Gagal menghapus data:', err);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -339,6 +356,59 @@ export function CrudView({
               </button>
             </div>
           </form>
+        </div>
+      )}
+
+      {/* IN-APP DELETE CONFIRMATION DIALOG MODAL */}
+      {showDeleteModal && deletingRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 space-y-4 shadow-2xl border border-slate-100 animate-scale-up">
+            <div className="flex items-center gap-3 text-rose-600">
+              <div className="p-2.5 bg-rose-50 rounded-2xl border border-rose-100">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">Hapus {getFriendlySheetName()}</h3>
+                <p className="text-[11px] text-slate-400 font-medium">Tindakan ini tidak dapat dibatalkan</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+              Apakah Anda yakin ingin menghapus data <strong className="text-slate-900 font-bold">"{deletingRow.data[2] || deletingRow.data[1] || `Baris #${deletingRow._rowIndex}`}"</strong>?
+            </p>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeletingRow(null);
+                }}
+                disabled={isDeleting}
+                className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="px-4.5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-md shadow-rose-600/20 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Menghapus...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Ya, Hapus</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

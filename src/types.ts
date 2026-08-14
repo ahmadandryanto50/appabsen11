@@ -18,8 +18,9 @@ export interface Student {
   nama: string;
   kelas: string;
   gender?: string;
-  status?: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa';
+  status?: 'Hadir' | 'Terlambat' | 'Sakit' | 'Izin' | 'Alpa';
   keterangan?: string;
+  menitTerlambat?: number;
 }
 
 export interface AttendanceRecord {
@@ -29,12 +30,26 @@ export interface AttendanceRecord {
   kelas: string;
   mapel: string;
   hadir: number;
+  terlambat?: number;
   sakit: number;
   izin: number;
   alpa: number;
   keterangan: string;
   guru: string;
   photo?: string;
+}
+
+export interface KioskScanRecord {
+  rowIndex?: number | string;
+  timestamp: string;
+  tanggal?: string;
+  waktu?: string;
+  nisn: string;
+  nama: string;
+  kelas: string;
+  status: string; // 'Hadir' | 'Terlambat'
+  keterlambatan: string; // e.g. '15 menit' or '-'
+  menitTerlambat?: number;
 }
 
 export interface TeacherAbsenceRecord {
@@ -85,7 +100,9 @@ export type ViewType =
   | 'customization'
   | 'apps-script'
   | 'absen-tendik'
-  | 'izin-tendik';
+  | 'izin-tendik'
+  | 'kiosk-scanner'
+  | 'cetak-barcode';
 
 export interface AppCustomization {
   appName: string;
@@ -97,6 +114,7 @@ export interface AppCustomization {
   userPhotos?: Record<string, string>;
   kepalaSekolahNama?: string;
   kepalaSekolahNip?: string;
+  batasWaktuMasuk?: string;
 }
 
 export interface CrudRow {

@@ -4,8 +4,8 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Student, User } from '../types';
-import { Camera, FileImage, Trash2, CheckCircle, Clock, CheckSquare, Sparkles, Loader2, Play, RotateCw } from 'lucide-react';
+import { Student, User, AppCustomization } from '../types';
+import { Camera, FileImage, Trash2, CheckCircle, Clock, CheckSquare, Sparkles, Loader2, Play, RotateCw, AlertTriangle } from 'lucide-react';
 
 interface AttendanceViewProps {
   currentUser: User | null;
@@ -14,6 +14,7 @@ interface AttendanceViewProps {
   onLoadStudents: (kelas: string) => Promise<Student[]>;
   onSubmit: (payload: any) => Promise<void>;
   currentTimeString: string;
+  customization?: AppCustomization;
 }
 
 export function AttendanceView({
@@ -23,6 +24,7 @@ export function AttendanceView({
   onLoadStudents,
   onSubmit,
   currentTimeString,
+  customization,
 }: AttendanceViewProps) {
   const [selectedKelas, setSelectedKelas] = useState('');
   const [selectedMapel, setSelectedMapel] = useState('');
@@ -158,11 +160,11 @@ export function AttendanceView({
     }
   };
 
-  const setAllStatus = (status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa') => {
+  const setAllStatus = (status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa' | 'Terlambat') => {
     setStudentList((prev) => prev.map((s) => ({ ...s, status })));
   };
 
-  const handleStatusChange = (index: number, status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa') => {
+  const handleStatusChange = (index: number, status: 'Hadir' | 'Sakit' | 'Izin' | 'Alpa' | 'Terlambat') => {
     setStudentList((prev) => {
       const copy = [...prev];
       copy[index] = { ...copy[index], status };
@@ -202,6 +204,7 @@ export function AttendanceView({
     const waktuStr = `${hours}:${minutes}:${seconds}`;
 
     let countHadir = 0;
+    let countTerlambat = 0;
     let countSakit = 0;
     let countIzin = 0;
     let countAlpa = 0;
@@ -210,6 +213,10 @@ export function AttendanceView({
     studentList.forEach((student) => {
       if (student.status === 'Hadir') {
         countHadir++;
+      } else if (student.status === 'Terlambat') {
+        countHadir++;
+        countTerlambat++;
+        detailKetList.push(`Terlambat: ${student.nama}${student.keterangan ? ' (' + student.keterangan + ')' : ''}`);
       } else if (student.status === 'Sakit') {
         countSakit++;
         detailKetList.push(`Sakit: ${student.nama}${student.keterangan ? ' (' + student.keterangan + ')' : ''}`);
@@ -222,7 +229,7 @@ export function AttendanceView({
       }
     });
 
-    const keteranganSummary = detailKetList.length > 0 ? detailKetList.join('; ') : 'Semua siswa hadir (100%)';
+    const keteranganSummary = detailKetList.length > 0 ? detailKetList.join('; ') : 'Semua siswa hadir tepat waktu (100%)';
 
     const payload = {
       kelas: selectedKelas,
@@ -232,6 +239,7 @@ export function AttendanceView({
       tanggal: tanggalStr,
       waktu: waktuStr,
       countHadir,
+      countTerlambat,
       countSakit,
       countIzin,
       countAlpa,
@@ -427,7 +435,14 @@ export function AttendanceView({
                         Daftar Kehadiran Siswa ({selectedKelas} - {studentList.length} Siswa)
                       </span>
                     </h4>
-                    <p className="text-xs text-slate-500 mt-0.5">Ubah status kehadiran masing-masing siswa di bawah.</p>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5 text-[11px]">
+                      <span className="font-medium text-slate-500">Keterangan Tombol:</span>
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">H: Hadir</span>
+                      <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-bold">T: Terlambat</span>
+                      <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 font-bold">S: Sakit</span>
+                      <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-bold">I: Izin</span>
+                      <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold">A: Alpa</span>
+                    </div>
                   </div>
                   <button
                     type="button"
@@ -457,14 +472,15 @@ export function AttendanceView({
                           <td className="p-3.5 font-mono text-slate-500 font-semibold">{student.nisn}</td>
                           <td className="p-3.5 font-semibold text-slate-800 text-sm">{student.nama}</td>
                           <td className="p-3.5">
-                            <div className="flex items-center justify-center gap-1.5">
-                              {(['Hadir', 'Sakit', 'Izin', 'Alpa'] as const).map((st) => {
+                            <div className="flex items-center justify-center gap-1">
+                              {(['Hadir', 'Terlambat', 'Sakit', 'Izin', 'Alpa'] as const).map((st) => {
                                 let labelAbbr = st.charAt(0);
                                 let btnStyle = 'bg-slate-100 text-slate-600 hover:bg-slate-200';
 
                                 if (student.status === st) {
                                   if (st === 'Hadir') btnStyle = 'bg-emerald-600 text-white font-bold shadow-md shadow-emerald-600/10';
-                                  else if (st === 'Sakit') btnStyle = 'bg-amber-500 text-white font-bold shadow-md shadow-amber-500/10';
+                                  else if (st === 'Terlambat') btnStyle = 'bg-amber-500 text-white font-bold shadow-md shadow-amber-500/10';
+                                  else if (st === 'Sakit') btnStyle = 'bg-sky-500 text-white font-bold shadow-md shadow-sky-500/10';
                                   else if (st === 'Izin') btnStyle = 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/10';
                                   else if (st === 'Alpa') btnStyle = 'bg-rose-600 text-white font-bold shadow-md shadow-rose-600/10';
                                 }
@@ -474,7 +490,7 @@ export function AttendanceView({
                                     key={st}
                                     type="button"
                                     onClick={() => handleStatusChange(index, st)}
-                                    className={`w-10 h-8 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${btnStyle}`}
+                                    className={`w-9 h-8 rounded-lg text-xs font-extrabold transition-all cursor-pointer ${btnStyle}`}
                                     title={st}
                                   >
                                     {labelAbbr}

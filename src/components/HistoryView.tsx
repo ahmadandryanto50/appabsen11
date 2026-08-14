@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { AttendanceRecord, TeacherAbsenceRecord, User, AppCustomization, getLocalDateString } from '../types';
+import { AttendanceRecord, TeacherAbsenceRecord, User, AppCustomization, getLocalDateString, KioskScanRecord } from '../types';
 import {
   Calendar,
   Users,
@@ -26,6 +26,8 @@ import {
   Trash2,
   Eye,
   ExternalLink,
+  ScanLine,
+  CheckCheck,
 } from 'lucide-react';
 import { apiClient } from '../api';
 import { jsPDF } from 'jspdf';
@@ -58,15 +60,22 @@ export function HistoryView({
   onDeleteTeacherRecord,
   customization,
 }: HistoryViewProps) {
-  const [subTab, setSubTab] = useState<'siswa' | 'guru' | 'tendik-absen' | 'tendik-izin' | 'rekap-pdf'>(
+  const [subTab, setSubTab] = useState<'siswa' | 'kiosk-siswa' | 'guru' | 'tendik-absen' | 'tendik-izin' | 'rekap-pdf'>(
     currentUser?.role === 'Tendik' ? 'tendik-absen' : 'siswa'
   );
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
-  // Filter States - Siswa
+  // Filter States - Siswa (Log Kelas)
   const [filterSiswaTanggal, setFilterSiswaTanggal] = useState('');
   const [filterSiswaKelas, setFilterSiswaKelas] = useState('');
   const [isLoadingSiswa, setIsLoadingSiswa] = useState(false);
+
+  // Filter States - Kiosk Presensi Masuk Siswa
+  const [filterKioskTanggal, setFilterKioskTanggal] = useState(getLocalDateString());
+  const [filterKioskKelas, setFilterKioskKelas] = useState('');
+  const [searchKioskNama, setSearchKioskNama] = useState('');
+  const [kioskHistory, setKioskHistory] = useState<KioskScanRecord[]>([]);
+  const [isLoadingKiosk, setIsLoadingKiosk] = useState(false);
 
   // Filter States - Guru
   const [filterGuruTanggal, setFilterGuruTanggal] = useState('');
@@ -330,13 +339,33 @@ export function HistoryView({
     }
   };
 
+  const handleApplyKioskFilter = async () => {
+    setIsLoadingKiosk(true);
+    try {
+      const res = await apiClient.getKioskAttendanceHistory(filterKioskTanggal, filterKioskKelas);
+      if (res.status === 'success' && Array.isArray(res.history)) {
+        setKioskHistory(res.history);
+      }
+    } catch (err) {
+      console.error('Failed to load Kiosk history:', err);
+    } finally {
+      setIsLoadingKiosk(false);
+    }
+  };
+
+  useEffect(() => {
+    if (subTab === 'kiosk-siswa') {
+      handleApplyKioskFilter();
+    }
+  }, [subTab, filterKioskTanggal, filterKioskKelas]);
+
   useEffect(() => {
     if (subTab === 'tendik-absen' || subTab === 'tendik-izin') {
       handleApplyTendikFilter();
     }
   }, [subTab, filterTendikTanggal]);
 
-  const openDeleteConfirmModal = (rowIndex: string | number, type: 'siswa' | 'guru' | 'tendik-absen' | 'tendik-izin') => {
+  const openDeleteConfirmModal = (rowIndex: string | number, type: 'siswa' | 'kiosk-siswa' | 'guru' | 'tendik-absen' | 'tendik-izin') => {
     setDeletingRowIndex(rowIndex);
     setDeletingRecordType(type);
     setShowDeleteConfirmModal(true);
@@ -349,6 +378,9 @@ export function HistoryView({
       if (deletingRecordType === 'siswa') {
         await onDeleteRecord(deletingRowIndex);
         await onFilterHistory(filterSiswaTanggal, filterSiswaKelas);
+      } else if (deletingRecordType === 'kiosk-siswa') {
+        await apiClient.deleteKioskAttendanceRecord(deletingRowIndex);
+        await handleApplyKioskFilter();
       } else if (deletingRecordType === 'guru') {
         await onDeleteTeacherRecord(deletingRowIndex);
         await onFilterTeacher(filterGuruTanggal);
@@ -366,6 +398,143 @@ export function HistoryView({
       setIsDeleting(false);
     }
   };
+
+  const parseKioskDateTime = (item: KioskScanRecord) => {
+    let tanggal = item.tanggal || '';
+    let waktu = item.waktu || '';
+    if (!tanggal || !waktu) {
+      const raw = item.timestamp ? String(item.timestamp).trim() : '';
+      if (raw) {
+        if (raw.includes('T')) {
+          const parts = raw.split('T');
+          tanggal = parts[0] || '';
+          waktu = (parts[1] || '').split('.')[0] || '';
+        } else if (raw.includes(' ')) {
+          const parts = raw.split(' ');
+          tanggal = parts[0] || '';
+          waktu = parts[1] || '';
+        } else {
+          tanggal = raw;
+          waktu = '-';
+        }
+      }
+    }
+    return {
+      tanggal: tanggal || '-',
+      waktu: waktu || '-',
+    };
+  };
+
+  const handleDownloadKioskPDF = () => {
+    const doc = new jsPDF();
+    const primaryColor: [number, number, number] = [37, 99, 235]; // Royal Blue
+
+    // Header Title
+    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.rect(0, 0, 210, 15, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
+    doc.setFont('Helvetica', 'bold');
+    doc.text((customization?.appName || 'E-ABSENSI').toUpperCase(), 15, 10);
+
+    doc.setFontSize(16);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('REKAPITULASI PRESENSI MASUK SISWA (GERBANG/KIOSK)', 15, 28);
+
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Tanggal: ${filterKioskTanggal || 'Semua Tanggal'} | Kelas: ${filterKioskKelas || 'Semua Kelas'}`, 15, 35);
+    doc.text(`Dicetak pada: ${new Date().toLocaleString('id-ID')}`, 15, 40);
+
+    // Summary counts
+    const totalScan = filteredKioskHistory.length;
+    const totalHadir = filteredKioskHistory.filter(h => h.status === 'Hadir').length;
+    const totalTerlambat = filteredKioskHistory.filter(h => h.status === 'Terlambat').length;
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(15, 45, 180, 12, 2, 2, 'F');
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Total Masuk: ${totalScan} Siswa  |  Tepat Waktu (Hadir): ${totalHadir}  |  Terlambat: ${totalTerlambat}`, 20, 52.5);
+
+    const tableHeaders = [['No', 'Tanggal', 'Waktu', 'NISN', 'Nama Siswa', 'Kelas', 'Status', 'Keterlambatan']];
+    const tableBody = filteredKioskHistory.map((item, idx) => {
+      const dt = parseKioskDateTime(item);
+      return [
+        idx + 1,
+        dt.tanggal,
+        dt.waktu,
+        item.nisn || '-',
+        item.nama || '-',
+        item.kelas || '-',
+        item.status || 'Hadir',
+        item.keterlambatan || (item.menitTerlambat ? `${item.menitTerlambat} menit` : '-')
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 62,
+      head: tableHeaders,
+      body: tableBody,
+      theme: 'striped',
+      headStyles: {
+        fillColor: primaryColor,
+        textColor: [255, 255, 255],
+        fontSize: 8.5,
+        halign: 'center'
+      },
+      bodyStyles: {
+        fontSize: 8.5,
+        textColor: [51, 65, 85]
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 22, halign: 'center' },
+        2: { cellWidth: 18, halign: 'center' },
+        3: { cellWidth: 24, halign: 'center' },
+        4: { cellWidth: 'auto' },
+        5: { cellWidth: 18, halign: 'center' },
+        6: { cellWidth: 22, halign: 'center' },
+        7: { cellWidth: 26, halign: 'center' }
+      },
+      margin: { left: 15, right: 15 },
+      styles: { overflow: 'linebreak' }
+    });
+
+    let currentY = (doc as any).lastAutoTable.finalY + 15;
+    if (currentY > 230) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    // Signature Block
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('Mengetahui,', 140, currentY);
+    doc.text('Kepala Sekolah,', 140, currentY + 5);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
+
+    doc.save(`Rekap_Presensi_Masuk_${filterKioskTanggal || 'Semua'}.pdf`);
+  };
+
+  // Filtered Kiosk History
+  const filteredKioskHistory = kioskHistory.filter((item) => {
+    if (searchKioskNama.trim()) {
+      const q = searchKioskNama.toLowerCase().trim();
+      const matchN = (item.nama || '').toLowerCase().includes(q);
+      const matchId = (item.nisn || '').toLowerCase().includes(q);
+      const matchK = (item.kelas || '').toLowerCase().includes(q);
+      if (!matchN && !matchId && !matchK) return false;
+    }
+    return true;
+  });
 
   // Helper selectors
   const handlePeriodChange = (val: 'minggu' | 'bulan' | 'kustom') => {
@@ -984,7 +1153,24 @@ export function HistoryView({
               }`}
             >
               <Users className="w-4 h-4" />
-              <span>Riwayat Presensi Siswa</span>
+              <span>Jurnal Presensi Kelas</span>
+            </button>
+          )}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSubTab('kiosk-siswa');
+                handleApplyKioskFilter();
+              }}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'kiosk-siswa'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <ScanLine className="w-4 h-4" />
+              <span>Presensi Masuk (Kiosk / Barcode)</span>
             </button>
           )}
           {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
@@ -1197,6 +1383,220 @@ export function HistoryView({
                       <td colSpan={11} className="p-12 text-center text-slate-400">
                         <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                         <p className="text-xs font-semibold">Tidak ada log presensi pada tanggal dan kelas terpilih.</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* SUB TAB: KIOSK PRESENSI MASUK SISWA */}
+        {subTab === 'kiosk-siswa' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 tracking-tight flex items-center gap-2">
+                  <ScanLine className="w-5 h-5 text-blue-600" />
+                  <span>Riwayat Presensi Masuk Siswa (Kiosk / Gerbang)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Daftar pemindaian barcode/QR presensi pagi di gerbang beserta status kehadiran dan menit keterlambatan.
+                </p>
+              </div>
+            </div>
+
+            {/* Metric Summary Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-bold text-slate-500 uppercase">Total Presensi</span>
+                  <p className="text-2xl font-black text-slate-800 mt-0.5">{filteredKioskHistory.length}</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                  <Users className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="bg-emerald-50/70 border border-emerald-200/80 p-4 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-bold text-emerald-700 uppercase">Tepat Waktu (Hadir)</span>
+                  <p className="text-2xl font-black text-emerald-800 mt-0.5">
+                    {filteredKioskHistory.filter((k) => k.status === 'Hadir').length}
+                  </p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <CheckCheck className="w-5 h-5" />
+                </div>
+              </div>
+
+              <div className="bg-amber-50/70 border border-amber-200/80 p-4 rounded-2xl flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-bold text-amber-700 uppercase">Terlambat</span>
+                  <p className="text-2xl font-black text-amber-800 mt-0.5">
+                    {filteredKioskHistory.filter((k) => k.status === 'Terlambat').length}
+                  </p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                  <Clock className="w-5 h-5" />
+                </div>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div className="sm:col-span-3">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Tanggal Scan</label>
+                <input
+                  type="date"
+                  value={filterKioskTanggal}
+                  onChange={(e) => setFilterKioskTanggal(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                />
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Kelas</label>
+                <select
+                  value={filterKioskKelas}
+                  onChange={(e) => setFilterKioskKelas(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                >
+                  <option value="">Semua Kelas</option>
+                  {kelasList.map((k, idx) => (
+                    <option key={`opt-kiosk-${k}-${idx}`} value={k}>
+                      {k.startsWith('Kelas') ? k : 'Kelas ' + k}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Cari Siswa / NISN</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={searchKioskNama}
+                    onChange={(e) => setSearchKioskNama(e.target.value)}
+                    placeholder="Ketik nama / NISN..."
+                    className="w-full p-2.5 pl-8 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                  />
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-3" />
+                </div>
+              </div>
+
+              <div className="sm:col-span-3 flex items-end gap-2">
+                <button
+                  type="button"
+                  onClick={handleApplyKioskFilter}
+                  disabled={isLoadingKiosk}
+                  className="flex-1 p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isLoadingKiosk ? <Loader2 className="w-4 h-4 animate-spin" /> : <Filter className="w-3.5 h-3.5" />}
+                  <span>Filter</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadKioskPDF}
+                  disabled={filteredKioskHistory.length === 0}
+                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  title="Unduh Rekap PDF Presensi Masuk"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">PDF</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
+                  <tr>
+                    <th className="p-3.5 pl-4 w-12 text-center">No</th>
+                    <th className="p-3.5 w-28">Tanggal</th>
+                    <th className="p-3.5 w-24">Waktu Scan</th>
+                    <th className="p-3.5 w-28">NISN</th>
+                    <th className="p-3.5">Nama Siswa</th>
+                    <th className="p-3.5 w-24 text-center">Kelas</th>
+                    <th className="p-3.5 w-32 text-center">Status Masuk</th>
+                    <th className="p-3.5 w-36 text-center">Keterlambatan</th>
+                    {currentUser?.role === 'Admin' && <th className="p-3.5 pr-4 text-center w-20">Aksi</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredKioskHistory.length > 0 ? (
+                    filteredKioskHistory.map((item, idx) => {
+                      const dt = parseKioskDateTime(item);
+                      return (
+                        <tr key={`kiosk-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
+                          <td className="p-3.5 pl-4 text-center text-slate-400 font-bold">{idx + 1}</td>
+                          <td className="p-3.5 font-mono text-slate-700 font-semibold whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                              <span>{dt.tanggal}</span>
+                            </div>
+                          </td>
+                          <td className="p-3.5 font-mono font-bold text-slate-800 whitespace-nowrap">
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200/80 rounded-lg text-xs">
+                              <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                              <span>{dt.waktu} WIB</span>
+                            </div>
+                          </td>
+                          <td className="p-3.5 font-mono text-slate-500 font-semibold whitespace-nowrap">{item.nisn}</td>
+                          <td className="p-3.5 font-semibold text-slate-800 text-sm whitespace-nowrap">{item.nama}</td>
+                          <td className="p-3.5 text-center">
+                            <span className="inline-block px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold text-[11px]">
+                              {item.kelas}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-center">
+                            <span
+                              className={`inline-block px-3 py-1 rounded-lg text-xs font-extrabold ${
+                                item.status === 'Terlambat'
+                                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              }`}
+                            >
+                              {item.status || 'Hadir'}
+                            </span>
+                          </td>
+                          <td className="p-3.5 text-center">
+                            {item.status === 'Terlambat' ? (
+                              <span className="inline-block px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-black">
+                                {item.keterlambatan && item.keterlambatan !== '-'
+                                  ? item.keterlambatan
+                                  : item.menitTerlambat
+                                  ? `${item.menitTerlambat} menit`
+                                  : 'Terlambat'}
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 font-bold">-</span>
+                            )}
+                          </td>
+                          {currentUser?.role === 'Admin' && (
+                            <td className="p-3.5 pr-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => openDeleteConfirmModal(item.rowIndex || idx, 'kiosk-siswa')}
+                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                title="Hapus Data Presensi"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={currentUser?.role === 'Admin' ? 9 : 8} className="p-12 text-center text-slate-400">
+                        <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                        <p className="text-xs font-semibold">
+                          Tidak ada rekaman presensi masuk siswa pada filter ini.
+                        </p>
                       </td>
                     </tr>
                   )}
