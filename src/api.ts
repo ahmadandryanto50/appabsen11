@@ -546,13 +546,14 @@ export const apiClient = {
   async submitKioskScan(payload: any) {
     clearApiCache();
     // Also save to local all scans cache for immediate offline viewing in Riwayat
+    const now = new Date();
+    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const timeClockStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    const timeStr = `${dateStr} ${timeClockStr}`;
+    
     try {
       const allScansRaw = localStorage.getItem('absensi_kiosk_all_scans') || '[]';
       const allScans = JSON.parse(allScansRaw);
-      const now = new Date();
-      const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-      const timeClockStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
-      const timeStr = `${dateStr} ${timeClockStr}`;
       allScans.unshift({
         rowIndex: Date.now(),
         timestamp: timeStr,
@@ -570,6 +571,25 @@ export const apiClient = {
 
     const url = this.getBackendUrl();
     if (url) {
+      // Use saveCrud directly to force exactly matching the user's requested columns in the 'Presensi' sheet
+      const rowData = [
+        dateStr,                          // 1. Tanggal
+        timeClockStr,                     // 2. Waktu Scan
+        payload.nisn || '',               // 3. NISN
+        payload.nama || '',               // 4. Nama Siswa
+        payload.kelas || '',              // 5. Kelas
+        payload.status || 'Hadir',        // 6. Status Masuk
+        payload.keterlambatan || '-'      // 7. Keterlambatan
+      ];
+      
+      try {
+        const crudRes = await safeCallGAS(url, 'saveCrud', { sheetName: 'Presensi', rowData: rowData, rowIndex: null });
+        if (crudRes.ok && crudRes.result && crudRes.result.status === 'success') {
+          return { status: 'success', message: 'Presensi berhasil disimpan ke Spreadsheet.' };
+        }
+      } catch (e) {}
+
+      // Fallback to old native GAS action if saveCrud fails
       const { ok, result, error } = await safeCallGAS(url, 'submitKioskScan', { payload }, false, 0, 30000);
       if (ok && result && result.status === 'success') return result;
       throw new Error(error || result?.message || 'Gagal mengirim data scan.');
@@ -706,7 +726,7 @@ export const apiClient = {
 
     if (url) {
       // 1. Try dedicated getKioskAttendanceHistory action from GAS
-      const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, true, 10000);
+      const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, true, 2000);
       if (ok && result && result.status === 'success' && Array.isArray(result.history) && result.history.length > 0) {
         let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
 
@@ -733,7 +753,7 @@ export const apiClient = {
 
       // 1b. If filtered by tanggal returned 0, try fetching all to handle any GAS date format mismatch
       if (tanggal) {
-        const { ok: okAll, result: resAll } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: '', kelas: '' }, true, 10000);
+        const { ok: okAll, result: resAll } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: '', kelas: '' }, true, 2000);
         if (okAll && resAll && resAll.status === 'success' && Array.isArray(resAll.history) && resAll.history.length > 0) {
           let normalizedAll = resAll.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
           try {
@@ -870,25 +890,82 @@ export const apiClient = {
 
     const url = this.getBackendUrl();
     if (url) {
-      // 1. Try dedicated GAS deleteKioskAttendanceRecord
-      const { ok, result, error } = await safeCallGAS(url, 'deleteKioskAttendanceRecord', { rowIndex, timestamp, nisn });
-      if (ok && result && result.status === 'success') {
-        this.removeKioskLocalScan(rowIndex, timestamp, nisn);
-        return result;
+      let isDeleted = false;
+
+      // 1. Force use deleteCrud on all possible kiosk sheet names to ensure it deletes from the spreadsheet
+      const possibleSheets = ['Presensi_Masuk', 'Presensi Masuk', 'Presensi', 'Log_Presensi', 'Presensi_Kiosk'];
+      let actualRowIndex = Number(rowIndex);
+
+      for (const sheetName of possibleSheets) {
+        if (isDeleted) break;
+        try {
+          // Find the exact row by NISN and Timestamp first (rowIndex might be a generated Date.now() ID)
+          if (nisn && timestamp) {
+            const crudData = await this.getCrud(sheetName);
+            if (crudData && crudData.status === 'success' && Array.isArray(crudData.rows)) {
+              const headersLower = (crudData.headers || []).map((h: string) => (h || '').toLowerCase().trim());
+              let nIdx = headersLower.findIndex((h: string) => h.includes('nisn') || h.includes('nis') || h.includes('no induk'));
+              if (nIdx === -1) nIdx = 1;
+              let tIdx = headersLower.findIndex((h: string) => h.includes('timestamp') || h.includes('waktu scan'));
+              if (tIdx === -1) tIdx = 0;
+
+              const matchRow = crudData.rows.find((r: any) => {
+                if (!r || !r.data) return false;
+                const rNisn = String(r.data[nIdx] || '').trim();
+                const rTs = String(r.data[tIdx] || '').trim();
+                const timeMatch1 = timestamp ? timestamp.match(/(\d{2}:\d{2})/) : null;
+                const timeMatch2 = rTs.match(/(\d{2}:\d{2})/);
+                const isTimeMatch = timeMatch1 && timeMatch2 && timeMatch1[1] === timeMatch2[1];
+                return rNisn === String(nisn).trim() && (rTs === timestamp || rTs.includes(timestamp!) || timestamp!.includes(rTs) || isTimeMatch);
+              });
+
+              if (matchRow && matchRow._rowIndex) {
+                // Try deleteCrud first
+                const delRes = await this.deleteCrud(sheetName, Number(matchRow._rowIndex));
+                if (delRes && delRes.status === 'success') {
+                  isDeleted = true;
+                  break;
+                }
+                
+                // Fallback to deleteAttendanceRecord if it's the Presensi sheet
+                if (sheetName === 'Presensi' || sheetName === 'Presensi Masuk' || sheetName === 'Presensi_Masuk') {
+                  const altRes = await safeCallGAS(url, 'deleteAttendanceRecord', { rowIndex: Number(matchRow._rowIndex) });
+                  if (altRes.ok && altRes.result && altRes.result.status === 'success') {
+                    isDeleted = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+
+          // Fallback to direct rowIndex if not found above, and rowIndex looks like a genuine sheet row (< 1000000)
+          if (!isDeleted && !isNaN(actualRowIndex) && actualRowIndex > 0 && actualRowIndex < 1000000) {
+            const crudRes = await this.deleteCrud(sheetName, actualRowIndex);
+            if (crudRes && crudRes.status === 'success') {
+              isDeleted = true;
+              break;
+            }
+            if (sheetName === 'Presensi' || sheetName === 'Presensi Masuk' || sheetName === 'Presensi_Masuk') {
+              const altRes = await safeCallGAS(url, 'deleteAttendanceRecord', { rowIndex: actualRowIndex });
+              if (altRes.ok && altRes.result && altRes.result.status === 'success') {
+                isDeleted = true;
+                break;
+              }
+            }
+          }
+        } catch (e) {}
       }
 
-      // 2. Fallback: try deleteCrud on sheet 'Presensi' OR 'Presensi Masuk' OR 'Log_Presensi' depending on backend setup
-      if (rowIndex && !isNaN(Number(rowIndex))) {
-        const possibleSheets = ['Presensi_Masuk', 'Presensi Masuk', 'Presensi', 'Log_Presensi', 'Presensi_Kiosk'];
-        for (const sheetName of possibleSheets) {
-          try {
-            const crudRes = await this.deleteCrud(sheetName, Number(rowIndex));
-            if (crudRes && crudRes.status === 'success') {
-              this.removeKioskLocalScan(rowIndex, timestamp, nisn);
-              return crudRes;
-            }
-          } catch (e) {}
-        }
+      // 2. Also try dedicated GAS action as a fallback just in case
+      const { ok, result, error } = await safeCallGAS(url, 'deleteKioskAttendanceRecord', { rowIndex, timestamp, nisn });
+      if (ok && result && result.status === 'success') {
+        isDeleted = true;
+      }
+
+      if (isDeleted) {
+        this.removeKioskLocalScan(rowIndex, timestamp, nisn);
+        return { status: 'success', message: 'Data presensi berhasil dihapus.' };
       }
 
       if (error) {
@@ -1242,7 +1319,7 @@ export const apiClient = {
   async getCrud(sheetName: string): Promise<{ status: string; headers: string[]; rows: any[] }> {
     const url = this.getBackendUrl();
     if (url) {
-      const { ok, result } = await safeCallGAS(url, 'getCrud', { sheetName }, true, 600000); // 10 minutes cache
+      const { ok, result } = await safeCallGAS(url, 'getCrud', { sheetName }, true, 2000); // 2 seconds cache
       if (ok && result && result.status === 'success' && Array.isArray(result.rows)) {
         try {
           localStorage.setItem(`absensi_crud_cache_${sheetName}`, JSON.stringify(result));

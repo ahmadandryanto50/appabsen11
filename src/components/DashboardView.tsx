@@ -65,7 +65,7 @@ export function DashboardView({
             const itemDate = (item.tanggal || (item.timestamp ? String(item.timestamp).split(' ')[0] : '')).trim();
             return itemDate === todayStr || (item.timestamp && String(item.timestamp).includes(todayStr));
           });
-          setKioskTodayList(todayCached.length > 0 ? todayCached : parsed.slice(0, 10));
+          setKioskTodayList(todayCached);
         }
       } catch (e) {}
     }
@@ -73,19 +73,21 @@ export function DashboardView({
     try {
       // 1. Query with today's date parameter
       const res = await apiClient.getKioskAttendanceHistory(todayStr);
-      if (res.status === 'success' && Array.isArray(res.history) && res.history.length > 0) {
-        setKioskTodayList(res.history);
-      } else {
-        // 2. Query all scans to handle timezone / date format differences
-        const resAll = await apiClient.getKioskAttendanceHistory('');
-        if (resAll.status === 'success' && Array.isArray(resAll.history) && resAll.history.length > 0) {
-          const todayFiltered = resAll.history.filter((item: any) => {
-            const itemDate = (item.tanggal || (item.timestamp ? String(item.timestamp).split(' ')[0] : '')).trim();
-            return itemDate === todayStr || (item.timestamp && String(item.timestamp).includes(todayStr));
-          });
-          setKioskTodayList(todayFiltered.length > 0 ? todayFiltered : resAll.history.slice(0, 10));
-        } else if (res.status === 'success' && Array.isArray(res.history)) {
+      if (res.status === 'success' && Array.isArray(res.history)) {
+        if (res.history.length > 0) {
           setKioskTodayList(res.history);
+        } else {
+          // If backend says 0 for today, try fetching all just to make sure, but strictly filter for today.
+          const resAll = await apiClient.getKioskAttendanceHistory('');
+          if (resAll.status === 'success' && Array.isArray(resAll.history)) {
+            const todayFiltered = resAll.history.filter((item: any) => {
+              const itemDate = (item.tanggal || (item.timestamp ? String(item.timestamp).split(' ')[0] : '')).trim();
+              return itemDate === todayStr || (item.timestamp && String(item.timestamp).includes(todayStr));
+            });
+            setKioskTodayList(todayFiltered);
+          } else {
+            setKioskTodayList([]);
+          }
         }
       }
     } catch (err) {
