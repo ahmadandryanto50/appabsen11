@@ -4,6 +4,7 @@
  */
 
 import { Student, AttendanceRecord, TeacherAbsenceRecord } from './types';
+import { formatKeterlambatan, parseMenitTerlambat } from './utils/timeUtils';
 
 // Pre-seeded local data keys
 const STORAGE_KEYS = {
@@ -202,7 +203,7 @@ export function initializeStorage() {
         nama: 'Maychel Owen',
         kelas: 'IX. Diponegoro',
         status: 'Terlambat',
-        keterlambatan: '532 menit',
+        keterlambatan: '8 jam 52 menit',
         menitTerlambat: 532,
       },
       {
@@ -214,7 +215,7 @@ export function initializeStorage() {
         nama: 'Dalisya Lulu Mumtaza',
         kelas: 'VIII. Ki Hadjar Dewantara',
         status: 'Terlambat',
-        keterlambatan: '532 menit',
+        keterlambatan: '8 jam 52 menit',
         menitTerlambat: 532,
       },
       {
@@ -226,7 +227,7 @@ export function initializeStorage() {
         nama: 'Abizar Putra Ramadhan',
         kelas: 'VII. Ahmad Yani',
         status: 'Terlambat',
-        keterlambatan: '532 menit',
+        keterlambatan: '8 jam 52 menit',
         menitTerlambat: 532,
       },
     ];
@@ -680,8 +681,8 @@ export const apiClient = {
         nama: namaVal,
         kelas: kelasVal,
         status: String(item.status || 'Hadir').trim(),
-        keterlambatan: String(item.keterlambatan || '-').trim(),
-        menitTerlambat: Number(item.menitTerlambat) || 0,
+        keterlambatan: formatKeterlambatan(item.keterlambatan || item.menitTerlambat),
+        menitTerlambat: parseMenitTerlambat(item.menitTerlambat || item.keterlambatan),
       };
     };
 

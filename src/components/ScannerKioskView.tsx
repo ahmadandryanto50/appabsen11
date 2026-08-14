@@ -3,6 +3,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { CrudRow, AppCustomization, getLocalDateString } from '../types';
 import { Camera, CheckCircle, AlertCircle, Maximize, Clock, UserCheck, RotateCcw, Edit3, Check, Sparkles } from 'lucide-react';
 import { apiClient } from '../api';
+import { formatKeterlambatan } from '../utils/timeUtils';
 
 interface ScannerKioskViewProps {
   students: CrudRow[];
@@ -295,7 +296,7 @@ export function ScannerKioskView({ students, customization, onUpdateCustomizatio
           const diffMs = scanDate.getTime() - cutoffDate.getTime();
           menitTerlambat = Math.max(1, Math.floor(diffMs / 60000));
           presensiStatus = 'Terlambat';
-          keterlambatanText = `${menitTerlambat} menit`;
+          keterlambatanText = formatKeterlambatan(menitTerlambat);
         }
 
         // Play audio beep
@@ -797,9 +798,9 @@ export function ScannerKioskView({ students, customization, onUpdateCustomizatio
                             }`}
                           >
                             <span>{scan.status}</span>
-                            {scan.menitTerlambat && scan.menitTerlambat > 0 ? (
-                              <span className="text-[10px] font-black px-1.5 py-0.2 rounded bg-amber-200 text-amber-900">
-                                +{scan.menitTerlambat}m
+                            {scan.status === 'Terlambat' && scan.keterlambatan ? (
+                              <span className="text-[10px] font-black px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">
+                                {scan.keterlambatan}
                               </span>
                             ) : null}
                           </span>
