@@ -110,6 +110,17 @@ export function DashboardView({
     // Fetch Live Kiosk Presensi Masuk Siswa Hari Ini
     fetchKioskTodayData();
 
+    // Auto-refresh when tab is focused (e.g. switching back to the laptop browser)
+    const handleFocus = () => {
+      fetchKioskTodayData();
+    };
+    window.addEventListener('focus', handleFocus);
+
+    // Auto-refresh every 30 seconds for live monitor displays
+    const intervalId = setInterval(() => {
+      fetchKioskTodayData();
+    }, 30000);
+
     if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') {
       const cached = localStorage.getItem('absensi_history_tendik_absen');
       if (cached) {
@@ -136,6 +147,11 @@ export function DashboardView({
         .catch(err => console.error(err))
         .finally(() => setLoadingTendik(false));
     }
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(intervalId);
+    };
   }, [currentUser, isFullAccess, fetchKioskTodayData]);
 
   // Dynamic index helpers based on headers with robust fallback based on array length

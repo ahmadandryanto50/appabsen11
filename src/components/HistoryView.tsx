@@ -360,6 +360,25 @@ export function HistoryView({
     if (subTab === 'kiosk-siswa') {
       handleApplyKioskFilter();
     }
+    
+    const handleFocus = () => {
+      if (subTab === 'kiosk-siswa') {
+        handleApplyKioskFilter();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    
+    // Auto refresh every 30 seconds
+    const intervalId = setInterval(() => {
+      if (subTab === 'kiosk-siswa') {
+        handleApplyKioskFilter();
+      }
+    }, 30000);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      clearInterval(intervalId);
+    };
   }, [subTab, filterKioskTanggal, filterKioskKelas]);
 
   useEffect(() => {
