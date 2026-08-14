@@ -644,14 +644,29 @@ export const apiClient = {
       let itemWaktu = item.waktu ? String(item.waktu).trim() : '';
 
       if (!itemTanggal || !itemWaktu) {
-        if (raw.includes('T')) {
+        const parsedDate = new Date(raw);
+        if (!isNaN(parsedDate.getTime()) && raw.match(/[a-zA-Z]/) && raw.includes(':')) {
+          const y = parsedDate.getFullYear();
+          const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
+          const d = String(parsedDate.getDate()).padStart(2, '0');
+          itemTanggal = `${y}-${m}-${d}`;
+          const h = String(parsedDate.getHours()).padStart(2, '0');
+          const min = String(parsedDate.getMinutes()).padStart(2, '0');
+          const s = String(parsedDate.getSeconds()).padStart(2, '0');
+          itemWaktu = `${h}:${min}:${s}`;
+        } else if (raw.includes('T')) {
           const parts = raw.split('T');
           itemTanggal = parts[0] || '';
           itemWaktu = (parts[1] || '').split('.')[0] || '';
         } else if (raw.includes(' ')) {
           const parts = raw.split(' ');
-          itemTanggal = parts[0] || '';
-          itemWaktu = parts[1] || '';
+          if (parts.length >= 2 && parts[1].includes(':')) {
+            itemTanggal = parts[0] || '';
+            itemWaktu = parts[1] || '';
+          } else {
+            itemTanggal = raw;
+            itemWaktu = '-';
+          }
         } else {
           itemTanggal = raw;
           itemWaktu = '-';
@@ -862,15 +877,18 @@ export const apiClient = {
         return result;
       }
 
-      // 2. Fallback: try deleteCrud on sheet 'Presensi'
+      // 2. Fallback: try deleteCrud on sheet 'Presensi' OR 'Presensi Masuk' OR 'Log_Presensi' depending on backend setup
       if (rowIndex && !isNaN(Number(rowIndex))) {
-        try {
-          const crudRes = await this.deleteCrud('Presensi', Number(rowIndex));
-          if (crudRes && crudRes.status === 'success') {
-            this.removeKioskLocalScan(rowIndex, timestamp, nisn);
-            return crudRes;
-          }
-        } catch (e) {}
+        const possibleSheets = ['Presensi_Masuk', 'Presensi Masuk', 'Presensi', 'Log_Presensi', 'Presensi_Kiosk'];
+        for (const sheetName of possibleSheets) {
+          try {
+            const crudRes = await this.deleteCrud(sheetName, Number(rowIndex));
+            if (crudRes && crudRes.status === 'success') {
+              this.removeKioskLocalScan(rowIndex, timestamp, nisn);
+              return crudRes;
+            }
+          } catch (e) {}
+        }
       }
 
       if (error) {

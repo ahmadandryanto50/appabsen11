@@ -426,14 +426,29 @@ export function HistoryView({
     if (!tanggal || !waktu) {
       const raw = item.timestamp ? String(item.timestamp).trim() : '';
       if (raw) {
-        if (raw.includes('T')) {
+        const parsedDate = new Date(raw);
+        if (!isNaN(parsedDate.getTime()) && raw.match(/[a-zA-Z]/) && raw.includes(':')) {
+          const y = parsedDate.getFullYear();
+          const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
+          const d = String(parsedDate.getDate()).padStart(2, '0');
+          tanggal = `${y}-${m}-${d}`;
+          const h = String(parsedDate.getHours()).padStart(2, '0');
+          const min = String(parsedDate.getMinutes()).padStart(2, '0');
+          const s = String(parsedDate.getSeconds()).padStart(2, '0');
+          waktu = `${h}:${min}:${s}`;
+        } else if (raw.includes('T')) {
           const parts = raw.split('T');
           tanggal = parts[0] || '';
           waktu = (parts[1] || '').split('.')[0] || '';
         } else if (raw.includes(' ')) {
           const parts = raw.split(' ');
-          tanggal = parts[0] || '';
-          waktu = parts[1] || '';
+          if (parts.length >= 2 && parts[1].includes(':')) {
+            tanggal = parts[0] || '';
+            waktu = parts[1] || '';
+          } else {
+            tanggal = raw;
+            waktu = '-';
+          }
         } else {
           tanggal = raw;
           waktu = '-';
@@ -1593,7 +1608,7 @@ export function HistoryView({
                                   : 'Terlambat'}
                               </span>
                             ) : (
-                              <span className="text-slate-400 font-bold">-</span>
+                              <span className="text-slate-400 font-bold">Tepat Waktu</span>
                             )}
                           </td>
                           {(currentUser?.role === 'Admin' || isFullAccess) && (

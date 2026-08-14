@@ -1235,8 +1235,14 @@ export function DashboardView({
                           )}
                         </td>
                         <td className="p-3 text-center font-medium text-slate-600">
-                          {item.keterlambatan && item.keterlambatan !== '-' ? (
-                            <span className="text-rose-600 font-bold">{item.keterlambatan}</span>
+                          {item.status === 'Terlambat' ? (
+                            <span className="text-rose-600 font-bold">
+                              {item.keterlambatan && item.keterlambatan !== '-'
+                                ? item.keterlambatan
+                                : item.menitTerlambat
+                                ? `${item.menitTerlambat} menit`
+                                : 'Terlambat'}
+                            </span>
                           ) : (
                             <span className="text-slate-400">Tepat Waktu</span>
                           )}
