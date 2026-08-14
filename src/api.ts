@@ -330,7 +330,7 @@ async function safeCallGAS(
 // MAIN API CLIENT
 export const apiClient = {
   getBackendUrl(): string {
-    return localStorage.getItem(STORAGE_KEYS.APP_URL) || import.meta.env.VITE_GAS_URL || '';
+    return localStorage.getItem(STORAGE_KEYS.APP_URL) || (import.meta as any).env?.VITE_GAS_URL || '';
   },
 
   async syncConfigFromServer(): Promise<{ webAppUrl?: string; customization?: any }> {
@@ -545,33 +545,43 @@ export const apiClient = {
   // 3.5 SUBMIT KIOSK SCAN
   async submitKioskScan(payload: any) {
     clearApiCache();
-    // Also save to local all scans cache for immediate offline viewing in Riwayat
     const now = new Date();
     const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const timeClockStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
     const timeStr = `${dateStr} ${timeClockStr}`;
     
+    const newRecord = {
+      rowIndex: Date.now(),
+      timestamp: timeStr,
+      tanggal: dateStr,
+      waktu: timeClockStr,
+      nisn: payload.nisn || '',
+      nama: payload.nama || '',
+      kelas: payload.kelas || '',
+      status: payload.status || 'Hadir',
+      keterlambatan: payload.keterlambatan || '-',
+      menitTerlambat: payload.menitTerlambat || 0,
+    };
+
     try {
       const allScansRaw = localStorage.getItem('absensi_kiosk_all_scans') || '[]';
       const allScans = JSON.parse(allScansRaw);
-      allScans.unshift({
-        rowIndex: Date.now(),
-        timestamp: timeStr,
-        tanggal: dateStr,
-        waktu: timeClockStr,
-        nisn: payload.nisn || '',
-        nama: payload.nama || '',
-        kelas: payload.kelas || '',
-        status: payload.status || 'Hadir',
-        keterlambatan: payload.keterlambatan || '-',
-        menitTerlambat: payload.menitTerlambat || 0,
-      });
+      allScans.unshift(newRecord);
       localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(allScans.slice(0, 500)));
+    } catch (e) {}
+
+    // Synchronize instantly with Node server store so all connected browsers get live updates
+    try {
+      await fetch('/api/kiosk-scans', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRecord),
+      });
     } catch (e) {}
 
     const url = this.getBackendUrl();
     if (url) {
-      // Use saveCrud directly to force exactly matching the user's requested columns in the 'Presensi' sheet
+      // Use saveCrud directly to write row to 'Presensi' sheet
       const rowData = [
         dateStr,                          // 1. Tanggal
         timeClockStr,                     // 2. Waktu Scan
@@ -589,7 +599,7 @@ export const apiClient = {
         }
       } catch (e) {}
 
-      // Fallback to old native GAS action if saveCrud fails
+      // Fallback to submitKioskScan action if saveCrud fails
       const { ok, result, error } = await safeCallGAS(url, 'submitKioskScan', { payload }, false, 0, 30000);
       if (ok && result && result.status === 'success') return result;
       throw new Error(error || result?.message || 'Gagal mengirim data scan.');
@@ -612,15 +622,27 @@ export const apiClient = {
       const trimmed = String(dateInput).trim();
       if (!trimmed) return '';
 
+      // Handle ISO strings like 2026-08-14T...
+      if (trimmed.includes('T')) {
+        return trimmed.split('T')[0];
+      }
+
       // If YYYY-MM-DD or YYYY/MM/DD or YYYY.MM.DD
       const ymd = trimmed.match(/^(\d{4})[-/\. ](\d{1,2})[-/\. ](\d{1,2})/);
       if (ymd) {
         return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
       }
-      // If DD/MM/YYYY or DD-MM-YYYY
+      // If DD/MM/YYYY or MM/DD/YYYY
       const dmy = trimmed.match(/^(\d{1,2})[-/\. ](\d{1,2})[-/\. ](\d{4})/);
       if (dmy) {
-        return `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
+        let p1 = Number(dmy[1]);
+        let p2 = Number(dmy[2]);
+        let year = dmy[3];
+        // If 2nd number > 12 (e.g. 8/14/2026), 1st number is Month, 2nd is Day
+        if (p2 > 12) {
+          return `${year}-${String(p1).padStart(2, '0')}-${String(p2).padStart(2, '0')}`;
+        }
+        return `${year}-${String(p2).padStart(2, '0')}-${String(p1).padStart(2, '0')}`;
       }
 
       // Indonesian month names fallback (e.g. 14 Agustus 2026)
@@ -725,55 +747,7 @@ export const apiClient = {
     const url = this.getBackendUrl();
 
     if (url) {
-      // 1. Try dedicated getKioskAttendanceHistory action from GAS
-      const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, true, 2000);
-      if (ok && result && result.status === 'success' && Array.isArray(result.history) && result.history.length > 0) {
-        let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
-
-        if (targetDateIso) {
-          normalized = normalized.filter((h: any) => {
-            const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
-            return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
-          });
-        }
-        if (kelas) {
-          normalized = normalized.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
-        }
-
-        try {
-          if (!tanggal && !kelas) {
-            localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(normalized));
-          }
-        } catch (e) {}
-
-        if (normalized.length > 0) {
-          return { status: 'success', history: normalized };
-        }
-      }
-
-      // 1b. If filtered by tanggal returned 0, try fetching all to handle any GAS date format mismatch
-      if (tanggal) {
-        const { ok: okAll, result: resAll } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: '', kelas: '' }, true, 2000);
-        if (okAll && resAll && resAll.status === 'success' && Array.isArray(resAll.history) && resAll.history.length > 0) {
-          let normalizedAll = resAll.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
-          try {
-            localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(normalizedAll));
-          } catch (e) {}
-
-          let filteredAll = normalizedAll.filter((h: any) => {
-            const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
-            return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal));
-          });
-          if (kelas) {
-            filteredAll = filteredAll.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
-          }
-          if (filteredAll.length > 0) {
-            return { status: 'success', history: filteredAll };
-          }
-        }
-      }
-
-      // 2. Direct Fallback: Read directly from sheet 'Presensi' (or synonyms) via getCrud
+      // 1. Direct fetch from Google Spreadsheet via getCrud('Presensi')
       const possibleSheetNames = ['Presensi', 'Presensi_Kiosk', 'Presensi_Masuk', 'Presensi Masuk', 'Log_Presensi'];
       for (const sheetName of possibleSheetNames) {
         try {
@@ -782,48 +756,68 @@ export const apiClient = {
             const headersLower = (crudPresensi.headers || []).map((h: string) => (h || '').toLowerCase().trim());
             
             let tsIdx = headersLower.findIndex((h: string) => h.includes('timestamp') || h.includes('waktu scan'));
-            if (tsIdx === -1) tsIdx = 0;
-            const tglIdx = headersLower.findIndex((h: string) => h === 'tanggal' || h.includes('tgl'));
-            const wktIdx = headersLower.findIndex((h: string) => h === 'waktu' || h === 'jam' || h.includes('pukul'));
+            let tglIdx = headersLower.findIndex((h: string) => h === 'tanggal' || h.includes('tgl'));
+            let wktIdx = headersLower.findIndex((h: string) => h === 'waktu' || h === 'jam' || h.includes('pukul'));
             let nisnIdx = headersLower.findIndex((h: string) => h.includes('nisn') || h.includes('nis') || h.includes('no induk'));
-            if (nisnIdx === -1) nisnIdx = 1;
             let namaIdx = headersLower.findIndex((h: string) => h.includes('nama'));
-            if (namaIdx === -1) namaIdx = 2;
             let kelasIdx = headersLower.findIndex((h: string) => h.includes('kelas') || h.includes('rombel'));
-            if (kelasIdx === -1) kelasIdx = 3;
             let statusIdx = headersLower.findIndex((h: string) => h.includes('status') || h.includes('kehadiran') || h.includes('presensi'));
-            if (statusIdx === -1) statusIdx = 4;
             let telatIdx = headersLower.findIndex((h: string) => h.includes('terlambat') || h.includes('keterlambatan') || h.includes('menit'));
-            if (telatIdx === -1) telatIdx = 5;
 
-            const parsedFromSheet = crudPresensi.rows.map((row: any) => {
+            const validRows = crudPresensi.rows.filter((row: any) => {
+              if (!row || !row.data) return false;
+              const r0 = String(row.data[0] || '').toLowerCase().trim();
+              const r1 = String(row.data[1] || '').toLowerCase().trim();
+              const r2 = String(row.data[2] || '').toLowerCase().trim();
+              // Filter out header row if present in data rows
+              if (r0 === 'tanggal' || r0 === 'tgl' || r0 === 'timestamp' || r1 === 'waktu scan' || r2 === 'nisn') {
+                return false;
+              }
+              return true;
+            });
+
+            const parsedFromSheet = validRows.map((row: any) => {
               const rowData = row.data || [];
-              const rawTs = rowData[tsIdx] ? String(rowData[tsIdx]).trim() : '';
-              const rawTgl = tglIdx !== -1 && rowData[tglIdx] ? String(rowData[tglIdx]).trim() : '';
-              const rawWkt = wktIdx !== -1 && rowData[wktIdx] ? String(rowData[wktIdx]).trim() : '';
+              let rTanggal = tglIdx !== -1 && rowData[tglIdx] !== undefined ? String(rowData[tglIdx]).trim() : '';
+              let rWaktu = wktIdx !== -1 && rowData[wktIdx] !== undefined ? String(rowData[wktIdx]).trim() : '';
+              let rTs = tsIdx !== -1 && rowData[tsIdx] !== undefined ? String(rowData[tsIdx]).trim() : '';
 
-              let finalTs = rawTs;
-              if (rawTs && !rawTs.includes('-') && !rawTs.includes('/') && rawTgl) {
-                // rawTs is just a time string, prepend the date
-                finalTs = `${rawTgl} ${rawTs}`;
-              } else if (!rawTs) {
-                finalTs = `${rawTgl} ${rawWkt}`;
+              let rNisn = nisnIdx !== -1 && rowData[nisnIdx] !== undefined ? String(rowData[nisnIdx]).trim() : '';
+              let rNama = namaIdx !== -1 && rowData[namaIdx] !== undefined ? String(rowData[namaIdx]).trim() : '';
+              let rKelas = kelasIdx !== -1 && rowData[kelasIdx] !== undefined ? String(rowData[kelasIdx]).trim() : '';
+              let rStatus = statusIdx !== -1 && rowData[statusIdx] !== undefined ? String(rowData[statusIdx]).trim() : 'Hadir';
+              let rTelat = telatIdx !== -1 && rowData[telatIdx] !== undefined ? String(rowData[telatIdx]).trim() : '-';
+
+              // Position-based fallback if headers are default or unindexed:
+              // Typical column order: [Tanggal, Waktu Scan, NISN, Nama, Kelas, Status, Keterlambatan]
+              if (!rTanggal && rowData[0]) rTanggal = String(rowData[0]).trim();
+              if (!rWaktu && rowData[1]) rWaktu = String(rowData[1]).trim();
+              if (!rNisn && rowData[2]) rNisn = String(rowData[2]).trim();
+              if (!rNama && rowData[3]) rNama = String(rowData[3]).trim();
+              if (!rKelas && rowData[4]) rKelas = String(rowData[4]).trim();
+              if ((!rStatus || rStatus === 'Hadir') && rowData[5]) rStatus = String(rowData[5]).trim();
+              if ((!rTelat || rTelat === '-') && rowData[6]) rTelat = String(rowData[6]).trim();
+
+              let finalTs = rTs;
+              if (rTs && !rTs.includes('-') && !rTs.includes('/') && rTanggal) {
+                finalTs = `${rTanggal} ${rTs}`;
+              } else if (!rTs) {
+                finalTs = `${rTanggal} ${rWaktu}`;
               }
 
               return normalizeRecord({
                 rowIndex: row._rowIndex || row.rowIndex,
                 timestamp: finalTs,
-                tanggal: rawTgl || finalTs.split(' ')[0],
-                waktu: rawWkt || finalTs.split(' ')[1] || '-',
-                nisn: rowData[nisnIdx] ? String(rowData[nisnIdx]).trim() : '',
-                nama: rowData[namaIdx] ? String(rowData[namaIdx]).trim() : '',
-                kelas: rowData[kelasIdx] ? String(rowData[kelasIdx]).trim() : '',
-                status: rowData[statusIdx] ? String(rowData[statusIdx]).trim() : 'Hadir',
-                keterlambatan: rowData[telatIdx] ? String(rowData[telatIdx]).trim() : '-',
+                tanggal: rTanggal || finalTs.split(' ')[0],
+                waktu: rWaktu || finalTs.split(' ')[1] || '-',
+                nisn: rNisn,
+                nama: rNama,
+                kelas: rKelas,
+                status: rStatus,
+                keterlambatan: rTelat,
               }, row._rowIndex);
             });
 
-            // Sort latest first
             let filteredSheet = parsedFromSheet.reverse();
 
             if (targetDateIso) {
@@ -836,18 +830,36 @@ export const apiClient = {
               filteredSheet = filteredSheet.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
             }
 
-            if (filteredSheet.length > 0) {
-              try {
-                if (!tanggal && !kelas) {
-                  localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(filteredSheet));
-                }
-              } catch (e) {}
-              return { status: 'success', history: filteredSheet };
-            }
+            // Successfully queried real spreadsheet database
+            try {
+              if (!tanggal && !kelas) {
+                localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(filteredSheet));
+              }
+            } catch (e) {}
+
+            return { status: 'success', history: filteredSheet };
           }
         } catch (crudErr) {
           // continue checking next possible sheet
         }
+      }
+
+      // 2. Try dedicated getKioskAttendanceHistory action from GAS if getCrud was empty/failed
+      const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, true, 2000);
+      if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
+        let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
+
+        if (targetDateIso) {
+          normalized = normalized.filter((h: any) => {
+            const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
+            return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
+          });
+        }
+        if (kelas) {
+          normalized = normalized.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
+        }
+
+        return { status: 'success', history: normalized };
       }
     }
 
@@ -869,8 +881,6 @@ export const apiClient = {
       history = JSON.parse(raw);
     } catch (e) {}
 
-    history = history.map((h, i) => normalizeRecord(h, i + 2));
-
     if (targetDateIso) {
       history = history.filter((h: any) => {
         const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
@@ -878,7 +888,7 @@ export const apiClient = {
       });
     }
     if (kelas) {
-      history = history.filter((h) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
+      history = history.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
     }
 
     return { status: 'success', history };
