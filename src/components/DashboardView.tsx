@@ -41,12 +41,7 @@ export function DashboardView({
       const rawToday = localStorage.getItem('absensi_kiosk_today_list');
       if (rawToday) {
         const parsed = JSON.parse(rawToday);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-      const rawAll = localStorage.getItem('absensi_kiosk_all_scans');
-      if (rawAll) {
-        const parsed = JSON.parse(rawAll);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch (e) {}
     return [];
@@ -79,11 +74,15 @@ export function DashboardView({
         setKioskTodayList(res.history);
         try {
           localStorage.setItem('absensi_kiosk_today_list', JSON.stringify(res.history));
+          if (res.history.length === 0) {
+            localStorage.setItem('absensi_kiosk_all_scans', '[]');
+          }
         } catch (e) {}
       } else {
         setKioskTodayList([]);
         try {
           localStorage.setItem('absensi_kiosk_today_list', '[]');
+          localStorage.setItem('absensi_kiosk_all_scans', '[]');
         } catch (e) {}
       }
     } catch (err) {

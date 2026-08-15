@@ -771,11 +771,20 @@ export const apiClient = {
         const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, false, 0, 12000);
         if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
           if (result.history.length === 0) {
-            if (!tanggal && !kelas) {
-              try {
+            try {
+              if (tanggal) {
+                localStorage.setItem('absensi_kiosk_today_list', '[]');
+              }
+              if (!tanggal && !kelas) {
                 localStorage.setItem('absensi_kiosk_all_scans', '[]');
-              } catch (e) {}
-            }
+                localStorage.setItem('absensi_kiosk_today_list', '[]');
+                fetch('/api/kiosk-scans', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ clearAll: true }),
+                }).catch(() => {});
+              }
+            } catch (e) {}
             return { status: 'success', history: [] };
           }
           let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
@@ -785,6 +794,11 @@ export const apiClient = {
               const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
               return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
             });
+            if (filteredByDate.length === 0) {
+              try {
+                localStorage.setItem('absensi_kiosk_today_list', '[]');
+              } catch (e) {}
+            }
             return { status: 'success', history: filteredByDate };
           }
           return { status: 'success', history: normalized };
@@ -797,6 +811,15 @@ export const apiClient = {
           const { ok: okAll, result: resAll } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: '', kelas: kelas || '' }, false, 0, 12000);
           if (okAll && resAll && resAll.status === 'success' && Array.isArray(resAll.history)) {
             if (resAll.history.length === 0) {
+              try {
+                localStorage.setItem('absensi_kiosk_all_scans', '[]');
+                localStorage.setItem('absensi_kiosk_today_list', '[]');
+                fetch('/api/kiosk-scans', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ clearAll: true }),
+                }).catch(() => {});
+              } catch (e) {}
               return { status: 'success', history: [] };
             }
             let normalized = resAll.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));

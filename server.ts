@@ -124,15 +124,19 @@ async function startServer() {
   });
 
   app.delete('/api/kiosk-scans', (req, res) => {
-    const { rowIndex, timestamp, nisn } = req.body || {};
+    const { rowIndex, timestamp, nisn, clearAll } = req.body || {};
     const data = readServerData();
     if (Array.isArray(data.kioskScans)) {
-      data.kioskScans = data.kioskScans.filter((s: any) => {
-        if (rowIndex && String(s.rowIndex) === String(rowIndex)) return false;
-        if (timestamp && nisn && s.timestamp === timestamp && s.nisn === nisn) return false;
-        if (timestamp && String(s.timestamp).includes(timestamp)) return false;
-        return true;
-      });
+      if (clearAll) {
+        data.kioskScans = [];
+      } else {
+        data.kioskScans = data.kioskScans.filter((s: any) => {
+          if (rowIndex && String(s.rowIndex) === String(rowIndex)) return false;
+          if (timestamp && nisn && s.timestamp === timestamp && s.nisn === nisn) return false;
+          if (timestamp && String(s.timestamp).includes(timestamp)) return false;
+          return true;
+        });
+      }
       writeServerData(data);
     }
     res.json({ status: 'success', message: 'Scan record deleted from server.' });
