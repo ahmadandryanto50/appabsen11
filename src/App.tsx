@@ -345,10 +345,33 @@ export default function App() {
         setCurrentUser(parsed);
         setIsLoggedIn(true);
         setActiveView('dashboard');
+
+        // Check if returning from external app
+        const returnedFrom = sessionStorage.getItem('returned_from_external_app');
+        if (returnedFrom) {
+          sessionStorage.removeItem('returned_from_external_app');
+          addToast(`Berhasil kembali dari ${returnedFrom} ke Halaman Utama Aplikasi`, 'success');
+        }
       } catch (e) {
         localStorage.removeItem('absensi_user');
       }
     }
+
+    // Handle pageshow event for back-forward cache when user clicks browser Go Back button
+    const handlePageShow = (event: PageTransitionEvent) => {
+      setActiveView('dashboard');
+      setShowExternalAppsModal(false);
+      const returnedFrom = sessionStorage.getItem('returned_from_external_app');
+      if (returnedFrom) {
+        sessionStorage.removeItem('returned_from_external_app');
+        addToast(`Berhasil kembali dari ${returnedFrom} ke Halaman Utama Aplikasi`, 'success');
+      }
+    };
+
+    window.addEventListener('pageshow', handlePageShow);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+    };
   }, [addToast, fetchKelasList, fetchMapelList, fetchMasterData, loadCustomization]);
 
   // Load history data once logged in

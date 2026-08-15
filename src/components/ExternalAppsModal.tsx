@@ -63,10 +63,25 @@ export function ExternalAppsModal({
       return;
     }
 
+    // Save flag that we navigated to external app so returning via Back button shows welcome toast
+    try {
+      sessionStorage.setItem('returned_from_external_app', app.name);
+    } catch (e) {}
+
     // Redirect current tab cleanly (closes current app cleanly and opens the second app)
     setRedirectingApp(app);
     setTimeout(() => {
-      window.location.href = app.url;
+      let targetUrl = app.url;
+      try {
+        const currentOrigin = window.location.href;
+        const urlObj = new URL(targetUrl);
+        if (!urlObj.searchParams.has('return_url')) {
+          urlObj.searchParams.set('return_url', currentOrigin);
+          targetUrl = urlObj.toString();
+        }
+      } catch (e) {}
+
+      window.location.href = targetUrl;
     }, 600);
   };
 
@@ -237,7 +252,7 @@ export function ExternalAppsModal({
         <div className="p-3.5 bg-amber-50/80 border border-amber-200/70 rounded-2xl flex items-start gap-3 text-amber-900 text-xs leading-relaxed">
           <Sparkles className="w-4 h-4 mt-0.5 text-amber-600 flex-shrink-0" />
           <p>
-            Saat tombol <strong>Buka Aplikasi</strong> diklik, aplikasi presensi saat ini akan tertutup secara rapi dan halaman peramban Anda berpindah langsung ke link yang dipilih.
+            Saat tombol <strong>Buka Aplikasi</strong> diklik, aplikasi presensi saat ini akan berpindah ke aplikasi kedua. Anda dapat menekan tombol <strong>Kembali (Back)</strong> pada peramban peramban kapan saja untuk kembali ke aplikasi utama ini secara mulus.
           </p>
         </div>
 
