@@ -104,6 +104,15 @@ export type ViewType =
   | 'kiosk-scanner'
   | 'cetak-barcode';
 
+export interface ExternalAppItem {
+  id: string;
+  name: string;
+  url: string;
+  description: string;
+  category?: string;
+  badge?: string;
+}
+
 export interface AppCustomization {
   appName: string;
   appSubtitle: string;
@@ -115,6 +124,7 @@ export interface AppCustomization {
   kepalaSekolahNama?: string;
   kepalaSekolahNip?: string;
   batasWaktuMasuk?: string;
+  externalApps?: ExternalAppItem[];
 }
 
 export interface CrudRow {

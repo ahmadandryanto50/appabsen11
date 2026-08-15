@@ -24,6 +24,9 @@ import {
   RefreshCw,
   ScanLine,
   QrCode,
+  ExternalLink,
+  Home,
+  ArrowLeft,
 } from 'lucide-react';
 
 import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString } from './types';
@@ -45,6 +48,7 @@ import { CustomizationView } from './components/CustomizationView';
 import { AppsScriptView } from './components/AppsScriptView';
 import { ScannerKioskView } from './components/ScannerKioskView';
 import { CetakBarcodeView } from './components/CetakBarcodeView';
+import { ExternalAppsModal } from './components/ExternalAppsModal';
 
 export default function App() {
   // Authentication & Navigation
@@ -57,6 +61,7 @@ export default function App() {
   const [webAppUrl, setWebAppUrl] = useState(apiClient.getBackendUrl());
   const [isDemoMode, setIsDemoMode] = useState(apiClient.isDemoMode());
   const [showConfigModal, setShowConfigModal] = useState(false);
+  const [showExternalAppsModal, setShowExternalAppsModal] = useState(false);
 
   // Global Lists
   const [kelasList, setKelasList] = useState<string[]>(['X-A', 'X-B', 'XI-A', 'XI-B', 'XII-A', 'XII-B']);
@@ -332,13 +337,14 @@ export default function App() {
 
     initApp();
 
-    // Auto load session
+    // Auto load session & reset view to main page on reload
     const savedUser = localStorage.getItem('absensi_user');
     if (savedUser) {
       try {
         const parsed = JSON.parse(savedUser);
         setCurrentUser(parsed);
         setIsLoggedIn(true);
+        setActiveView('dashboard');
       } catch (e) {
         localStorage.removeItem('absensi_user');
       }
@@ -724,8 +730,15 @@ export default function App() {
           <div>
             {/* Header / Brand Logo */}
             <div className="p-5 flex items-center justify-between border-b border-slate-800">
-              <div className="flex items-center gap-3">
-                <div className={`w-10 h-10 rounded-xl ${customization.logoColor || 'bg-blue-600'} flex items-center justify-center text-white font-bold text-xl shadow-md shadow-blue-600/10 overflow-hidden`}>
+              <button
+                onClick={() => {
+                  setActiveView('dashboard');
+                  setMobileMenuOpen(false);
+                }}
+                className="flex items-center gap-3 text-left hover:opacity-90 transition-opacity cursor-pointer group"
+                title="Kembali ke Halaman Utama Dashboard"
+              >
+                <div className={`w-10 h-10 rounded-xl ${customization.logoColor || 'bg-blue-600'} flex items-center justify-center text-white font-bold text-xl shadow-md shadow-blue-600/10 overflow-hidden group-hover:scale-105 transition-transform`}>
                   {customization.logoUrl?.trim() ? (
                     <img
                       src={normalizeImageUrl(customization.logoUrl.trim())}
@@ -744,11 +757,11 @@ export default function App() {
                   <h1 className="font-extrabold text-white text-sm leading-tight tracking-tight uppercase truncate max-w-[130px]" title={customization.appName || 'E-ABSENSI'}>
                     {customization.appName || 'E-ABSENSI'}
                   </h1>
-                  <p className="text-[10px] text-slate-400 font-bold tracking-wider uppercase truncate max-w-[130px]">
+                  <p className="text-[10px] text-slate-400 font-bold tracking-wider uppercase truncate max-w-[130px] group-hover:text-blue-400 transition-colors">
                     {customization.appSubtitle || 'Sekolah Digital'}
                   </p>
                 </div>
-              </div>
+              </button>
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 className="md:hidden text-slate-400 hover:text-white p-2 focus:outline-none cursor-pointer"
@@ -1010,6 +1023,19 @@ export default function App() {
                       <BookOpen className="w-4 h-4 flex-shrink-0 text-slate-500" />
                       <span>Data Mapel</span>
                     </button>
+
+                    {currentUser?.role === 'Admin' && (
+                      <button
+                        onClick={() => {
+                          setShowExternalAppsModal(true);
+                          setMobileMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-amber-400 hover:text-amber-300 hover:bg-slate-850"
+                      >
+                        <ExternalLink className="w-4 h-4 flex-shrink-0 text-amber-400" />
+                        <span>Lainnya</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -1109,6 +1135,17 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            {isLoggedIn && activeView !== 'dashboard' && (
+              <button
+                onClick={() => setActiveView('dashboard')}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-600/20 cursor-pointer active:scale-95"
+                title="Kembali ke Dashboard Utama Aplikasi"
+              >
+                <Home className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Halaman Utama</span>
+              </button>
+            )}
+
             <span
               className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold border select-none ${
                 isDemoMode
@@ -1294,6 +1331,20 @@ export default function App() {
           onClose={() => setShowConfigModal(false)}
           currentUrl={webAppUrl}
           onSave={handleSaveSettings}
+        />
+      )}
+
+      {/* EXTERNAL APPS / LAINNYA MODAL (Khusus Admin Utama) */}
+      {showExternalAppsModal && currentUser?.role === 'Admin' && (
+        <ExternalAppsModal
+          onClose={() => setShowExternalAppsModal(false)}
+          onReturnToMainApp={() => {
+            setActiveView('dashboard');
+            addToast('success', 'Kembali ke Halaman Utama Dashboard');
+          }}
+          customization={customization}
+          onSaveCustomization={handleSaveCustomization}
+          isAdmin={currentUser?.role === 'Admin'}
         />
       )}
     </div>
