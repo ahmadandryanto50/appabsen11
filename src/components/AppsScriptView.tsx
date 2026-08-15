@@ -598,8 +598,27 @@ function getKioskAttendanceHistory(tanggal, kelas) {
         rowTimestamp = rawTs ? rawTs.toString() : "";
       }
 
+      function formatTimeForOutput(wVal) {
+        if (!wVal) return "-";
+        if (wVal instanceof Date) {
+          return Utilities.formatDate(wVal, tz, "HH:mm:ss");
+        }
+        var str = wVal.toString().trim();
+        if (str.indexOf("GMT") !== -1 || str.indexOf("WIB") !== -1 || str.match(/[a-zA-Z]{3}\s+[a-zA-Z]{3}/)) {
+          var dObj = new Date(str);
+          if (!isNaN(dObj.getTime())) {
+            return Utilities.formatDate(dObj, tz, "HH:mm:ss");
+          }
+        }
+        if (str.indexOf("T") !== -1) {
+          var p = str.split("T")[1];
+          return p ? p.split(".")[0] : str;
+        }
+        return str;
+      }
+
       var rowTanggal = tglIdx !== -1 && row[tglIdx] ? normalizeDateForMatch(row[tglIdx]) : normalizeDateForMatch(rawTs || rowTimestamp);
-      var rowWaktu = wktIdx !== -1 && row[wktIdx] ? row[wktIdx].toString() : (rowTimestamp.split(" ")[1] || "-");
+      var rowWaktu = wktIdx !== -1 && row[wktIdx] ? formatTimeForOutput(row[wktIdx]) : (rowTimestamp.split(" ")[1] || "-");
 
       var rowNisn = row[nisnIdx] ? row[nisnIdx].toString().trim() : "";
       var rowNama = row[namaIdx] ? row[namaIdx].toString().trim() : "";

@@ -31,6 +31,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { apiClient } from '../api';
+import { formatKeterlambatan } from '../utils/timeUtils';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -470,43 +471,56 @@ export function HistoryView({
   };
 
   const parseKioskDateTime = (item: KioskScanRecord) => {
-    let tanggal = item.tanggal || '';
-    let waktu = item.waktu || '';
-    if (!tanggal || !waktu) {
-      const raw = item.timestamp ? String(item.timestamp).trim() : '';
-      if (raw) {
-        const parsedDate = new Date(raw);
-        if (!isNaN(parsedDate.getTime()) && raw.match(/[a-zA-Z]/) && raw.includes(':')) {
-          const y = parsedDate.getFullYear();
-          const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
-          const d = String(parsedDate.getDate()).padStart(2, '0');
-          tanggal = `${y}-${m}-${d}`;
-          const h = String(parsedDate.getHours()).padStart(2, '0');
-          const min = String(parsedDate.getMinutes()).padStart(2, '0');
-          const s = String(parsedDate.getSeconds()).padStart(2, '0');
-          waktu = `${h}:${min}:${s}`;
-        } else if (raw.includes('T')) {
-          const parts = raw.split('T');
-          tanggal = parts[0] || '';
-          waktu = (parts[1] || '').split('.')[0] || '';
-        } else if (raw.includes(' ')) {
-          const parts = raw.split(' ');
-          if (parts.length >= 2 && parts[1].includes(':')) {
-            tanggal = parts[0] || '';
-            waktu = parts[1] || '';
-          } else {
-            tanggal = raw;
-            waktu = '-';
+    let tgl = item.tanggal || '';
+    let wkt = item.waktu || '';
+    let ts = item.timestamp || '';
+
+    // If tgl contains raw JS date string (e.g. Sat Aug 15 2026 00:00:00 GM Aug WIB)
+    if (tgl.match(/[a-zA-Z]/) && (tgl.includes('00:00:00') || tgl.includes('GMT') || tgl.includes('WIB') || tgl.length > 15)) {
+      const p = new Date(tgl);
+      if (!isNaN(p.getTime())) {
+        const y = p.getFullYear();
+        const m = String(p.getMonth() + 1).padStart(2, '0');
+        const d = String(p.getDate()).padStart(2, '0');
+        tgl = `${y}-${m}-${d}`;
+      }
+    }
+
+    if (wkt.match(/[a-zA-Z]/) && (wkt.includes('00:00:00') || wkt.includes('GMT') || wkt.includes('WIB') || wkt.length > 15)) {
+      const p = new Date(wkt);
+      if (!isNaN(p.getTime())) {
+        const h = String(p.getHours()).padStart(2, '0');
+        const min = String(p.getMinutes()).padStart(2, '0');
+        const s = String(p.getSeconds()).padStart(2, '0');
+        wkt = `${h}:${min}:${s}`;
+      } else {
+        wkt = '-';
+      }
+    }
+
+    if (!tgl || !wkt || wkt === '-') {
+      if (ts) {
+        const p = new Date(ts);
+        if (!isNaN(p.getTime())) {
+          if (!tgl) {
+            const y = p.getFullYear();
+            const m = String(p.getMonth() + 1).padStart(2, '0');
+            const d = String(p.getDate()).padStart(2, '0');
+            tgl = `${y}-${m}-${d}`;
           }
-        } else {
-          tanggal = raw;
-          waktu = '-';
+          if (!wkt || wkt === '-') {
+            const h = String(p.getHours()).padStart(2, '0');
+            const min = String(p.getMinutes()).padStart(2, '0');
+            const s = String(p.getSeconds()).padStart(2, '0');
+            wkt = `${h}:${min}:${s}`;
+          }
         }
       }
     }
+
     return {
-      tanggal: tanggal || '-',
-      waktu: waktu || '-',
+      tanggal: tgl || '-',
+      waktu: wkt || '-',
     };
   };
 
@@ -556,7 +570,7 @@ export function HistoryView({
         item.nama || '-',
         item.kelas || '-',
         item.status || 'Hadir',
-        item.keterlambatan || (item.menitTerlambat ? `${item.menitTerlambat} menit` : '-')
+        formatKeterlambatan(item.keterlambatan || item.menitTerlambat)
       ];
     });
 
@@ -1655,7 +1669,7 @@ export function HistoryView({
                           <td className="p-3.5 font-mono font-bold text-slate-800 whitespace-nowrap">
                             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200/80 rounded-lg text-xs">
                               <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                              <span>{dt.waktu} WIB</span>
+                              <span>{dt.waktu}</span>
                             </div>
                           </td>
                           <td className="p-3.5 font-mono text-slate-500 font-semibold whitespace-nowrap">{item.nisn}</td>
@@ -1666,28 +1680,40 @@ export function HistoryView({
                             </span>
                           </td>
                           <td className="p-3.5 text-center">
-                            <span
-                              className={`inline-block px-3 py-1 rounded-lg text-xs font-extrabold ${
-                                item.status === 'Terlambat'
-                                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                              }`}
-                            >
-                              {item.status || 'Hadir'}
-                            </span>
+                            {(() => {
+                              const isLate = (item.status || '').toLowerCase().includes('terlambat') ||
+                                (item.status || '').toLowerCase().includes('telat') ||
+                                (item.keterlambatan && item.keterlambatan !== '-' && item.keterlambatan.toLowerCase() !== 'tepat waktu');
+                              return (
+                                <span
+                                  className={`inline-block px-3 py-1 rounded-lg text-xs font-extrabold ${
+                                    isLate
+                                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                      : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                  }`}
+                                >
+                                  {isLate ? 'Terlambat' : item.status || 'Hadir'}
+                                </span>
+                              );
+                            })()}
                           </td>
                           <td className="p-3.5 text-center">
-                            {item.status === 'Terlambat' ? (
-                              <span className="inline-block px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-black">
-                                {item.keterlambatan && item.keterlambatan !== '-'
-                                  ? item.keterlambatan
-                                  : item.menitTerlambat
-                                  ? `${item.menitTerlambat} menit`
-                                  : 'Terlambat'}
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 font-bold">Tepat Waktu</span>
-                            )}
+                            {(() => {
+                              const isLate = (item.status || '').toLowerCase().includes('terlambat') ||
+                                (item.status || '').toLowerCase().includes('telat') ||
+                                (item.keterlambatan && item.keterlambatan !== '-' && item.keterlambatan.toLowerCase() !== 'tepat waktu');
+                              const formattedKet = formatKeterlambatan(item.keterlambatan || item.menitTerlambat);
+                              const hasValue = formattedKet && formattedKet !== '-';
+
+                              if (isLate || hasValue) {
+                                return (
+                                  <span className="inline-block px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-black">
+                                    {hasValue ? formattedKet : 'Terlambat'}
+                                  </span>
+                                );
+                              }
+                              return <span className="text-slate-400 font-bold">Tepat Waktu</span>;
+                            })()}
                           </td>
                           {(currentUser?.role === 'Admin' || isFullAccess) && (
                             <td className="p-3.5 pr-4 text-center">

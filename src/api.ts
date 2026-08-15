@@ -594,9 +594,61 @@ export const apiClient = {
 
   // 3.6 GET KIOSK ATTENDANCE HISTORY (PRESENSI SISWA MASUK)
   async getKioskAttendanceHistory(tanggal?: string, kelas?: string): Promise<{ status: string; history: any[] }> {
+    const parseCleanDateTimeParts = (val: any): { dateStr: string; timeStr: string } => {
+      if (!val) return { dateStr: '', timeStr: '' };
+      if (val instanceof Date) {
+        if (isNaN(val.getTime())) return { dateStr: '', timeStr: '' };
+        const y = val.getFullYear();
+        const m = String(val.getMonth() + 1).padStart(2, '0');
+        const d = String(val.getDate()).padStart(2, '0');
+        const h = String(val.getHours()).padStart(2, '0');
+        const min = String(val.getMinutes()).padStart(2, '0');
+        const s = String(val.getSeconds()).padStart(2, '0');
+        return { dateStr: `${y}-${m}-${d}`, timeStr: `${h}:${min}:${s}` };
+      }
+
+      const str = String(val).trim();
+      if (!str) return { dateStr: '', timeStr: '' };
+
+      // Handle JS Date string representations e.g. "Sat Aug 15 2026 00:00:00 GM Aug WIB" or "Sat Aug 15 2026 07:15:00 GMT+0700"
+      if (str.match(/[a-zA-Z]{3}\s+[a-zA-Z]{3}\s+\d{1,2}\s+\d{4}/) || str.includes('GMT') || str.includes('WIB')) {
+        const dObj = new Date(str);
+        if (!isNaN(dObj.getTime())) {
+          const y = dObj.getFullYear();
+          const m = String(dObj.getMonth() + 1).padStart(2, '0');
+          const d = String(dObj.getDate()).padStart(2, '0');
+          const h = String(dObj.getHours()).padStart(2, '0');
+          const min = String(dObj.getMinutes()).padStart(2, '0');
+          const s = String(dObj.getSeconds()).padStart(2, '0');
+          return { dateStr: `${y}-${m}-${d}`, timeStr: `${h}:${min}:${s}` };
+        }
+      }
+
+      if (str.includes('T')) {
+        const parts = str.split('T');
+        return { dateStr: parts[0] || '', timeStr: (parts[1] || '').split('.')[0] || '' };
+      }
+
+      if (str.includes(' ')) {
+        const parts = str.split(' ');
+        let timeStr = '';
+        if (parts.length >= 2 && parts[1].includes(':')) {
+          timeStr = parts[1];
+        }
+        return { dateStr: parts[0] || '', timeStr };
+      }
+
+      if (str.match(/^\d{1,2}:\d{2}(:\d{2})?$/)) {
+        return { dateStr: '', timeStr: str };
+      }
+
+      return { dateStr: str, timeStr: '' };
+    };
+
     const normalizeDateStr = (dateInput: any): string => {
       if (!dateInput) return '';
       if (dateInput instanceof Date) {
+        if (isNaN(dateInput.getTime())) return '';
         const y = dateInput.getFullYear();
         const m = String(dateInput.getMonth() + 1).padStart(2, '0');
         const d = String(dateInput.getDate()).padStart(2, '0');
@@ -605,8 +657,26 @@ export const apiClient = {
       const trimmed = String(dateInput).trim();
       if (!trimmed) return '';
 
+      // Handle full JS Date string e.g. "Sat Aug 15 2026 00:00:00 GM Aug WIB" or "Sat Aug 15 2026 07:15:00 GMT+0700"
+      if (trimmed.match(/[a-zA-Z]{3}\s+[a-zA-Z]{3}\s+\d{1,2}\s+\d{4}/) || trimmed.includes('GMT') || trimmed.includes('WIB')) {
+        const dObj = new Date(trimmed);
+        if (!isNaN(dObj.getTime())) {
+          const y = dObj.getFullYear();
+          const m = String(dObj.getMonth() + 1).padStart(2, '0');
+          const d = String(dObj.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        }
+      }
+
       // Handle ISO strings like 2026-08-14T...
       if (trimmed.includes('T')) {
+        const dObj = new Date(trimmed);
+        if (!isNaN(dObj.getTime())) {
+          const y = dObj.getFullYear();
+          const m = String(dObj.getMonth() + 1).padStart(2, '0');
+          const d = String(dObj.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        }
         return trimmed.split('T')[0];
       }
 
@@ -641,6 +711,14 @@ export const apiClient = {
         return `${textMatch[3]}-${indoMonths[textMatch[2]]}-${textMatch[1].padStart(2, '0')}`;
       }
 
+      const fallbackDate = new Date(trimmed);
+      if (!isNaN(fallbackDate.getTime()) && trimmed.length > 5 && !trimmed.match(/^\d+$/)) {
+        const y = fallbackDate.getFullYear();
+        const m = String(fallbackDate.getMonth() + 1).padStart(2, '0');
+        const d = String(fallbackDate.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+
       return trimmed.split(' ')[0] || trimmed;
     };
 
@@ -664,41 +742,28 @@ export const apiClient = {
     } catch (e) {}
 
     const normalizeRecord = (item: any, fallbackRowIndex?: number) => {
-      const raw = item.timestamp ? String(item.timestamp).trim() : '';
-      let itemTanggal = item.tanggal ? String(item.tanggal).trim() : '';
-      let itemWaktu = item.waktu ? String(item.waktu).trim() : '';
+      const rawTs = item.timestamp ? String(item.timestamp).trim() : '';
+      let rawTgl = item.tanggal ? String(item.tanggal).trim() : '';
+      let rawWkt = item.waktu ? String(item.waktu).trim() : '';
 
-      if (!itemTanggal || !itemWaktu) {
-        const parsedDate = new Date(raw);
-        if (!isNaN(parsedDate.getTime()) && raw.match(/[a-zA-Z]/) && raw.includes(':')) {
-          const y = parsedDate.getFullYear();
-          const m = String(parsedDate.getMonth() + 1).padStart(2, '0');
-          const d = String(parsedDate.getDate()).padStart(2, '0');
-          itemTanggal = `${y}-${m}-${d}`;
-          const h = String(parsedDate.getHours()).padStart(2, '0');
-          const min = String(parsedDate.getMinutes()).padStart(2, '0');
-          const s = String(parsedDate.getSeconds()).padStart(2, '0');
-          itemWaktu = `${h}:${min}:${s}`;
-        } else if (raw.includes('T')) {
-          const parts = raw.split('T');
-          itemTanggal = parts[0] || '';
-          itemWaktu = (parts[1] || '').split('.')[0] || '';
-        } else if (raw.includes(' ')) {
-          const parts = raw.split(' ');
-          if (parts.length >= 2 && parts[1].includes(':')) {
-            itemTanggal = parts[0] || '';
-            itemWaktu = parts[1] || '';
-          } else {
-            itemTanggal = raw;
-            itemWaktu = '-';
-          }
+      const pTgl = parseCleanDateTimeParts(rawTgl);
+      const pWkt = parseCleanDateTimeParts(rawWkt);
+      const pTs = parseCleanDateTimeParts(rawTs);
+
+      let finalTanggal = normalizeDateStr(pTgl.dateStr || pTs.dateStr || rawTgl || rawTs);
+      let finalWaktu = pWkt.timeStr || (pTgl.timeStr && pTgl.timeStr !== '00:00:00' ? pTgl.timeStr : '') || pTs.timeStr || rawWkt || '-';
+
+      // Clean up finalWaktu if it contains raw timezone or text noise
+      if (finalWaktu.includes('GMT') || finalWaktu.includes('WIB') || finalWaktu.match(/[a-zA-Z]/)) {
+        if (pWkt.timeStr) {
+          finalWaktu = pWkt.timeStr;
+        } else if (pTs.timeStr) {
+          finalWaktu = pTs.timeStr;
         } else {
-          itemTanggal = raw;
-          itemWaktu = '-';
+          finalWaktu = '-';
         }
       }
 
-      const stdDate = normalizeDateStr(itemTanggal || raw);
       const nisnVal = String(item.nisn || '').trim();
       let namaVal = String(item.nama || '').trim();
       let kelasVal = String(item.kelas || '').trim();
@@ -710,19 +775,58 @@ export const apiClient = {
         }
       }
 
+      let finalKeterlambatan = formatKeterlambatan(item.keterlambatan || item.menitTerlambat);
+      let finalStatus = String(item.status || 'Hadir').trim();
+      const isLateStatus = finalStatus.toLowerCase().includes('terlambat') || finalStatus.toLowerCase().includes('telat');
+
+      if ((finalKeterlambatan === '-' || !finalKeterlambatan) && (isLateStatus || (finalWaktu && finalWaktu !== '-'))) {
+        let cutoffHour = 7;
+        let cutoffMinute = 0;
+        try {
+          const custRaw = localStorage.getItem('absensi_customization');
+          if (custRaw) {
+            const cust = JSON.parse(custRaw);
+            if (cust.batasWaktuMasuk) {
+              const match = String(cust.batasWaktuMasuk).match(/(\d{1,2})[:.](\d{1,2})/);
+              if (match) {
+                cutoffHour = parseInt(match[1], 10);
+                cutoffMinute = parseInt(match[2], 10);
+              }
+            }
+          }
+        } catch (e) {}
+
+        if (finalWaktu && finalWaktu.includes(':')) {
+          const wParts = finalWaktu.split(':');
+          const h = parseInt(wParts[0], 10);
+          const m = parseInt(wParts[1], 10);
+          if (!isNaN(h) && !isNaN(m)) {
+            const cutoffMin = cutoffHour * 60 + cutoffMinute;
+            const scanMin = h * 60 + m;
+            if (scanMin > cutoffMin) {
+              const diffMins = scanMin - cutoffMin;
+              finalKeterlambatan = formatKeterlambatan(diffMins);
+              if (!isLateStatus) {
+                finalStatus = 'Terlambat';
+              }
+            }
+          }
+        }
+      }
+
       return {
         ...item,
         rowIndex: item.rowIndex || fallbackRowIndex || item._rowIndex || Date.now(),
-        timestamp: raw || `${itemTanggal} ${itemWaktu}`,
-        tanggal: stdDate || itemTanggal,
-        rawTanggal: itemTanggal,
-        waktu: itemWaktu || '-',
+        timestamp: rawTs || `${finalTanggal} ${finalWaktu}`,
+        tanggal: finalTanggal,
+        rawTanggal: finalTanggal,
+        waktu: finalWaktu || '-',
         nisn: nisnVal,
         nama: namaVal,
         kelas: kelasVal,
-        status: String(item.status || 'Hadir').trim(),
-        keterlambatan: formatKeterlambatan(item.keterlambatan || item.menitTerlambat),
-        menitTerlambat: parseMenitTerlambat(item.menitTerlambat || item.keterlambatan),
+        status: finalStatus,
+        keterlambatan: finalKeterlambatan,
+        menitTerlambat: parseMenitTerlambat(finalKeterlambatan || item.menitTerlambat),
       };
     };
 
