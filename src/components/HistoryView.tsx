@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { AttendanceRecord, TeacherAbsenceRecord, User, AppCustomization, getLocalDateString, KioskScanRecord } from '../types';
 import {
   Calendar,
@@ -34,6 +34,89 @@ import { apiClient } from '../api';
 import { formatKeterlambatan } from '../utils/timeUtils';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
+type PeriodType = 'semua' | '1_minggu' | '1_bulan' | 'kustom' | 'hari_ini';
+
+const getNormalizedDateStr = (dateInput: any): string => {
+  if (!dateInput) return '';
+  if (typeof dateInput === 'string') {
+    const s = dateInput.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [d, m, y] = s.split('/');
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    const dObj = new Date(s);
+    if (!isNaN(dObj.getTime())) {
+      const y = dObj.getFullYear();
+      const m = String(dObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+  } else if (dateInput instanceof Date && !isNaN(dateInput.getTime())) {
+    const y = dateInput.getFullYear();
+    const m = String(dateInput.getMonth() + 1).padStart(2, '0');
+    const d = String(dateInput.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+  return String(dateInput).slice(0, 10);
+};
+
+const getDateRangeForPeriode = (
+  periode: PeriodType,
+  customStart?: string,
+  customEnd?: string
+): { startDate: string; endDate: string } => {
+  const today = new Date();
+  const todayStr = getLocalDateString(today);
+
+  if (periode === 'hari_ini') {
+    return { startDate: todayStr, endDate: todayStr };
+  }
+  if (periode === '1_minggu') {
+    const lastWeek = new Date(today);
+    lastWeek.setDate(today.getDate() - 6);
+    return { startDate: getLocalDateString(lastWeek), endDate: todayStr };
+  }
+  if (periode === '1_bulan') {
+    const lastMonth = new Date(today);
+    lastMonth.setDate(today.getDate() - 29);
+    return { startDate: getLocalDateString(lastMonth), endDate: todayStr };
+  }
+  if (periode === 'kustom') {
+    return {
+      startDate: customStart || '',
+      endDate: customEnd || todayStr,
+    };
+  }
+  return { startDate: '', endDate: '' };
+};
+
+const isRecordInDateRange = (
+  recordDate: string,
+  startDate: string,
+  endDate: string
+): boolean => {
+  if (!startDate && !endDate) return true;
+  const norm = getNormalizedDateStr(recordDate);
+  if (!norm) return true;
+  if (startDate && norm < startDate) return false;
+  if (endDate && norm > endDate) return false;
+  return true;
+};
+
+const getPeriodeLabelText = (
+  periode: PeriodType,
+  customStart?: string,
+  customEnd?: string
+): string => {
+  const { startDate, endDate } = getDateRangeForPeriode(periode, customStart, customEnd);
+  if (periode === 'hari_ini') return `Hari Ini (${startDate || getLocalDateString()})`;
+  if (periode === '1_minggu') return `Rekap 1 Minggu (${startDate} s/d ${endDate})`;
+  if (periode === '1_bulan') return `Rekap 1 Bulan (${startDate} s/d ${endDate})`;
+  if (periode === 'kustom' && startDate) return `Kustom (${startDate} s/d ${endDate})`;
+  return 'Semua Tanggal';
+};
 
 interface HistoryViewProps {
   currentUser: User | null;
@@ -72,21 +155,36 @@ export function HistoryView({
   // Filter States - Siswa (Log Kelas)
   const [filterSiswaTanggal, setFilterSiswaTanggal] = useState('');
   const [filterSiswaKelas, setFilterSiswaKelas] = useState('');
+  const [filterSiswaPeriode, setFilterSiswaPeriode] = useState<PeriodType>('semua');
+  const [filterSiswaTanggalAwal, setFilterSiswaTanggalAwal] = useState('');
+  const [filterSiswaTanggalAkhir, setFilterSiswaTanggalAkhir] = useState('');
   const [isLoadingSiswa, setIsLoadingSiswa] = useState(false);
 
   // Filter States - Kiosk Presensi Masuk Siswa
   const [filterKioskTanggal, setFilterKioskTanggal] = useState('');
   const [filterKioskKelas, setFilterKioskKelas] = useState('');
   const [searchKioskNama, setSearchKioskNama] = useState('');
+  const [filterKioskPeriode, setFilterKioskPeriode] = useState<PeriodType>('semua');
+  const [filterKioskTanggalAwal, setFilterKioskTanggalAwal] = useState('');
+  const [filterKioskTanggalAkhir, setFilterKioskTanggalAkhir] = useState('');
   const [kioskHistory, setKioskHistory] = useState<KioskScanRecord[]>([]);
   const [isLoadingKiosk, setIsLoadingKiosk] = useState(false);
 
   // Filter States - Guru
   const [filterGuruTanggal, setFilterGuruTanggal] = useState('');
+  const [filterGuruPeriode, setFilterGuruPeriode] = useState<PeriodType>('semua');
+  const [filterGuruTanggalAwal, setFilterGuruTanggalAwal] = useState('');
+  const [filterGuruTanggalAkhir, setFilterGuruTanggalAkhir] = useState('');
   const [isLoadingGuru, setIsLoadingGuru] = useState(false);
 
   // Filter States - Tendik
   const [filterTendikTanggal, setFilterTendikTanggal] = useState('');
+  const [filterTendikAbsenPeriode, setFilterTendikAbsenPeriode] = useState<PeriodType>('semua');
+  const [filterTendikAbsenTanggalAwal, setFilterTendikAbsenTanggalAwal] = useState('');
+  const [filterTendikAbsenTanggalAkhir, setFilterTendikAbsenTanggalAkhir] = useState('');
+  const [filterTendikIzinPeriode, setFilterTendikIzinPeriode] = useState<PeriodType>('semua');
+  const [filterTendikIzinTanggalAwal, setFilterTendikIzinTanggalAwal] = useState('');
+  const [filterTendikIzinTanggalAkhir, setFilterTendikIzinTanggalAkhir] = useState('');
   const [tendikAbsenHistory, setTendikAbsenHistory] = useState<any[]>(() => {
     try {
       if (!apiClient.isDemoMode()) {
@@ -235,10 +333,12 @@ export function HistoryView({
     }
   }, [subTab]);
 
-  const handleApplySiswaFilter = async () => {
+  const handleApplySiswaFilter = async (targetPeriode = filterSiswaPeriode) => {
     setIsLoadingSiswa(true);
     try {
-      await onFilterHistory(filterSiswaTanggal, filterSiswaKelas);
+      const range = getDateRangeForPeriode(targetPeriode, filterSiswaTanggalAwal, filterSiswaTanggalAkhir);
+      const queryDate = targetPeriode === 'hari_ini' ? range.startDate : '';
+      await onFilterHistory(queryDate, filterSiswaKelas);
     } catch (e) {
       console.error(e);
     } finally {
@@ -246,10 +346,12 @@ export function HistoryView({
     }
   };
 
-  const handleApplyGuruFilter = async () => {
+  const handleApplyGuruFilter = async (targetPeriode = filterGuruPeriode) => {
     setIsLoadingGuru(true);
     try {
-      await onFilterTeacher(filterGuruTanggal);
+      const range = getDateRangeForPeriode(targetPeriode, filterGuruTanggalAwal, filterGuruTanggalAkhir);
+      const queryDate = targetPeriode === 'hari_ini' ? range.startDate : '';
+      await onFilterTeacher(queryDate);
     } catch (e) {
       console.error(e);
     } finally {
@@ -327,9 +429,10 @@ export function HistoryView({
     }
 
     try {
+      // Pass empty string to load all records, filtering done in memo
       const [resAbsen, resIzin] = await Promise.all([
-        apiClient.getTendikAttendanceHistory(filterTendikTanggal),
-        apiClient.getTendikPermitHistory(filterTendikTanggal)
+        apiClient.getTendikAttendanceHistory(''),
+        apiClient.getTendikPermitHistory('')
       ]);
       if (resAbsen.status === 'success' && Array.isArray(resAbsen.history)) {
         setTendikAbsenHistory(resAbsen.history);
@@ -344,10 +447,12 @@ export function HistoryView({
     }
   };
 
-  const handleApplyKioskFilter = async () => {
+  const handleApplyKioskFilter = async (targetPeriode = filterKioskPeriode) => {
     setIsLoadingKiosk(true);
     try {
-      const res = await apiClient.getKioskAttendanceHistory(filterKioskTanggal, filterKioskKelas);
+      const range = getDateRangeForPeriode(targetPeriode, filterKioskTanggalAwal, filterKioskTanggalAkhir);
+      const queryDate = targetPeriode === 'hari_ini' ? range.startDate : '';
+      const res = await apiClient.getKioskAttendanceHistory(queryDate, filterKioskKelas);
       if (res.status === 'success' && Array.isArray(res.history)) {
         setKioskHistory(res.history);
       } else {
@@ -373,7 +478,7 @@ export function HistoryView({
         body: JSON.stringify({ clearAll: true }),
       }).catch(() => {});
       apiClient.clearCache();
-      const res = await apiClient.getKioskAttendanceHistory(filterKioskTanggal, filterKioskKelas);
+      const res = await apiClient.getKioskAttendanceHistory('', filterKioskKelas);
       if (res.status === 'success' && Array.isArray(res.history)) {
         setKioskHistory(res.history);
       } else {
@@ -524,9 +629,90 @@ export function HistoryView({
     };
   };
 
-  const handleDownloadKioskPDF = () => {
-    const doc = new jsPDF();
+  // 1. Filtered Siswa History
+  const filteredSiswaHistory = useMemo(() => {
+    return historyList.filter((item) => {
+      if (filterSiswaKelas) {
+        const targetK = filterSiswaKelas.toLowerCase();
+        const itemK = (item.kelas || '').toLowerCase();
+        if (itemK !== targetK && itemK !== `kelas ${targetK}` && `kelas ${itemK}` !== targetK) {
+          return false;
+        }
+      }
+      const range = getDateRangeForPeriode(filterSiswaPeriode, filterSiswaTanggalAwal, filterSiswaTanggalAkhir);
+      if (filterSiswaTanggal && filterSiswaPeriode === 'kustom') {
+        return isRecordInDateRange(item.tanggal, filterSiswaTanggal, filterSiswaTanggal);
+      }
+      return isRecordInDateRange(item.tanggal, range.startDate, range.endDate);
+    });
+  }, [historyList, filterSiswaKelas, filterSiswaPeriode, filterSiswaTanggal, filterSiswaTanggalAwal, filterSiswaTanggalAkhir]);
+
+  // 2. Filtered Kiosk History
+  const filteredKioskHistory = useMemo(() => {
+    return kioskHistory.filter((item) => {
+      if (searchKioskNama.trim()) {
+        const q = searchKioskNama.toLowerCase().trim();
+        const matchN = (item.nama || '').toLowerCase().includes(q);
+        const matchId = (item.nisn || '').toLowerCase().includes(q);
+        const matchK = (item.kelas || '').toLowerCase().includes(q);
+        if (!matchN && !matchId && !matchK) return false;
+      }
+      if (filterKioskKelas) {
+        const targetK = filterKioskKelas.toLowerCase();
+        const itemK = (item.kelas || '').toLowerCase();
+        if (itemK !== targetK && itemK !== `kelas ${targetK}` && `kelas ${itemK}` !== targetK) {
+          return false;
+        }
+      }
+      const range = getDateRangeForPeriode(filterKioskPeriode, filterKioskTanggalAwal, filterKioskTanggalAkhir);
+      if (filterKioskTanggal && filterKioskPeriode === 'kustom') {
+        return isRecordInDateRange(item.tanggal, filterKioskTanggal, filterKioskTanggal);
+      }
+      return isRecordInDateRange(item.tanggal, range.startDate, range.endDate);
+    });
+  }, [kioskHistory, searchKioskNama, filterKioskKelas, filterKioskPeriode, filterKioskTanggal, filterKioskTanggalAwal, filterKioskTanggalAkhir]);
+
+  // 3. Filtered Guru History
+  const filteredGuruHistory = useMemo(() => {
+    return teacherHistoryList.filter((item) => {
+      const range = getDateRangeForPeriode(filterGuruPeriode, filterGuruTanggalAwal, filterGuruTanggalAkhir);
+      if (filterGuruTanggal && filterGuruPeriode === 'kustom') {
+        return isRecordInDateRange(item.tanggal, filterGuruTanggal, filterGuruTanggal);
+      }
+      return isRecordInDateRange(item.tanggal, range.startDate, range.endDate);
+    });
+  }, [teacherHistoryList, filterGuruPeriode, filterGuruTanggal, filterGuruTanggalAwal, filterGuruTanggalAkhir]);
+
+  // 4. Filtered Tendik Absen History
+  const filteredTendikAbsenHistory = useMemo(() => {
+    return tendikAbsenHistory.filter((item) => {
+      const range = getDateRangeForPeriode(filterTendikAbsenPeriode, filterTendikAbsenTanggalAwal, filterTendikAbsenTanggalAkhir);
+      if (filterTendikTanggal && filterTendikAbsenPeriode === 'kustom') {
+        return isRecordInDateRange(item.tanggal, filterTendikTanggal, filterTendikTanggal);
+      }
+      return isRecordInDateRange(item.tanggal, range.startDate, range.endDate);
+    });
+  }, [tendikAbsenHistory, filterTendikAbsenPeriode, filterTendikTanggal, filterTendikAbsenTanggalAwal, filterTendikAbsenTanggalAkhir]);
+
+  // 5. Filtered Tendik Izin History
+  const filteredTendikIzinHistory = useMemo(() => {
+    return tendikIzinHistory.filter((item) => {
+      const range = getDateRangeForPeriode(filterTendikIzinPeriode, filterTendikIzinTanggalAwal, filterTendikIzinTanggalAkhir);
+      if (filterTendikTanggal && filterTendikIzinPeriode === 'kustom') {
+        return isRecordInDateRange(item.tanggal, filterTendikTanggal, filterTendikTanggal);
+      }
+      return isRecordInDateRange(item.tanggal, range.startDate, range.endDate);
+    });
+  }, [tendikIzinHistory, filterTendikIzinPeriode, filterTendikTanggal, filterTendikIzinTanggalAwal, filterTendikIzinTanggalAkhir]);
+
+  // PDF Export 1: Presensi Kelas Siswa
+  const handleDownloadSiswaPDF = () => {
+    if (filteredSiswaHistory.length === 0) return;
+
+    const doc = new jsPDF('p', 'mm', 'a4');
     const primaryColor: [number, number, number] = [37, 99, 235]; // Royal Blue
+
+    const periodeLabel = getPeriodeLabelText(filterSiswaPeriode, filterSiswaTanggalAwal, filterSiswaTanggalAkhir);
 
     // Header Title
     doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
@@ -536,7 +722,114 @@ export function HistoryView({
     doc.setFont('Helvetica', 'bold');
     doc.text((customization?.appName || 'E-ABSENSI').toUpperCase(), 15, 10);
 
-    doc.setFontSize(16);
+    doc.setFontSize(15);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('LAPORAN REKAPITULASI PRESENSI KELAS SISWA', 15, 28);
+
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Periode: ${periodeLabel} | Kelas: ${filterSiswaKelas || 'Semua Kelas'}`, 15, 35);
+    doc.text(`Dicetak pada: ${new Date().toLocaleString('id-ID')}`, 15, 40);
+
+    let totalHadir = 0, totalSakit = 0, totalIzin = 0, totalAlpa = 0;
+    filteredSiswaHistory.forEach(item => {
+      totalHadir += Number(item.hadir) || 0;
+      totalSakit += Number(item.sakit) || 0;
+      totalIzin += Number(item.izin) || 0;
+      totalAlpa += Number(item.alpa) || 0;
+    });
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(15, 45, 180, 12, 2, 2, 'F');
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Total Sesi: ${filteredSiswaHistory.length} | Hadir: ${totalHadir} | Sakit: ${totalSakit} | Izin: ${totalIzin} | Alpa: ${totalAlpa}`, 20, 52.5);
+
+    const tableHeaders = [['No', 'Tanggal', 'Waktu', 'Kelas', 'Mata Pelajaran', 'Hadir', 'Sakit', 'Izin', 'Alpa', 'Guru Absen']];
+    const tableBody = filteredSiswaHistory.map((item, idx) => [
+      idx + 1,
+      item.tanggal || '-',
+      item.waktu || '-',
+      item.kelas || '-',
+      item.mapel || '-',
+      item.hadir || 0,
+      item.sakit || 0,
+      item.izin || 0,
+      item.alpa || 0,
+      item.guru || '-'
+    ]);
+
+    autoTable(doc, {
+      startY: 62,
+      head: tableHeaders,
+      body: tableBody,
+      theme: 'striped',
+      headStyles: {
+        fillColor: primaryColor,
+        textColor: [255, 255, 255],
+        fontSize: 8.5,
+        halign: 'center'
+      },
+      bodyStyles: {
+        fontSize: 8.5,
+        textColor: [51, 65, 85]
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 22, halign: 'center' },
+        2: { cellWidth: 15, halign: 'center' },
+        3: { cellWidth: 18, halign: 'center' },
+        4: { cellWidth: 35 },
+        5: { cellWidth: 12, halign: 'center' },
+        6: { cellWidth: 12, halign: 'center' },
+        7: { cellWidth: 12, halign: 'center' },
+        8: { cellWidth: 12, halign: 'center' },
+        9: { cellWidth: 'auto' }
+      },
+      margin: { left: 15, right: 15 },
+      styles: { overflow: 'linebreak' }
+    });
+
+    let currentY = (doc as any).lastAutoTable.finalY + 15;
+    if (currentY > 230) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('Mengetahui,', 140, currentY);
+    doc.text('Kepala Sekolah,', 140, currentY + 5);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
+
+    doc.save(`Rekap_Presensi_Kelas_${filterSiswaKelas || 'Semua'}_${filterSiswaPeriode}.pdf`);
+  };
+
+  // PDF Export 2: Kiosk Presensi Masuk Siswa
+  const handleDownloadKioskPDF = () => {
+    if (filteredKioskHistory.length === 0) return;
+
+    const doc = new jsPDF();
+    const primaryColor: [number, number, number] = [37, 99, 235]; // Royal Blue
+
+    const periodeLabel = getPeriodeLabelText(filterKioskPeriode, filterKioskTanggalAwal, filterKioskTanggalAkhir);
+
+    // Header Title
+    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.rect(0, 0, 210, 15, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(11);
+    doc.setFont('Helvetica', 'bold');
+    doc.text((customization?.appName || 'E-ABSENSI').toUpperCase(), 15, 10);
+
+    doc.setFontSize(15);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
     doc.text('REKAPITULASI PRESENSI MASUK SISWA (GERBANG/KIOSK)', 15, 28);
@@ -544,13 +837,13 @@ export function HistoryView({
     doc.setFontSize(9.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
-    doc.text(`Tanggal: ${filterKioskTanggal || 'Semua Tanggal'} | Kelas: ${filterKioskKelas || 'Semua Kelas'}`, 15, 35);
+    doc.text(`Periode: ${periodeLabel} | Kelas: ${filterKioskKelas || 'Semua Kelas'}`, 15, 35);
     doc.text(`Dicetak pada: ${new Date().toLocaleString('id-ID')}`, 15, 40);
 
     // Summary counts
     const totalScan = filteredKioskHistory.length;
-    const totalHadir = filteredKioskHistory.filter(h => h.status === 'Hadir').length;
-    const totalTerlambat = filteredKioskHistory.filter(h => h.status === 'Terlambat').length;
+    const totalHadir = filteredKioskHistory.filter(h => (h.status || '').toLowerCase() === 'hadir').length;
+    const totalTerlambat = filteredKioskHistory.filter(h => (h.status || '').toLowerCase().includes('terlambat')).length;
 
     doc.setFillColor(248, 250, 252);
     doc.roundedRect(15, 45, 180, 12, 2, 2, 'F');
@@ -620,20 +913,8 @@ export function HistoryView({
     doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
     doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
 
-    doc.save(`Rekap_Presensi_Masuk_${filterKioskTanggal || 'Semua'}.pdf`);
+    doc.save(`Rekap_Presensi_Masuk_Kiosk_${filterKioskPeriode}.pdf`);
   };
-
-  // Filtered Kiosk History
-  const filteredKioskHistory = kioskHistory.filter((item) => {
-    if (searchKioskNama.trim()) {
-      const q = searchKioskNama.toLowerCase().trim();
-      const matchN = (item.nama || '').toLowerCase().includes(q);
-      const matchId = (item.nisn || '').toLowerCase().includes(q);
-      const matchK = (item.kelas || '').toLowerCase().includes(q);
-      if (!matchN && !matchId && !matchK) return false;
-    }
-    return true;
-  });
 
   // Helper selectors
   const handlePeriodChange = (val: 'minggu' | 'bulan' | 'kustom') => {
@@ -897,7 +1178,7 @@ export function HistoryView({
 
   // Download Teacher Permits PDF Report
   const handleDownloadTeacherPDF = () => {
-    if (teacherHistoryList.length === 0) return;
+    if (filteredGuruHistory.length === 0) return;
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
@@ -908,6 +1189,7 @@ export function HistoryView({
     });
 
     const primaryColor: [number, number, number] = [30, 41, 59]; // Slate 800
+    const periodeLabel = getPeriodeLabelText(filterGuruPeriode, filterGuruTanggalAwal, filterGuruTanggalAkhir);
 
     // Page 1: Header
     doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
@@ -938,8 +1220,8 @@ export function HistoryView({
 
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105); // Slate 600
-    doc.text(`Tanggal Rekap             :  ${filterGuruTanggal ? new Date(filterGuruTanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Semua Tanggal'}`, 15, 54);
-    doc.text(`Total Guru Izin/Sakit   :  ${teacherHistoryList.length} Orang`, 15, 60);
+    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 54);
+    doc.text(`Total Guru Izin/Sakit   :  ${filteredGuruHistory.length} Orang`, 15, 60);
     doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 66);
 
     doc.line(15, 71, 195, 71);
@@ -948,7 +1230,7 @@ export function HistoryView({
 
     // Render Teacher History logs table
     const tableHeaders = [['No', 'Tanggal', 'Waktu', 'NIP Guru', 'Nama Guru', 'Status / Keterangan', 'Alasan / Detail Izin']];
-    const tableBody = teacherHistoryList.map((item, idx) => [
+    const tableBody = filteredGuruHistory.map((item, idx) => [
       idx + 1,
       item.tanggal,
       item.waktu ? item.waktu.substring(0, 5) : '-',
@@ -1007,12 +1289,12 @@ export function HistoryView({
     doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
 
     // Save report
-    doc.save(`Rekap_Izin_Guru_${filterGuruTanggal || 'Semua'}.pdf`);
+    doc.save(`Rekap_Izin_Guru_${filterGuruPeriode}.pdf`);
   };
 
   // Download Tendik Presence PDF Report
   const handleDownloadTendikAbsenPDF = () => {
-    if (tendikAbsenHistory.length === 0) return;
+    if (filteredTendikAbsenHistory.length === 0) return;
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
@@ -1023,6 +1305,7 @@ export function HistoryView({
     });
 
     const primaryColor: [number, number, number] = [30, 41, 59]; // Slate 800
+    const periodeLabel = getPeriodeLabelText(filterTendikAbsenPeriode, filterTendikAbsenTanggalAwal, filterTendikAbsenTanggalAkhir);
 
     // Header
     doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
@@ -1053,8 +1336,8 @@ export function HistoryView({
 
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105); // Slate 600
-    doc.text(`Tanggal Rekap             :  ${filterTendikTanggal ? new Date(filterTendikTanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Semua Tanggal'}`, 15, 54);
-    doc.text(`Total Tendik Hadir       :  ${tendikAbsenHistory.length} Orang`, 15, 60);
+    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 54);
+    doc.text(`Total Tendik Hadir       :  ${filteredTendikAbsenHistory.length} Orang`, 15, 60);
     doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 66);
 
     doc.line(15, 71, 195, 71);
@@ -1063,7 +1346,7 @@ export function HistoryView({
 
     // Table
     const tableHeaders = [['No', 'Tanggal', 'Waktu Presensi', 'NIP Tendik', 'Nama Lengkap', 'Status Kehadiran']];
-    const tableBody = tendikAbsenHistory.map((item, idx) => [
+    const tableBody = filteredTendikAbsenHistory.map((item, idx) => [
       idx + 1,
       item.tanggal,
       item.waktu ? item.waktu.substring(0, 5) : '-',
@@ -1119,12 +1402,12 @@ export function HistoryView({
     doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
     doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
 
-    doc.save(`Rekap_Presensi_Hadir_Tendik_${filterTendikTanggal || 'Semua'}.pdf`);
+    doc.save(`Rekap_Presensi_Hadir_Tendik_${filterTendikAbsenPeriode}.pdf`);
   };
 
   // Download Tendik Permits PDF Report
   const handleDownloadTendikIzinPDF = () => {
-    if (tendikIzinHistory.length === 0) return;
+    if (filteredTendikIzinHistory.length === 0) return;
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
@@ -1135,6 +1418,7 @@ export function HistoryView({
     });
 
     const primaryColor: [number, number, number] = [79, 70, 229]; // Indigo 600
+    const periodeLabel = getPeriodeLabelText(filterTendikIzinPeriode, filterTendikIzinTanggalAwal, filterTendikIzinTanggalAkhir);
 
     // Header
     doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
@@ -1165,8 +1449,8 @@ export function HistoryView({
 
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105); // Slate 600
-    doc.text(`Tanggal Rekap             :  ${filterTendikTanggal ? new Date(filterTendikTanggal).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }) : 'Semua Tanggal'}`, 15, 54);
-    doc.text(`Total Tendik Izin/Cuti :  ${tendikIzinHistory.length} Orang`, 15, 60);
+    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 54);
+    doc.text(`Total Tendik Izin/Cuti :  ${filteredTendikIzinHistory.length} Orang`, 15, 60);
     doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 66);
 
     doc.line(15, 71, 195, 71);
@@ -1175,7 +1459,7 @@ export function HistoryView({
 
     // Table
     const tableHeaders = [['No', 'Tanggal', 'Waktu', 'NIP Tendik', 'Nama Lengkap', 'Status', 'Keterangan / Alasan']];
-    const tableBody = tendikIzinHistory.map((item, idx) => [
+    const tableBody = filteredTendikIzinHistory.map((item, idx) => [
       idx + 1,
       item.tanggal,
       item.waktu ? item.waktu.substring(0, 5) : '-',
@@ -1233,7 +1517,7 @@ export function HistoryView({
     doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
     doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
 
-    doc.save(`Rekap_Izin_Tendik_${filterTendikTanggal || 'Semua'}.pdf`);
+    doc.save(`Rekap_Izin_Tendik_${filterTendikIzinPeriode}.pdf`);
   };
 
   return (
@@ -1350,17 +1634,50 @@ export function HistoryView({
             </div>
 
             {/* Filter Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Tanggal</label>
-                <input
-                  type="date"
-                  value={filterSiswaTanggal}
-                  onChange={(e) => setFilterSiswaTanggal(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
-                />
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div className="sm:col-span-3">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Periode Rekap</label>
+                <select
+                  value={filterSiswaPeriode}
+                  onChange={(e) => {
+                    const val = e.target.value as PeriodType;
+                    setFilterSiswaPeriode(val);
+                    handleApplySiswaFilter(val);
+                  }}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-700"
+                >
+                  <option value="semua">Semua Tanggal</option>
+                  <option value="hari_ini">Hari Ini</option>
+                  <option value="1_minggu">1 Minggu Terakhir</option>
+                  <option value="1_bulan">1 Bulan Terakhir</option>
+                  <option value="kustom">Rentang Tanggal Kustom</option>
+                </select>
               </div>
-              <div>
+
+              {filterSiswaPeriode === 'kustom' && (
+                <>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Dari Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterSiswaTanggalAwal}
+                      onChange={(e) => setFilterSiswaTanggalAwal(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Sampai Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterSiswaTanggalAkhir}
+                      onChange={(e) => setFilterSiswaTanggalAkhir(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className={filterSiswaPeriode === 'kustom' ? "sm:col-span-2" : "sm:col-span-4"}>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Kelas</label>
                 <select
                   value={filterSiswaKelas}
@@ -1375,15 +1692,26 @@ export function HistoryView({
                   ))}
                 </select>
               </div>
-              <div className="flex items-end">
+
+              <div className={filterSiswaPeriode === 'kustom' ? "sm:col-span-3 flex items-end gap-2" : "sm:col-span-5 flex items-end gap-2"}>
                 <button
                   type="button"
-                  onClick={handleApplySiswaFilter}
+                  onClick={() => handleApplySiswaFilter()}
                   disabled={isLoadingSiswa}
-                  className="w-full p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="flex-1 p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
                   {isLoadingSiswa ? <Loader2 className="w-4 h-4 animate-spin" /> : <Filter className="w-3.5 h-3.5" />}
-                  <span>Terapkan Filter</span>
+                  <span>Terapkan</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadSiswaPDF}
+                  disabled={filteredSiswaHistory.length === 0}
+                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                  title="Unduh Rekap PDF Presensi Kelas"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Unduh PDF</span>
                 </button>
               </div>
             </div>
@@ -1407,8 +1735,8 @@ export function HistoryView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {historyList.length > 0 ? (
-                    historyList.map((item, idx) => (
+                  {filteredSiswaHistory.length > 0 ? (
+                    filteredSiswaHistory.map((item, idx) => (
                       <tr key={`sis-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
                           {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
@@ -1556,35 +1884,48 @@ export function HistoryView({
             {/* Filter Bar */}
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
               <div className="sm:col-span-3">
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Tanggal Scan</label>
-                  <div className="flex items-center gap-1.5 text-[10px]">
-                    <button
-                      type="button"
-                      onClick={() => setFilterKioskTanggal(getLocalDateString())}
-                      className={`hover:underline cursor-pointer font-semibold ${filterKioskTanggal === getLocalDateString() ? 'text-blue-600 font-bold' : 'text-slate-400'}`}
-                    >
-                      Hari Ini
-                    </button>
-                    <span className="text-slate-300">•</span>
-                    <button
-                      type="button"
-                      onClick={() => setFilterKioskTanggal('')}
-                      className={`hover:underline cursor-pointer font-semibold ${!filterKioskTanggal ? 'text-blue-600 font-bold' : 'text-slate-400'}`}
-                    >
-                      Semua
-                    </button>
-                  </div>
-                </div>
-                <input
-                  type="date"
-                  value={filterKioskTanggal}
-                  onChange={(e) => setFilterKioskTanggal(e.target.value)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
-                />
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Periode Rekap</label>
+                <select
+                  value={filterKioskPeriode}
+                  onChange={(e) => {
+                    const val = e.target.value as PeriodType;
+                    setFilterKioskPeriode(val);
+                    handleApplyKioskFilter(val);
+                  }}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-700"
+                >
+                  <option value="semua">Semua Tanggal</option>
+                  <option value="hari_ini">Hari Ini</option>
+                  <option value="1_minggu">1 Minggu Terakhir</option>
+                  <option value="1_bulan">1 Bulan Terakhir</option>
+                  <option value="kustom">Rentang Tanggal Kustom</option>
+                </select>
               </div>
 
-              <div className="sm:col-span-3">
+              {filterKioskPeriode === 'kustom' && (
+                <>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Dari Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterKioskTanggalAwal}
+                      onChange={(e) => setFilterKioskTanggalAwal(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Sampai Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterKioskTanggalAkhir}
+                      onChange={(e) => setFilterKioskTanggalAkhir(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className={filterKioskPeriode === 'kustom' ? "sm:col-span-2" : "sm:col-span-3"}>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Kelas</label>
                 <select
                   value={filterKioskKelas}
@@ -1600,7 +1941,7 @@ export function HistoryView({
                 </select>
               </div>
 
-              <div className="sm:col-span-3">
+              <div className={filterKioskPeriode === 'kustom' ? "sm:col-span-2" : "sm:col-span-3"}>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Cari Siswa / NISN</label>
                 <div className="relative">
                   <input
@@ -1614,10 +1955,10 @@ export function HistoryView({
                 </div>
               </div>
 
-              <div className="sm:col-span-3 flex items-end gap-2">
+              <div className={filterKioskPeriode === 'kustom' ? "sm:col-span-3 flex items-end gap-2" : "sm:col-span-3 flex items-end gap-2"}>
                 <button
                   type="button"
-                  onClick={handleApplyKioskFilter}
+                  onClick={() => handleApplyKioskFilter()}
                   disabled={isLoadingKiosk}
                   className="flex-1 p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
@@ -1757,35 +2098,68 @@ export function HistoryView({
             </div>
 
             {/* Filter Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Tanggal Permohonan</label>
-                <input
-                  type="date"
-                  value={filterGuruTanggal}
-                  onChange={(e) => setFilterGuruTanggal(e.target.value)}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div className="sm:col-span-4">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Periode Rekap</label>
+                <select
+                  value={filterGuruPeriode}
+                  onChange={(e) => {
+                    const val = e.target.value as PeriodType;
+                    setFilterGuruPeriode(val);
+                    handleApplyGuruFilter(val);
+                  }}
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-700"
-                />
+                >
+                  <option value="semua">Semua Tanggal</option>
+                  <option value="hari_ini">Hari Ini</option>
+                  <option value="1_minggu">1 Minggu Terakhir</option>
+                  <option value="1_bulan">1 Bulan Terakhir</option>
+                  <option value="kustom">Rentang Tanggal Kustom</option>
+                </select>
               </div>
-              <div className="flex items-end gap-2">
+
+              {filterGuruPeriode === 'kustom' && (
+                <>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Dari Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterGuruTanggalAwal}
+                      onChange={(e) => setFilterGuruTanggalAwal(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Sampai Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterGuruTanggalAkhir}
+                      onChange={(e) => setFilterGuruTanggalAkhir(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className={filterGuruPeriode === 'kustom' ? "sm:col-span-2 flex items-end gap-2" : "sm:col-span-8 flex items-end gap-2"}>
                 <button
                   type="button"
-                  onClick={handleApplyGuruFilter}
+                  onClick={() => handleApplyGuruFilter()}
                   disabled={isLoadingGuru}
                   className="flex-1 p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  {isLoadingGuru ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />}
-                  <span>Terapkan Filter</span>
+                  {isLoadingGuru ? <Loader2 className="w-4 h-4 animate-spin" /> : <Filter className="w-3.5 h-3.5" />}
+                  <span>Terapkan</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleDownloadTeacherPDF}
-                  disabled={teacherHistoryList.length === 0}
-                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  disabled={filteredGuruHistory.length === 0}
+                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                   title="Unduh Rekap Izin Guru (PDF)"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Unduh Rekap PDF</span>
+                  <span>Unduh PDF</span>
                 </button>
               </div>
             </div>
@@ -1804,8 +2178,8 @@ export function HistoryView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {teacherHistoryList.length > 0 ? (
-                    teacherHistoryList.map((item, idx) => (
+                  {filteredGuruHistory.length > 0 ? (
+                    filteredGuruHistory.map((item, idx) => (
                       <tr key={`guru-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
                           {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
@@ -1879,35 +2253,68 @@ export function HistoryView({
             </div>
 
             {/* Filter Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Tanggal Presensi</label>
-                <input
-                  type="date"
-                  value={filterTendikTanggal}
-                  onChange={(e) => setFilterTendikTanggal(e.target.value)}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div className="sm:col-span-4">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Periode Rekap</label>
+                <select
+                  value={filterTendikAbsenPeriode}
+                  onChange={(e) => {
+                    const val = e.target.value as PeriodType;
+                    setFilterTendikAbsenPeriode(val);
+                    handleApplyTendikFilter();
+                  }}
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-700"
-                />
+                >
+                  <option value="semua">Semua Tanggal</option>
+                  <option value="hari_ini">Hari Ini</option>
+                  <option value="1_minggu">1 Minggu Terakhir</option>
+                  <option value="1_bulan">1 Bulan Terakhir</option>
+                  <option value="kustom">Rentang Tanggal Kustom</option>
+                </select>
               </div>
-              <div className="flex items-end gap-2">
+
+              {filterTendikAbsenPeriode === 'kustom' && (
+                <>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Dari Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterTendikAbsenTanggalAwal}
+                      onChange={(e) => setFilterTendikAbsenTanggalAwal(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Sampai Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterTendikAbsenTanggalAkhir}
+                      onChange={(e) => setFilterTendikAbsenTanggalAkhir(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className={filterTendikAbsenPeriode === 'kustom' ? "sm:col-span-2 flex items-end gap-2" : "sm:col-span-8 flex items-end gap-2"}>
                 <button
                   type="button"
                   onClick={handleApplyTendikFilter}
                   disabled={isLoadingTendik}
                   className="flex-1 p-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  {isLoadingTendik ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />}
-                  <span>Terapkan Filter</span>
+                  {isLoadingTendik ? <Loader2 className="w-4 h-4 animate-spin" /> : <Filter className="w-3.5 h-3.5" />}
+                  <span>Terapkan</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleDownloadTendikAbsenPDF}
-                  disabled={tendikAbsenHistory.length === 0}
-                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  disabled={filteredTendikAbsenHistory.length === 0}
+                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                   title="Unduh Rekap Presensi Hadir Tendik (PDF)"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Unduh Rekap PDF</span>
+                  <span>Unduh PDF</span>
                 </button>
               </div>
             </div>
@@ -1925,8 +2332,8 @@ export function HistoryView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {tendikAbsenHistory.length > 0 ? (
-                    tendikAbsenHistory.map((item, idx) => (
+                  {filteredTendikAbsenHistory.length > 0 ? (
+                    filteredTendikAbsenHistory.map((item, idx) => (
                       <tr key={`t-absen-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
                           {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
@@ -1988,35 +2395,68 @@ export function HistoryView({
             </div>
 
             {/* Filter Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Tanggal Permohonan</label>
-                <input
-                  type="date"
-                  value={filterTendikTanggal}
-                  onChange={(e) => setFilterTendikTanggal(e.target.value)}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div className="sm:col-span-4">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Periode Rekap</label>
+                <select
+                  value={filterTendikIzinPeriode}
+                  onChange={(e) => {
+                    const val = e.target.value as PeriodType;
+                    setFilterTendikIzinPeriode(val);
+                    handleApplyTendikFilter();
+                  }}
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-700"
-                />
+                >
+                  <option value="semua">Semua Tanggal</option>
+                  <option value="hari_ini">Hari Ini</option>
+                  <option value="1_minggu">1 Minggu Terakhir</option>
+                  <option value="1_bulan">1 Bulan Terakhir</option>
+                  <option value="kustom">Rentang Tanggal Kustom</option>
+                </select>
               </div>
-              <div className="flex items-end gap-2">
+
+              {filterTendikIzinPeriode === 'kustom' && (
+                <>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Dari Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterTendikIzinTanggalAwal}
+                      onChange={(e) => setFilterTendikIzinTanggalAwal(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Sampai Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterTendikIzinTanggalAkhir}
+                      onChange={(e) => setFilterTendikIzinTanggalAkhir(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className={filterTendikIzinPeriode === 'kustom' ? "sm:col-span-2 flex items-end gap-2" : "sm:col-span-8 flex items-end gap-2"}>
                 <button
                   type="button"
                   onClick={handleApplyTendikFilter}
                   disabled={isLoadingTendik}
                   className="flex-1 p-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
                 >
-                  {isLoadingTendik ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-3.5 h-3.5" />}
-                  <span>Terapkan Filter</span>
+                  {isLoadingTendik ? <Loader2 className="w-4 h-4 animate-spin" /> : <Filter className="w-3.5 h-3.5" />}
+                  <span>Terapkan</span>
                 </button>
                 <button
                   type="button"
                   onClick={handleDownloadTendikIzinPDF}
-                  disabled={tendikIzinHistory.length === 0}
-                  className="p-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                  disabled={filteredTendikIzinHistory.length === 0}
+                  className="p-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
                   title="Unduh Rekap Izin Tendik (PDF)"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Unduh Rekap PDF</span>
+                  <span>Unduh PDF</span>
                 </button>
               </div>
             </div>
@@ -2036,8 +2476,8 @@ export function HistoryView({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {tendikIzinHistory.length > 0 ? (
-                    tendikIzinHistory.map((item, idx) => (
+                  {filteredTendikIzinHistory.length > 0 ? (
+                    filteredTendikIzinHistory.map((item, idx) => (
                       <tr key={`t-izin-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
                           {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
