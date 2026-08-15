@@ -24,18 +24,19 @@ const STORAGE_KEYS = {
 export function initializeStorage() {
   const hasAppUrl = !!localStorage.getItem(STORAGE_KEYS.APP_URL);
 
-  // If connected to Web App URL, do NOT populate demo mock data
-  if (hasAppUrl) {
-    // Purge lingering demo mock data if present
-    try {
-      const rawScans = localStorage.getItem('absensi_kiosk_all_scans');
-      if (rawScans) {
-        const parsed = JSON.parse(rawScans);
-        if (Array.isArray(parsed) && parsed.some((item: any) => item.nama === 'Ahmad Rizky' || item.nama === 'Anisa Putri' || item.rowIndex === 2)) {
-          localStorage.removeItem('absensi_kiosk_all_scans');
-        }
+  // If connected to Web App URL or in normal state, do NOT populate demo mock data for kiosk
+  try {
+    const rawScans = localStorage.getItem('absensi_kiosk_all_scans');
+    if (rawScans) {
+      const parsed = JSON.parse(rawScans);
+      if (Array.isArray(parsed) && parsed.some((item: any) => item.nama === 'Ahmad Rizky' || item.nama === 'Anisa Putri' || item.nama === 'Maychel Owen' || item.nama === 'Safar' || item.nama === 'Rafsel' || item.nama === 'Nirmala' || item.nama === 'ALIKA MEYKA' || item.nama === 'Aira Fathiyaturahma')) {
+        localStorage.setItem('absensi_kiosk_all_scans', '[]');
+        localStorage.setItem('absensi_kiosk_today_list', '[]');
       }
-    } catch (e) {}
+    }
+  } catch (e) {}
+
+  if (hasAppUrl) {
     return;
   }
 
@@ -201,47 +202,10 @@ export function initializeStorage() {
   }
 
   if (!localStorage.getItem('absensi_kiosk_all_scans')) {
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const defaultKioskScans = [
-      {
-        rowIndex: 2,
-        timestamp: `${today} 15:52:33`,
-        tanggal: today,
-        waktu: '15:52:33',
-        nisn: '0124567574',
-        nama: 'Maychel Owen',
-        kelas: 'IX. Diponegoro',
-        status: 'Terlambat',
-        keterlambatan: '8 jam 52 menit',
-        menitTerlambat: 532,
-      },
-      {
-        rowIndex: 3,
-        timestamp: `${today} 15:52:27`,
-        tanggal: today,
-        waktu: '15:52:27',
-        nisn: '3135465222',
-        nama: 'Dalisya Lulu Mumtaza',
-        kelas: 'VIII. Ki Hadjar Dewantara',
-        status: 'Terlambat',
-        keterlambatan: '8 jam 52 menit',
-        menitTerlambat: 532,
-      },
-      {
-        rowIndex: 4,
-        timestamp: `${today} 15:52:12`,
-        tanggal: today,
-        waktu: '15:52:12',
-        nisn: '3136743658',
-        nama: 'Abizar Putra Ramadhan',
-        kelas: 'VII. Ahmad Yani',
-        status: 'Terlambat',
-        keterlambatan: '8 jam 52 menit',
-        menitTerlambat: 532,
-      },
-    ];
-    localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(defaultKioskScans));
+    localStorage.setItem('absensi_kiosk_all_scans', '[]');
+  }
+  if (!localStorage.getItem('absensi_kiosk_today_list')) {
+    localStorage.setItem('absensi_kiosk_today_list', '[]');
   }
 }
 
@@ -770,12 +734,21 @@ export const apiClient = {
       try {
         const { ok, result } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: tanggal || '', kelas: kelas || '' }, false, 0, 12000);
         if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
-          if (result.history.length === 0) {
-            try {
-              if (tanggal) {
-                localStorage.setItem('absensi_kiosk_today_list', '[]');
-              }
-              if (!tanggal && !kelas) {
+          let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
+
+          if (targetDateIso) {
+            normalized = normalized.filter((h: any) => {
+              const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
+              return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
+            });
+          }
+          if (kelas) {
+            normalized = normalized.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
+          }
+
+          if (result.history.length === 0 || normalized.length === 0) {
+            if (!tanggal && !kelas) {
+              try {
                 localStorage.setItem('absensi_kiosk_all_scans', '[]');
                 localStorage.setItem('absensi_kiosk_today_list', '[]');
                 fetch('/api/kiosk-scans', {
@@ -783,29 +756,23 @@ export const apiClient = {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ clearAll: true }),
                 }).catch(() => {});
-              }
-            } catch (e) {}
-            return { status: 'success', history: [] };
-          }
-          let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
-
-          if (targetDateIso) {
-            const filteredByDate = normalized.filter((h: any) => {
-              const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
-              return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
-            });
-            if (filteredByDate.length === 0) {
-              try {
-                localStorage.setItem('absensi_kiosk_today_list', '[]');
               } catch (e) {}
             }
-            return { status: 'success', history: filteredByDate };
+            return { status: 'success', history: [] };
           }
+
+          // Cache non-empty result to local storage
+          try {
+            if (!tanggal && !kelas) {
+              localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(normalized));
+            }
+          } catch (e) {}
+
           return { status: 'success', history: normalized };
         }
       } catch (e) {}
 
-      // 2. Query all records without date filter from GAS getKioskAttendanceHistory
+      // 2. Query all records without date filter from GAS getKioskAttendanceHistory if date filter was provided
       if (tanggal) {
         try {
           const { ok: okAll, result: resAll } = await safeCallGAS(url, 'getKioskAttendanceHistory', { tanggal: '', kelas: kelas || '' }, false, 0, 12000);
@@ -822,6 +789,7 @@ export const apiClient = {
               } catch (e) {}
               return { status: 'success', history: [] };
             }
+
             let normalized = resAll.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
             const filteredByDate = normalized.filter((h: any) => {
               const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
@@ -832,12 +800,12 @@ export const apiClient = {
         } catch (e) {}
       }
 
-      // 3. Fallback: Query all possible sheet names via getCrud
+      // 3. Fallback: Query sheet 'Presensi' and other sheet names directly via getCrud
       const possibleSheetNames = ['Presensi', 'Presensi_Masuk', 'Presensi Masuk', 'Presensi_Kiosk', 'Log_Presensi', 'Log Presensi', 'Data_Presensi', 'Absensi', 'Presensi Siswa'];
       for (const sheetName of possibleSheetNames) {
         try {
           const { ok, result: crudPresensi } = await safeCallGAS(url, 'getCrud', { sheetName }, false, 0, 10000);
-          if (ok && crudPresensi && crudPresensi.status === 'success' && Array.isArray(crudPresensi.rows) && crudPresensi.rows.length > 0) {
+          if (ok && crudPresensi && crudPresensi.status === 'success' && Array.isArray(crudPresensi.rows)) {
             const headersLower = (crudPresensi.headers || []).map((h: string) => (h || '').toLowerCase().trim());
             
             let tsIdx = headersLower.findIndex((h: string) => h.includes('timestamp') || h.includes('waktu scan') || h.includes('scan'));
@@ -857,14 +825,25 @@ export const apiClient = {
               const r0 = String(row.data[0] || '').toLowerCase().trim();
               const r1 = String(row.data[1] || '').toLowerCase().trim();
               const r2 = String(row.data[2] || '').toLowerCase().trim();
-              // Filter out header row if present in data rows
               if (r0 === 'tanggal' || r0 === 'tgl' || r0 === 'timestamp' || r1 === 'waktu scan' || r2 === 'nisn' || r0 === 'no') {
                 return false;
               }
               return true;
             });
 
-            if (validRows.length === 0) continue; // Skip empty sheet and keep checking next sheet name!
+            if (validRows.length === 0) {
+              // Sheet exists in Google Sheets database and is completely empty
+              try {
+                localStorage.setItem('absensi_kiosk_all_scans', '[]');
+                localStorage.setItem('absensi_kiosk_today_list', '[]');
+                fetch('/api/kiosk-scans', {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ clearAll: true }),
+                }).catch(() => {});
+              } catch (e) {}
+              return { status: 'success', history: [] };
+            }
 
             const parsedFromSheet = validRows.map((row: any) => {
               const rowData = row.data || [];
@@ -878,15 +857,24 @@ export const apiClient = {
               let rStatus = statusIdx !== -1 && rowData[statusIdx] !== undefined ? String(rowData[statusIdx]).trim() : '';
               let rTelat = telatIdx !== -1 && rowData[telatIdx] !== undefined ? String(rowData[telatIdx]).trim() : '';
 
-              // Position-based fallback if headers are default or unindexed:
-              // Typical column order: [Tanggal, Waktu Scan, NISN, Nama, Kelas, Status, Keterlambatan]
-              if (!rTanggal && rowData[0]) rTanggal = String(rowData[0]).trim();
-              if (!rWaktu && rowData[1]) rWaktu = String(rowData[1]).trim();
-              if (!rNisn && rowData[2]) rNisn = String(rowData[2]).trim();
-              if (!rNama && rowData[3]) rNama = String(rowData[3]).trim();
-              if (!rKelas && rowData[4]) rKelas = String(rowData[4]).trim();
-              if (!rStatus && rowData[5]) rStatus = String(rowData[5]).trim();
-              if (!rTelat && rowData[6]) rTelat = String(rowData[6]).trim();
+              if (nisnIdx === -1 || namaIdx === -1) {
+                if (rowData.length === 6) {
+                  if (!rTs && rowData[0]) rTs = String(rowData[0]).trim();
+                  if (!rNisn && rowData[1]) rNisn = String(rowData[1]).trim();
+                  if (!rNama && rowData[2]) rNama = String(rowData[2]).trim();
+                  if (!rKelas && rowData[3]) rKelas = String(rowData[3]).trim();
+                  if (!rStatus && rowData[4]) rStatus = String(rowData[4]).trim();
+                  if (!rTelat && rowData[5]) rTelat = String(rowData[5]).trim();
+                } else if (rowData.length >= 7) {
+                  if (!rTanggal && rowData[0]) rTanggal = String(rowData[0]).trim();
+                  if (!rWaktu && rowData[1]) rWaktu = String(rowData[1]).trim();
+                  if (!rNisn && rowData[2]) rNisn = String(rowData[2]).trim();
+                  if (!rNama && rowData[3]) rNama = String(rowData[3]).trim();
+                  if (!rKelas && rowData[4]) rKelas = String(rowData[4]).trim();
+                  if (!rStatus && rowData[5]) rStatus = String(rowData[5]).trim();
+                  if (!rTelat && rowData[6]) rTelat = String(rowData[6]).trim();
+                }
+              }
 
               if (!rStatus) rStatus = 'Hadir';
               if (!rTelat) rTelat = '-';
@@ -895,7 +883,7 @@ export const apiClient = {
               if (rTs && !rTs.includes('-') && !rTs.includes('/') && rTanggal) {
                 finalTs = `${rTanggal} ${rTs}`;
               } else if (!rTs) {
-                finalTs = `${rTanggal} ${rWaktu}`;
+                finalTs = `${rTanggal} ${rWaktu}`.trim();
               }
 
               return normalizeRecord({
@@ -914,20 +902,19 @@ export const apiClient = {
             let filteredSheet = parsedFromSheet.reverse();
 
             if (targetDateIso) {
-              const matchedByDate = filteredSheet.filter((h: any) => {
+              filteredSheet = filteredSheet.filter((h: any) => {
                 const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
                 return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
               });
-              if (matchedByDate.length > 0) {
-                filteredSheet = matchedByDate;
-              }
             }
             if (kelas) {
               filteredSheet = filteredSheet.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
             }
 
-            // Successfully queried real spreadsheet database
             try {
+              if (tanggal) {
+                localStorage.setItem('absensi_kiosk_today_list', JSON.stringify(filteredSheet));
+              }
               if (!tanggal && !kelas) {
                 localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(filteredSheet));
               }
@@ -935,9 +922,7 @@ export const apiClient = {
 
             return { status: 'success', history: filteredSheet };
           }
-        } catch (crudErr) {
-          // continue checking next possible sheet
-        }
+        } catch (crudErr) {}
       }
 
       // 4. Dedicated getKioskAttendanceHistory fallback
@@ -946,15 +931,31 @@ export const apiClient = {
         let normalized = result.history.map((h: any, idx: number) => normalizeRecord(h, h.rowIndex || idx + 2));
 
         if (targetDateIso) {
-          const matchedByDate = normalized.filter((h: any) => {
+          normalized = normalized.filter((h: any) => {
             const hDate = normalizeDateStr(h.tanggal || h.rawTanggal || h.timestamp);
             return hDate === targetDateIso || (h.timestamp && h.timestamp.includes(tanggal!));
           });
-          if (matchedByDate.length > 0) normalized = matchedByDate;
         }
         if (kelas) {
           normalized = normalized.filter((h: any) => (h.kelas || '').toLowerCase() === kelas.toLowerCase().trim());
         }
+
+        try {
+          if (tanggal) {
+            localStorage.setItem('absensi_kiosk_today_list', JSON.stringify(normalized));
+          }
+          if (!tanggal && !kelas) {
+            localStorage.setItem('absensi_kiosk_all_scans', JSON.stringify(normalized));
+            if (normalized.length === 0) {
+              localStorage.setItem('absensi_kiosk_today_list', '[]');
+              fetch('/api/kiosk-scans', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ clearAll: true }),
+              }).catch(() => {});
+            }
+          }
+        } catch (e) {}
 
         return { status: 'success', history: normalized };
       }
@@ -1710,5 +1711,9 @@ export const apiClient = {
     }
 
     return { status: 'success' };
+  },
+
+  clearCache() {
+    clearApiCache();
   },
 };

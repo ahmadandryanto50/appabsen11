@@ -543,12 +543,22 @@ function getKioskAttendanceHistory(tanggal, kelas) {
       if (telatIdx === -1 && (h.indexOf("terlambat") !== -1 || h.indexOf("keterlambatan") !== -1 || h.indexOf("menit") !== -1)) telatIdx = j;
     }
 
-    if (tsIdx === -1) tsIdx = 0;
-    if (nisnIdx === -1) nisnIdx = 1;
-    if (namaIdx === -1) namaIdx = 2;
-    if (kelasIdx === -1) kelasIdx = 3;
-    if (statusIdx === -1) statusIdx = 4;
-    if (telatIdx === -1) telatIdx = 5;
+    if (headers.length >= 7) {
+      if (tglIdx === -1) tglIdx = 0;
+      if (wktIdx === -1) wktIdx = 1;
+      if (nisnIdx === -1) nisnIdx = 2;
+      if (namaIdx === -1) namaIdx = 3;
+      if (kelasIdx === -1) kelasIdx = 4;
+      if (statusIdx === -1) statusIdx = 5;
+      if (telatIdx === -1) telatIdx = 6;
+    } else {
+      if (tsIdx === -1) tsIdx = 0;
+      if (nisnIdx === -1) nisnIdx = 1;
+      if (namaIdx === -1) namaIdx = 2;
+      if (kelasIdx === -1) kelasIdx = 3;
+      if (statusIdx === -1) statusIdx = 4;
+      if (telatIdx === -1) telatIdx = 5;
+    }
 
     const history = [];
     const tz = Session.getScriptTimeZone();

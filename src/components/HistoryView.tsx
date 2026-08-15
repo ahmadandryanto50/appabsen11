@@ -28,6 +28,7 @@ import {
   ExternalLink,
   ScanLine,
   CheckCheck,
+  RefreshCw,
 } from 'lucide-react';
 import { apiClient } from '../api';
 import { jsPDF } from 'jspdf';
@@ -73,7 +74,7 @@ export function HistoryView({
   const [isLoadingSiswa, setIsLoadingSiswa] = useState(false);
 
   // Filter States - Kiosk Presensi Masuk Siswa
-  const [filterKioskTanggal, setFilterKioskTanggal] = useState(getLocalDateString());
+  const [filterKioskTanggal, setFilterKioskTanggal] = useState('');
   const [filterKioskKelas, setFilterKioskKelas] = useState('');
   const [searchKioskNama, setSearchKioskNama] = useState('');
   const [kioskHistory, setKioskHistory] = useState<KioskScanRecord[]>([]);
@@ -353,6 +354,32 @@ export function HistoryView({
       }
     } catch (err) {
       console.error('Failed to load Kiosk history:', err);
+      setKioskHistory([]);
+    } finally {
+      setIsLoadingKiosk(false);
+    }
+  };
+
+  const handleClearKioskCache = async () => {
+    if (!window.confirm('Bersihkan data cache lokal & dapatkan ulang dari Spreadsheet database?')) return;
+    setIsLoadingKiosk(true);
+    try {
+      localStorage.setItem('absensi_kiosk_all_scans', '[]');
+      localStorage.setItem('absensi_kiosk_today_list', '[]');
+      await fetch('/api/kiosk-scans', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clearAll: true }),
+      }).catch(() => {});
+      apiClient.clearCache();
+      const res = await apiClient.getKioskAttendanceHistory(filterKioskTanggal, filterKioskKelas);
+      if (res.status === 'success' && Array.isArray(res.history)) {
+        setKioskHistory(res.history);
+      } else {
+        setKioskHistory([]);
+      }
+    } catch (err) {
+      console.error(err);
       setKioskHistory([]);
     } finally {
       setIsLoadingKiosk(false);
@@ -1463,6 +1490,16 @@ export function HistoryView({
                   Daftar pemindaian barcode/QR presensi pagi di gerbang beserta status kehadiran dan menit keterlambatan.
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={handleClearKioskCache}
+                disabled={isLoadingKiosk}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer self-start sm:self-auto border border-slate-200"
+                title="Bersihkan cache lokal dan muat ulang langsung dari spreadsheet database"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingKiosk ? 'animate-spin' : ''}`} />
+                <span>Sync / Bersihkan Cache</span>
+              </button>
             </div>
 
             {/* Metric Summary Cards */}
@@ -1505,7 +1542,26 @@ export function HistoryView({
             {/* Filter Bar */}
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
               <div className="sm:col-span-3">
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Tanggal Scan</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">Tanggal Scan</label>
+                  <div className="flex items-center gap-1.5 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setFilterKioskTanggal(getLocalDateString())}
+                      className={`hover:underline cursor-pointer font-semibold ${filterKioskTanggal === getLocalDateString() ? 'text-blue-600 font-bold' : 'text-slate-400'}`}
+                    >
+                      Hari Ini
+                    </button>
+                    <span className="text-slate-300">•</span>
+                    <button
+                      type="button"
+                      onClick={() => setFilterKioskTanggal('')}
+                      className={`hover:underline cursor-pointer font-semibold ${!filterKioskTanggal ? 'text-blue-600 font-bold' : 'text-slate-400'}`}
+                    >
+                      Semua
+                    </button>
+                  </div>
+                </div>
                 <input
                   type="date"
                   value={filterKioskTanggal}
