@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { CrudRow } from '../types';
 import { Plus, Pencil, Trash2, FolderEdit, Save, X, Loader2, Database, Search, AlertCircle } from 'lucide-react';
+import { apiClient } from '../api';
 
 interface CrudViewProps {
   currentCrudSheet: string;
@@ -15,6 +16,7 @@ interface CrudViewProps {
   onEditRow: (rowIndex: number, rowData: string[]) => Promise<void>;
   onDeleteRow: (rowIndex: number) => Promise<void>;
   isLoading: boolean;
+  allTeachers?: any[];
 }
 
 export function CrudView({
@@ -25,6 +27,7 @@ export function CrudView({
   onEditRow,
   onDeleteRow,
   isLoading,
+  allTeachers,
 }: CrudViewProps) {
   // Search and limit states
   const [searchQuery, setSearchQuery] = useState('');
@@ -41,6 +44,60 @@ export function CrudView({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deletingRow, setDeletingRow] = useState<CrudRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Dynamic Teacher & Tendik options for Wali Kelas dropdown
+  const [fetchedTeacherNames, setFetchedTeacherNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    const loadTeachers = async () => {
+      try {
+        const res = await apiClient.getCrud('Master_Guru');
+        if (res && res.status === 'success' && Array.isArray(res.rows) && res.rows.length > 0) {
+          let nameIdx = 2; // Default column for "Nama Lengkap"
+          if (res.headers && Array.isArray(res.headers)) {
+            const foundIdx = res.headers.findIndex((h: string) => h.toLowerCase().includes('nama'));
+            if (foundIdx !== -1) nameIdx = foundIdx;
+          }
+          const names = res.rows
+            .map((r: any) => {
+              if (r && Array.isArray(r.data)) return r.data[nameIdx];
+              if (Array.isArray(r)) return r[nameIdx];
+              return '';
+            })
+            .filter((val): val is string => typeof val === 'string' && val.trim().length > 0);
+
+          if (names.length > 0) {
+            setFetchedTeacherNames([...new Set(names)]);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch teachers for Wali Kelas dropdown:', err);
+      }
+    };
+
+    loadTeachers();
+  }, []);
+
+  // Helper to compile list of Wali Kelas options
+  const getWaliKelasOptions = (currentVal?: string) => {
+    const defaultList = ['Budi Santoso, S.Pd.', 'Siti Rahma, M.Pd.', 'Ahmad Subagyo, S.Si.'];
+    const propNames = (allTeachers || [])
+      .map((r: any) => {
+        if (r && Array.isArray(r.data)) return r.data[2];
+        if (Array.isArray(r)) return r[2];
+        return '';
+      })
+      .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+
+    const merged = [
+      ...propNames,
+      ...fetchedTeacherNames,
+      ...defaultList,
+      ...(currentVal ? [currentVal] : [])
+    ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+
+    return Array.from(new Set(merged));
+  };
 
   const getFriendlySheetName = () => {
     if (currentCrudSheet === 'Master_Guru') return 'Data Guru & Tendik';
@@ -323,6 +380,20 @@ export function CrudView({
                       <option value="">-- Pilih Jenis Kelamin --</option>
                       <option value="Laki-laki">Laki-laki</option>
                       <option value="Perempuan">Perempuan</option>
+                    </select>
+                  ) : head.toLowerCase().includes('wali kelas') ? (
+                    <select
+                      value={formRowValues[i] || ''}
+                      onChange={(e) => handleInputChange(i, e.target.value)}
+                      required
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold bg-white cursor-pointer"
+                    >
+                      <option value="">-- Pilih Wali Kelas (Guru & Tendik) --</option>
+                      {getWaliKelasOptions(formRowValues[i]).map((tName) => (
+                        <option key={tName} value={tName}>
+                          {tName}
+                        </option>
+                      ))}
                     </select>
                   ) : (
                     <input

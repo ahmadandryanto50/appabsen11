@@ -1359,6 +1359,7 @@ export default function App() {
                   onEditRow={handleEditCrudRow}
                   onDeleteRow={handleDeleteCrudRow}
                   isLoading={crudLoading}
+                  allTeachers={allTeachers}
                 />
               )}
 
