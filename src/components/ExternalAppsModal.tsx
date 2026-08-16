@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, ExternalLink, Globe, ArrowRight, Plus, Trash2, Sparkles, Home, ArrowLeft } from 'lucide-react';
 import { AppCustomization } from '../types';
 
@@ -24,7 +24,7 @@ interface ExternalAppsModalProps {
   isAdmin?: boolean;
 }
 
-const DEFAULT_APPS: ExternalAppItem[] = [
+export const DEFAULT_APPS: ExternalAppItem[] = [
   {
     id: 'dapodik11',
     name: 'Dapodik 11',
@@ -49,6 +49,13 @@ export function ExternalAppsModal({
 
   const [apps, setApps] = useState<ExternalAppItem[]>(savedApps);
   const [redirectingApp, setRedirectingApp] = useState<ExternalAppItem | null>(null);
+
+  // Sync state if customization changes from live database
+  useEffect(() => {
+    if (customization?.externalApps && customization.externalApps.length > 0) {
+      setApps(customization.externalApps);
+    }
+  }, [customization?.externalApps]);
 
   // Form for adding new custom app link (for Admin)
   const [showAddForm, setShowAddForm] = useState(false);

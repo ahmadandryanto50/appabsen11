@@ -48,7 +48,7 @@ import { CustomizationView } from './components/CustomizationView';
 import { AppsScriptView } from './components/AppsScriptView';
 import { ScannerKioskView } from './components/ScannerKioskView';
 import { CetakBarcodeView } from './components/CetakBarcodeView';
-import { ExternalAppsModal } from './components/ExternalAppsModal';
+import { ExternalAppsModal, DEFAULT_APPS } from './components/ExternalAppsModal';
 
 export default function App() {
   // Authentication & Navigation
@@ -117,6 +117,7 @@ export default function App() {
     fullAccessUsernames: [],
     userPhotos: {},
     batasWaktuMasuk: '07:00',
+    externalApps: DEFAULT_APPS,
   });
 
   // Track failed user photos for fallback to initials
@@ -254,6 +255,9 @@ export default function App() {
           fullAccessUsernames: Array.isArray(parsed.fullAccessUsernames) && parsed.fullAccessUsernames.length > 0
             ? parsed.fullAccessUsernames
             : prev.fullAccessUsernames,
+          externalApps: Array.isArray(parsed.externalApps) && parsed.externalApps.length > 0
+            ? parsed.externalApps
+            : (prev.externalApps && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS),
         }));
       } catch (e) {
         console.error('Error loading customization cache:', e);
@@ -274,6 +278,10 @@ export default function App() {
           });
         }
 
+        const externalAppsList = Array.isArray(c.externalApps) && c.externalApps.length > 0
+          ? c.externalApps
+          : DEFAULT_APPS;
+
         const merged: AppCustomization = {
           appName: c.appName?.trim() || 'E-ABSENSI',
           appSubtitle: c.appSubtitle?.trim() || 'SEKOLAH DIGITAL',
@@ -285,6 +293,7 @@ export default function App() {
           kepalaSekolahNama: c.kepalaSekolahNama?.trim() || '',
           kepalaSekolahNip: c.kepalaSekolahNip?.trim() || '',
           batasWaktuMasuk: c.batasWaktuMasuk?.trim() || '07:00',
+          externalApps: externalAppsList,
         };
 
         setCustomization(merged);
@@ -446,10 +455,16 @@ export default function App() {
         }
       });
     }
+
+    const externalAppsToSave = Array.isArray(newCust.externalApps) && newCust.externalApps.length > 0
+      ? newCust.externalApps
+      : DEFAULT_APPS;
+
     const cleanCust: AppCustomization = {
       ...newCust,
       logoUrl: newCust.logoUrl ? normalizeImageUrl(newCust.logoUrl.trim()) : '',
       userPhotos: normalizedPhotos,
+      externalApps: externalAppsToSave,
     };
 
     setCustomization(cleanCust);
@@ -458,7 +473,7 @@ export default function App() {
     try {
       const res = await apiClient.saveCustomization(cleanCust);
       if (res.status === 'success') {
-        addToast('Pengaturan identitas & foto profil berhasil disimpan dan disinkronkan ke Spreadsheet!', 'success');
+        addToast('Pengaturan & tautan aplikasi eksternal tersimpan & tersinkron ke Spreadsheet!', 'success');
       } else if (res.errorType === 'sheet_not_found') {
         addToast('Pengaturan disimpan lokal! Buat Sheet bernama "Pengaturan" di Google Sheets Anda untuk mengaktifkan Cloud Sync.', 'warning');
       } else {
@@ -467,8 +482,6 @@ export default function App() {
     } catch (err: any) {
       addToast('Pengaturan disimpan lokal (koneksi cloud terputus).', 'warning');
     }
-    
-    setActiveView('dashboard');
   };
 
   // LOAD STUDENT ROSTER FOR CLASS
