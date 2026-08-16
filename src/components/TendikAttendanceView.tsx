@@ -18,6 +18,7 @@ export function TendikAttendanceView({
   onSubmit,
   currentTimeString,
 }: TendikAttendanceViewProps) {
+  const [tipeAbsen, setTipeAbsen] = useState<'Datang' | 'Pulang'>('Datang');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Camera Snapshot State
@@ -150,11 +151,14 @@ export function TendikAttendanceView({
       const dateString = getLocalDateString(now);
       const timeString = now.toTimeString().split(' ')[0];
 
+      const statusAbsenLabel = tipeAbsen === 'Pulang' ? 'Absen Pulang' : 'Absen Datang';
       const payload = {
         tanggal: dateString,
         waktu: timeString,
         nip: currentUser?.nip || '',
         namaTendik: currentUser?.nama || '',
+        tipeAbsen: statusAbsenLabel,
+        kategori: statusAbsenLabel,
         photo: cameraPhoto,
         photoBase64: cameraPhoto,
       };
@@ -206,10 +210,54 @@ export function TendikAttendanceView({
           </div>
         </div>
 
+        {/* Select Tipe Presensi (Datang / Pulang) */}
+        <div className="space-y-2">
+          <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+            Kategori Presensi Tendik <span className="text-rose-500">*</span>
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => setTipeAbsen('Datang')}
+              className={`p-3.5 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-extrabold text-xs transition-all cursor-pointer ${
+                tipeAbsen === 'Datang'
+                  ? 'border-emerald-500 bg-emerald-50/80 text-emerald-800 shadow-sm'
+                  : 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70'
+              }`}
+            >
+              <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+                tipeAbsen === 'Datang' ? 'border-emerald-600 bg-emerald-600' : 'border-slate-400'
+              }`}>
+                {tipeAbsen === 'Datang' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+              </div>
+              <span className="text-base">☀️</span>
+              <span>Absen Datang</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTipeAbsen('Pulang')}
+              className={`p-3.5 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-extrabold text-xs transition-all cursor-pointer ${
+                tipeAbsen === 'Pulang'
+                  ? 'border-amber-500 bg-amber-50/80 text-amber-900 shadow-sm'
+                  : 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70'
+              }`}
+            >
+              <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
+                tipeAbsen === 'Pulang' ? 'border-amber-600 bg-amber-600' : 'border-slate-400'
+              }`}>
+                {tipeAbsen === 'Pulang' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+              </div>
+              <span className="text-base">🌙</span>
+              <span>Absen Pulang</span>
+            </button>
+          </div>
+        </div>
+
         {/* Camera Section */}
         <div className="space-y-3">
           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
-            Foto Bukti Hadir <span className="text-rose-500">*</span>
+            Foto Bukti Absen Datang / Pulang <span className="text-rose-500">*</span>
           </label>
 
           {!showCameraStream && !cameraPhoto && (
@@ -319,7 +367,7 @@ export function TendikAttendanceView({
             ) : (
               <>
                 <CheckCircle className="w-4 h-4" />
-                <span>Kirim Presensi Hadir</span>
+                <span>Kirim Presensi ({tipeAbsen === 'Pulang' ? 'Absen Pulang' : 'Absen Datang'})</span>
               </>
             )}
           </button>

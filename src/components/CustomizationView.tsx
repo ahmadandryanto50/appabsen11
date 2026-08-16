@@ -158,6 +158,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
     });
 
     onSave({
+      ...customization,
       appName: appName.trim(),
       appSubtitle: appSubtitle.trim(),
       logoEmoji: logoEmoji,
@@ -168,6 +169,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
       kepalaSekolahNama: kepalaSekolahNama.trim(),
       kepalaSekolahNip: kepalaSekolahNip.trim(),
       batasWaktuMasuk: batasWaktuMasuk.trim(),
+      externalApps: Array.isArray(customization.externalApps) ? customization.externalApps : [],
     });
   };
 

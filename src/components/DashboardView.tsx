@@ -1246,6 +1246,7 @@ export function DashboardView({
                 <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200/60">
                   <tr>
                     <th className="p-3 pl-4">Tanggal & Waktu</th>
+                    <th className="p-3">Tipe Presensi</th>
                     <th className="p-3">NIP</th>
                     <th className="p-3">Nama Tendik</th>
                     <th className="p-3 text-center">Status Kehadiran</th>
@@ -1255,7 +1256,7 @@ export function DashboardView({
                 <tbody className="divide-y divide-slate-100 bg-white">
                   {loadingTendik ? (
                     <tr>
-                      <td colSpan={5} className="p-12 text-center text-slate-400">
+                      <td colSpan={6} className="p-12 text-center text-slate-400">
                         <span className="inline-block animate-spin mr-2">⏳</span> Memuat riwayat...
                       </td>
                     </tr>
@@ -1263,7 +1264,18 @@ export function DashboardView({
                     tendikList.slice(0, 5).map((log, idx) => (
                       <tr key={`tendik-${log.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                         <td className="p-3 pl-4 font-mono text-slate-400 font-bold whitespace-nowrap">
-                          {log.tanggal} <span className="text-slate-300">|</span> {log.waktu}
+                          {log.tanggal} <span className="text-slate-300">|</span> {String(log.waktu || '').replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim()}
+                        </td>
+                        <td className="p-3 whitespace-nowrap">
+                          {String(log.tipeAbsen || '').toLowerCase().includes('pulang') ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 text-amber-800 rounded-full text-[10px] font-extrabold border border-amber-200">
+                              <span>🌙</span> Absen Pulang
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-50 text-emerald-800 rounded-full text-[10px] font-extrabold border border-emerald-200">
+                              <span>☀️</span> Absen Datang
+                            </span>
+                          )}
                         </td>
                         <td className="p-3 font-mono text-slate-550 font-semibold">{log.nip || '-'}</td>
                         <td className="p-3 font-bold text-slate-850">{log.namaTendik}</td>
@@ -1289,7 +1301,7 @@ export function DashboardView({
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5} className="p-12 text-center text-slate-400 font-medium">
+                      <td colSpan={6} className="p-12 text-center text-slate-400 font-medium">
                         Belum ada riwayat presensi hadir Tendik hari ini.
                       </td>
                     </tr>
@@ -1373,7 +1385,7 @@ export function DashboardView({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" id="photo-viewer-modal">
           <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h4 className="font-extrabold text-slate-800 text-sm">Foto Bukti Kelas / Pembelajaran</h4>
+              <h4 className="font-extrabold text-slate-800 text-sm">Foto Bukti Presensi / Dokumentasi</h4>
               <button
                 onClick={() => setSelectedPhoto(null)}
                 className="text-slate-400 hover:text-slate-600 font-extrabold text-sm p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"

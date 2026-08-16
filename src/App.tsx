@@ -278,26 +278,28 @@ export default function App() {
           });
         }
 
-        const externalAppsList = Array.isArray(c.externalApps) && c.externalApps.length > 0
-          ? c.externalApps
-          : DEFAULT_APPS;
+        setCustomization((prev) => {
+          const externalAppsList = Array.isArray(c.externalApps) && c.externalApps.length > 0
+            ? c.externalApps
+            : (Array.isArray(prev.externalApps) && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS);
 
-        const merged: AppCustomization = {
-          appName: c.appName?.trim() || 'E-ABSENSI',
-          appSubtitle: c.appSubtitle?.trim() || 'SEKOLAH DIGITAL',
-          logoEmoji: c.logoEmoji || '🎓',
-          logoColor: c.logoColor || 'bg-blue-600',
-          logoUrl: c.logoUrl ? normalizeImageUrl(c.logoUrl.trim()) : '',
-          fullAccessUsernames: Array.isArray(c.fullAccessUsernames) ? c.fullAccessUsernames : [],
-          userPhotos: normalizedPhotos,
-          kepalaSekolahNama: c.kepalaSekolahNama?.trim() || '',
-          kepalaSekolahNip: c.kepalaSekolahNip?.trim() || '',
-          batasWaktuMasuk: c.batasWaktuMasuk?.trim() || '07:00',
-          externalApps: externalAppsList,
-        };
+          const merged: AppCustomization = {
+            appName: c.appName?.trim() || prev.appName || 'E-ABSENSI',
+            appSubtitle: c.appSubtitle?.trim() || prev.appSubtitle || 'SEKOLAH DIGITAL',
+            logoEmoji: c.logoEmoji || prev.logoEmoji || '🎓',
+            logoColor: c.logoColor || prev.logoColor || 'bg-blue-600',
+            logoUrl: c.logoUrl ? normalizeImageUrl(c.logoUrl.trim()) : (prev.logoUrl || ''),
+            fullAccessUsernames: Array.isArray(c.fullAccessUsernames) ? c.fullAccessUsernames : prev.fullAccessUsernames,
+            userPhotos: { ...(prev.userPhotos || {}), ...normalizedPhotos },
+            kepalaSekolahNama: c.kepalaSekolahNama?.trim() ?? prev.kepalaSekolahNama ?? '',
+            kepalaSekolahNip: c.kepalaSekolahNip?.trim() ?? prev.kepalaSekolahNip ?? '',
+            batasWaktuMasuk: c.batasWaktuMasuk?.trim() ?? prev.batasWaktuMasuk ?? '07:00',
+            externalApps: externalAppsList,
+          };
 
-        setCustomization(merged);
-        localStorage.setItem('absensi_app_customization', JSON.stringify(merged));
+          localStorage.setItem('absensi_app_customization', JSON.stringify(merged));
+          return merged;
+        });
       }
     } catch (err) {
       console.error('Background load customization error:', err);
@@ -431,8 +433,20 @@ export default function App() {
       try {
         const res = await apiClient.getCustomization();
         if (res.status === 'success' && res.customization) {
-          setCustomization(res.customization);
-          localStorage.setItem('absensi_app_customization', JSON.stringify(res.customization));
+          const c = res.customization;
+          setCustomization((prev) => {
+            const externalAppsList = Array.isArray(c.externalApps) && c.externalApps.length > 0
+              ? c.externalApps
+              : (Array.isArray(prev.externalApps) && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS);
+
+            const merged: AppCustomization = {
+              ...prev,
+              ...c,
+              externalApps: externalAppsList,
+            };
+            localStorage.setItem('absensi_app_customization', JSON.stringify(merged));
+            return merged;
+          });
           addToast('Pengaturan identitas berhasil disinkronkan dari database!', 'success');
         }
       } catch (err) {
@@ -447,29 +461,34 @@ export default function App() {
 
   // SAVE APP CUSTOMIZATION SETTINGS
   const handleSaveCustomization = async (newCust: AppCustomization) => {
+    clearApiCache();
+
+    // Determine externalApps to save
+    const externalAppsToSave = Array.isArray(newCust.externalApps)
+      ? newCust.externalApps
+      : (Array.isArray(customization.externalApps) && customization.externalApps.length > 0 ? customization.externalApps : DEFAULT_APPS);
+
     const normalizedPhotos: Record<string, string> = {};
-    if (newCust.userPhotos && typeof newCust.userPhotos === 'object') {
-      Object.entries(newCust.userPhotos).forEach(([k, v]) => {
+    const userPhotosToUse = newCust.userPhotos || customization.userPhotos || {};
+    if (userPhotosToUse && typeof userPhotosToUse === 'object') {
+      Object.entries(userPhotosToUse).forEach(([k, v]) => {
         if (v && typeof v === 'string' && v.trim()) {
           normalizedPhotos[k] = normalizeImageUrl(v.trim());
         }
       });
     }
 
-    const externalAppsToSave = Array.isArray(newCust.externalApps) && newCust.externalApps.length > 0
-      ? newCust.externalApps
-      : DEFAULT_APPS;
-
     const cleanCust: AppCustomization = {
+      ...customization,
       ...newCust,
-      logoUrl: newCust.logoUrl ? normalizeImageUrl(newCust.logoUrl.trim()) : '',
+      logoUrl: newCust.logoUrl !== undefined ? (newCust.logoUrl ? normalizeImageUrl(newCust.logoUrl.trim()) : '') : (customization.logoUrl || ''),
       userPhotos: normalizedPhotos,
       externalApps: externalAppsToSave,
     };
 
     setCustomization(cleanCust);
     localStorage.setItem('absensi_app_customization', JSON.stringify(cleanCust));
-    
+
     try {
       const res = await apiClient.saveCustomization(cleanCust);
       if (res.status === 'success') {

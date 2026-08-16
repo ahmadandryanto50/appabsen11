@@ -1324,27 +1324,47 @@ export const apiClient = {
     clearApiCache();
     const url = this.getBackendUrl();
     let serverError = '';
-    if (url) {
-      const { ok, result, error } = await safeCallGAS(url, 'submitTendikAttendance', { payload }, false, 0, 60000);
-      if (ok && result && result.status === 'success') return result;
-      serverError = error || result?.message || 'Gagal terhubung ke database.';
-    }
 
-    // Demo Mode / Offline Fallback
-    const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
-    const history: any[] = JSON.parse(rawHistory);
+    const rawTipe = String(payload.tipeAbsen || payload.kategori || "Datang");
+    const tipeAbsen = rawTipe.toLowerCase().includes("pulang") ? "Absen Pulang" : "Absen Datang";
+    const cleanWaktu = String(payload.waktu || '').replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim();
 
-    const newRecord = {
-      rowIndex: Date.now(),
-      tanggal: payload.tanggal,
-      waktu: payload.waktu,
-      nip: payload.nip || "",
-      namaTendik: payload.namaTendik || "",
-      photo: payload.photoBase64 || "",
+    const cleanPayload = {
+      ...payload,
+      waktu: cleanWaktu || payload.waktu,
+      tipeAbsen: tipeAbsen,
+      kategori: tipeAbsen,
     };
 
-    history.unshift(newRecord);
-    localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(history));
+    const newRecord = {
+      rowIndex: "TND-ABS-" + Date.now(),
+      tanggal: payload.tanggal,
+      waktu: cleanWaktu || payload.waktu,
+      nip: payload.nip || "",
+      namaTendik: payload.namaTendik || "",
+      tipeAbsen: tipeAbsen,
+      kategori: tipeAbsen,
+      photo: payload.photoBase64 || payload.photo || "",
+    };
+
+    // Always pre-save to local storage so UI updates instantly and preserves tipeAbsen ('Absen Datang' / 'Absen Pulang')
+    try {
+      const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
+      let history: any[] = JSON.parse(rawHistory);
+      history = history.filter(item => String(item.rowIndex) !== String(newRecord.rowIndex));
+      history.unshift(newRecord);
+      localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(history));
+    } catch (e) {
+      console.error('Failed to update local tendik attendance cache:', e);
+    }
+
+    if (url) {
+      const { ok, result, error } = await safeCallGAS(url, 'submitTendikAttendance', { payload: cleanPayload }, false, 0, 60000);
+      if (ok && result && result.status === 'success') {
+        return result;
+      }
+      serverError = error || result?.message || 'Gagal terhubung ke database.';
+    }
 
     if (serverError) {
       return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
@@ -1393,19 +1413,63 @@ export const apiClient = {
     if (url) {
       const { ok, result } = await safeCallGAS(url, 'getTendikAttendanceHistory', { tanggal }, true, 10000);
       if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
+        // Local map to ensure tipeAbsen is never lost even if backend script is pending deployment
+        const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
+        let existingMap: Record<string, any> = {};
+        try {
+          const existingArr: any[] = JSON.parse(rawExisting);
+          existingArr.forEach(e => {
+            if (e.rowIndex) existingMap[String(e.rowIndex)] = e;
+            if (e.tanggal && e.waktu && e.nip) {
+              existingMap[`${e.tanggal}_${e.waktu}_${e.nip}`] = e;
+            }
+          });
+        } catch (e) {}
+
+        const sanitizedHistory = result.history.map((rec: any) => {
+          let rawWaktu = String(rec.waktu || '');
+          let tipe = rec.tipeAbsen || rec.kategori || rec.status;
+
+          // Detect tipeAbsen from rawWaktu string if present (e.g. "15:30:00 [Pulang]")
+          if (rawWaktu.toLowerCase().includes('pulang')) {
+            tipe = 'Pulang';
+          } else if (rawWaktu.toLowerCase().includes('datang')) {
+            tipe = 'Datang';
+          }
+
+          // Clean time string for display (e.g., "15:30:00 [Pulang]" -> "15:30:00")
+          const cleanWaktu = rawWaktu.replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim();
+
+          if (!tipe || tipe === 'Hadir' || tipe === 'Aktif') {
+            const matched = existingMap[String(rec.rowIndex)] || existingMap[`${rec.tanggal}_${cleanWaktu}_${rec.nip}`];
+            if (matched && (matched.tipeAbsen || matched.kategori)) {
+              tipe = matched.tipeAbsen || matched.kategori;
+            } else {
+              tipe = 'Datang';
+            }
+          }
+          return {
+            ...rec,
+            waktu: cleanWaktu || rawWaktu,
+            tipeAbsen: tipe,
+            kategori: tipe,
+          };
+        });
+
         try {
           if (!tanggal) {
-            localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(result.history));
-          } else if (result.history.length > 0) {
+            localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(sanitizedHistory));
+          } else if (sanitizedHistory.length > 0) {
             const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
             let existing: any[] = JSON.parse(rawExisting);
-            const fetchedIds = new Set(result.history.map((r: any) => String(r.rowIndex)));
+            const fetchedIds = new Set(sanitizedHistory.map((r: any) => String(r.rowIndex)));
             existing = existing.filter(r => !fetchedIds.has(String(r.rowIndex)));
-            const merged = [...result.history, ...existing];
+            const merged = [...sanitizedHistory, ...existing];
             localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(merged));
           }
         } catch (e) {}
-        return result;
+
+        return { status: 'success', history: sanitizedHistory };
       }
 
       // Fallback gracefully to local cache
@@ -1784,8 +1848,18 @@ export const apiClient = {
 
   // 12. SAVE APP CUSTOMIZATION TO GOOGLE SPREADSHEET
   async saveCustomization(customization: any): Promise<{ status: string; errorType?: string; message?: string }> {
+    clearApiCache();
     // Always keep local storage updated
     localStorage.setItem('absensi_app_customization', JSON.stringify(customization));
+
+    // Also persist customization to Express server /api/config for multi-device & multi-browser sync
+    try {
+      fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customization }),
+      }).catch(() => {});
+    } catch (e) {}
 
     const url = this.getBackendUrl();
     if (!url) {
@@ -1794,6 +1868,7 @@ export const apiClient = {
 
     const direct = await safeCallGAS(url, 'saveCustomization', { customization });
     if (direct.ok && direct.result && direct.result.status === 'success') {
+      clearApiCache();
       return direct.result;
     }
 
@@ -1810,11 +1885,23 @@ export const apiClient = {
         rowIndex: targetRowIndex
       });
       if (saveRes.ok && saveRes.result) {
+        clearApiCache();
         return saveRes.result;
       }
     }
 
     return { status: 'success' };
+  },
+
+  async setupDatabase(): Promise<{ status: string; message?: string }> {
+    clearApiCache();
+    const url = this.getBackendUrl();
+    if (url) {
+      const { ok, result, error } = await safeCallGAS(url, 'setupDatabase', {});
+      if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
+    }
+    return { status: 'success', message: 'Database lokal/demo diperbarui.' };
   },
 
   clearCache() {

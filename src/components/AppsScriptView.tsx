@@ -24,6 +24,25 @@ export function AppsScriptView({ customization }: AppsScriptViewProps) {
   const [newPassword, setNewPassword] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [changePasswordSuccess, setChangePasswordSuccess] = useState('');
+  const [isSettingUpDb, setIsSettingUpDb] = useState(false);
+  const [setupDbMessage, setSetupDbMessage] = useState('');
+
+  const handleRunSetupDatabase = async () => {
+    setIsSettingUpDb(true);
+    setSetupDbMessage('');
+    try {
+      const res = await apiClient.setupDatabase();
+      if (res.status === 'success') {
+        setSetupDbMessage('✅ Re-Sync Database Berhasil! Kolom Tipe Absen pada sheet Absen_Tendik telah dikonfigurasi.');
+      } else {
+        setSetupDbMessage('❌ Gagal: ' + (res.message || 'Terjadi kesalahan.'));
+      }
+    } catch (e: any) {
+      setSetupDbMessage('❌ Error: ' + e.message);
+    } finally {
+      setIsSettingUpDb(false);
+    }
+  };
 
   useEffect(() => {
     const fetchPassword = async () => {
@@ -141,6 +160,9 @@ function doPost(e) {
     let result = { status: "error", message: "Aksi tidak dikenal." };
 
     switch (action) {
+      case "setupDatabase":
+        result = setupDatabase();
+        break;
       case "login":
         result = loginUser(contents.username, contents.password);
         break;
@@ -314,7 +336,18 @@ function setupDatabase() {
     let sheetAbsenTendik = ss.getSheetByName("Absen_Tendik");
     if (!sheetAbsenTendik) {
       sheetAbsenTendik = ss.insertSheet("Absen_Tendik");
-      sheetAbsenTendik.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Tendik", "Foto Bukti Base64"]);
+      sheetAbsenTendik.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Tendik", "Tipe Absen", "Foto Bukti Base64"]);
+    } else {
+      var col6Header = sheetAbsenTendik.getRange(1, 6).getValue().toString();
+      if (col6Header.toLowerCase().indexOf("tipe") === -1 && col6Header.toLowerCase().indexOf("status") === -1) {
+        if (col6Header.toLowerCase().indexOf("foto") >= 0 || col6Header.toLowerCase().indexOf("base64") >= 0) {
+          sheetAbsenTendik.insertColumnAfter(5);
+        }
+        sheetAbsenTendik.getRange(1, 6).setValue("Tipe Absen");
+        if (sheetAbsenTendik.getRange(1, 7).getValue().toString() === "") {
+          sheetAbsenTendik.getRange(1, 7).setValue("Foto Bukti Base64");
+        }
+      }
     }
 
     // 9. Tabel Izin_Tendik
@@ -1040,7 +1073,7 @@ function submitTendikAttendance(payload) {
     let sheet = ss.getSheetByName("Absen_Tendik");
     if (!sheet) {
       sheet = ss.insertSheet("Absen_Tendik");
-      sheet.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Tendik", "Foto Bukti Base64"]);
+      sheet.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Tendik", "Tipe Absen", "Foto Bukti Base64"]);
     }
 
     const now = new Date();
@@ -1049,8 +1082,24 @@ function submitTendikAttendance(payload) {
     const waktuDefault = Utilities.formatDate(now, tz, "HH:mm:ss");
 
     const tgl = payload.tanggal || tanggalDefault;
-    const wkt = payload.waktu || waktuDefault;
+    let wkt = payload.waktu || waktuDefault;
+    wkt = String(wkt).replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim();
+
+    var rawTipe = String(payload.tipeAbsen || payload.kategori || "Datang");
+    var tipeAbsen = rawTipe.toLowerCase().indexOf("pulang") >= 0 ? "Absen Pulang" : "Absen Datang";
+
     const rIdx = "TND-ABS-" + Date.now();
+
+    var col6Header = sheet.getRange(1, 6).getValue().toString();
+    if (col6Header.toLowerCase().indexOf("tipe") === -1 && col6Header.toLowerCase().indexOf("status") === -1) {
+      if (col6Header.toLowerCase().indexOf("foto") >= 0 || col6Header.toLowerCase().indexOf("base64") >= 0) {
+        sheet.insertColumnAfter(5);
+      }
+      sheet.getRange(1, 6).setValue("Tipe Absen");
+      if (sheet.getRange(1, 7).getValue().toString() === "") {
+        sheet.getRange(1, 7).setValue("Foto Bukti Base64");
+      }
+    }
 
     sheet.appendRow([
       rIdx,
@@ -1058,10 +1107,11 @@ function submitTendikAttendance(payload) {
       wkt,
       payload.nip || "",
       payload.namaTendik || "",
+      tipeAbsen,
       payload.photo || payload.photoBase64 || ""
     ]);
 
-    return { status: "success", message: "Presensi Tendik berhasil disimpan!" };
+    return { status: "success", message: "Presensi " + tipeAbsen + " Tendik berhasil disimpan!" };
   } catch (err) {
     return { status: "error", message: err.message };
   }
@@ -1111,7 +1161,8 @@ function getTendikAttendanceHistory(tanggal) {
     const lastRow = sheet.getLastRow();
     if (lastRow <= 1) return { status: "success", history: [] };
 
-    const values = sheet.getRange(1, 1, lastRow, 6).getValues();
+    const numCols = Math.max(sheet.getLastColumn(), 6);
+    const values = sheet.getRange(1, 1, lastRow, numCols).getValues();
     const history = [];
     const tz = Session.getScriptTimeZone();
 
@@ -1130,6 +1181,28 @@ function getTendikAttendanceHistory(tanggal) {
         rowWaktu = rowWaktu ? rowWaktu.toString() : "";
       }
 
+      let tipeAbsen = "Datang";
+      let photo = "";
+
+      const col5 = values[i][5] ? values[i][5].toString().trim() : "";
+      const col6 = values[i][6] ? values[i][6].toString().trim() : "";
+
+      const lowerCol5 = col5.toLowerCase();
+      if (lowerCol5.includes("pulang")) {
+        tipeAbsen = "Pulang";
+        photo = col6;
+      } else if (lowerCol5.includes("datang")) {
+        tipeAbsen = "Datang";
+        photo = col6;
+      } else if (col5.length < 30 && !col5.startsWith("data:")) {
+        tipeAbsen = col5 || "Datang";
+        photo = col6;
+      } else {
+        // Col 5 is photo base64 (legacy 6-column sheet layout)
+        photo = col5;
+        tipeAbsen = "Datang";
+      }
+
       if (!tanggal || rowTanggal === tanggal) {
         history.push({
           rowIndex: values[i][0] ? values[i][0].toString() : (i + 1).toString(),
@@ -1137,7 +1210,8 @@ function getTendikAttendanceHistory(tanggal) {
           waktu: rowWaktu,
           nip: values[i][3] ? values[i][3].toString() : "",
           namaTendik: values[i][4] ? values[i][4].toString() : "",
-          photo: values[i][5] ? values[i][5].toString() : ""
+          tipeAbsen: tipeAbsen,
+          photo: photo
         });
       }
 
@@ -1344,6 +1418,8 @@ function deleteTendikPermitRecord(rowIndex) {
         </div>
         <Code className="w-64 h-64 text-white/5 absolute -right-16 -bottom-16 pointer-events-none transform rotate-12" />
       </div>
+
+
 
       {showChangePassword && (
         <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-sm">

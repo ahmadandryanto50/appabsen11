@@ -43,7 +43,7 @@ export function ExternalAppsModal({
   isAdmin = false,
 }: ExternalAppsModalProps) {
   // Get external apps list from customization or fallback to default
-  const savedApps: ExternalAppItem[] = (customization as any)?.externalApps?.length
+  const savedApps: ExternalAppItem[] = Array.isArray((customization as any)?.externalApps)
     ? (customization as any).externalApps
     : DEFAULT_APPS;
 
@@ -52,7 +52,7 @@ export function ExternalAppsModal({
 
   // Sync state if customization changes from live database
   useEffect(() => {
-    if (customization?.externalApps && customization.externalApps.length > 0) {
+    if (Array.isArray(customization?.externalApps)) {
       setApps(customization.externalApps);
     }
   }, [customization?.externalApps]);

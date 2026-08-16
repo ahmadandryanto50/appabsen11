@@ -1345,11 +1345,12 @@ export function HistoryView({
     let currentY = 78;
 
     // Table
-    const tableHeaders = [['No', 'Tanggal', 'Waktu Presensi', 'NIP Tendik', 'Nama Lengkap', 'Status Kehadiran']];
+    const tableHeaders = [['No', 'Tanggal', 'Waktu', 'Tipe Presensi', 'NIP Tendik', 'Nama Lengkap', 'Status']];
     const tableBody = filteredTendikAbsenHistory.map((item, idx) => [
       idx + 1,
       item.tanggal,
       item.waktu ? item.waktu.substring(0, 5) : '-',
+      item.tipeAbsen === 'Pulang' ? 'Absen Pulang' : 'Absen Datang',
       item.nip || '-',
       item.namaTendik,
       'Hadir'
@@ -2325,8 +2326,9 @@ export function HistoryView({
                 <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
                   <tr>
                     <th className="p-3.5 pl-4 w-40">Waktu Presensi</th>
-                    <th className="p-3.5 w-40">NIP</th>
-                    <th className="p-3.5 w-60">Nama Lengkap</th>
+                    <th className="p-3.5 w-36">Tipe Presensi</th>
+                    <th className="p-3.5 w-36">NIP</th>
+                    <th className="p-3.5 w-56">Nama Lengkap</th>
                     <th className="p-3.5 text-center w-36">Bukti Foto</th>
                     <th className="p-3.5 pr-4 text-center w-24">Aksi</th>
                   </tr>
@@ -2336,7 +2338,18 @@ export function HistoryView({
                     filteredTendikAbsenHistory.map((item, idx) => (
                       <tr key={`t-absen-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
                         <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
-                          {item.tanggal} <span className="text-slate-300">|</span> {item.waktu}
+                          {item.tanggal} <span className="text-slate-300">|</span> {String(item.waktu || '').replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim()}
+                        </td>
+                        <td className="p-3.5 whitespace-nowrap">
+                          {String(item.tipeAbsen || item.kategori || '').toLowerCase().includes('pulang') ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 text-amber-800 rounded-full text-[10px] font-extrabold border border-amber-200">
+                              <span>🌙</span> Absen Pulang
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-50 text-emerald-800 rounded-full text-[10px] font-extrabold border border-emerald-200">
+                              <span>☀️</span> Absen Datang
+                            </span>
+                          )}
                         </td>
                         <td className="p-3.5 font-mono text-slate-600 font-semibold">{item.nip || '-'}</td>
                         <td className="p-3.5 font-bold text-slate-800 text-sm">{item.namaTendik}</td>
@@ -2940,7 +2953,7 @@ export function HistoryView({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm" id="history-photo-viewer-modal">
           <div className="bg-white rounded-2xl max-w-lg w-full p-5 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h4 className="font-extrabold text-slate-800 text-sm">Foto Bukti Kelas / Pembelajaran</h4>
+              <h4 className="font-extrabold text-slate-800 text-sm">Foto Bukti Presensi / Dokumentasi</h4>
               <button
                 onClick={() => setSelectedPhoto(null)}
                 className="text-slate-400 hover:text-slate-600 font-extrabold text-sm p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
