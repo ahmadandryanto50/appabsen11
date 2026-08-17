@@ -32,6 +32,7 @@ import {
 import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString } from './types';
 import { apiClient, initializeStorage, clearApiCache } from './api';
 import { normalizeImageUrl, getUserPhotoUrl, handleImageFallbackError } from './utils/imageUrl';
+import { updateAppMetadataAndIcon } from './utils/appIcon';
 
 // Components
 import { ToastContainer } from './components/ToastContainer';
@@ -119,6 +120,11 @@ export default function App() {
     batasWaktuMasuk: '07:00',
     externalApps: DEFAULT_APPS,
   });
+
+  // Automatically sync document title, favicon, apple touch icon, and web manifest whenever customization changes
+  useEffect(() => {
+    updateAppMetadataAndIcon(customization);
+  }, [customization]);
 
   // Track failed user photos for fallback to initials
   const [failedUserPhotos, setFailedUserPhotos] = useState<Record<string, boolean>>({});

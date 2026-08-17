@@ -482,7 +482,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
               <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block flex items-center gap-1">
                   <Eye className="w-3 h-3 text-slate-400" />
-                  <span>Pratinjau Tampilan Header</span>
+                  <span>Pratinjau Tampilan Header & Icon Aplikasi</span>
                 </span>
                 <div className="flex items-center gap-3 p-3 bg-slate-900 rounded-2xl border border-slate-800">
                   <div className={`w-10 h-10 rounded-xl ${logoColor} flex items-center justify-center text-white font-bold text-xl shadow-md overflow-hidden`}>
@@ -509,6 +509,12 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
                       {appSubtitle || 'Sekolah Digital'}
                     </p>
                   </div>
+                </div>
+                <div className="p-2.5 bg-blue-50/70 border border-blue-100 rounded-xl text-[11px] text-blue-900 flex items-start gap-2">
+                  <Sparkles className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+                  <p className="leading-snug">
+                    <strong>Penting:</strong> Logo dan nama aplikasi di atas secara otomatis dijadikan sebagai <strong>Icon Favicon Web</strong>, <strong>Apple Touch Icon</strong>, dan <strong>Icon Aplikasi (Web App Manifest / APK PWA)</strong> saat pengguna memasang aplikasi ke Layar Utama perangkat (Android/iOS).
+                  </p>
                 </div>
               </div>
             </div>
