@@ -38,7 +38,7 @@ export function updateAppMetadataAndIcon(customization: Partial<AppCustomization
   const appName = customization.appName?.trim() || 'E-ABSENSI';
   const appSubtitle = customization.appSubtitle?.trim() || 'SEKOLAH DIGITAL';
   const rawLogoUrl = customization.logoUrl?.trim();
-  const logoUrl = rawLogoUrl ? normalizeImageUrl(rawLogoUrl) : '';
+  const logoUrl = rawLogoUrl ? normalizeImageUrl(rawLogoUrl) : '/logo_smpn11.jpg';
   const logoEmoji = customization.logoEmoji || '🎓';
   const logoColor = customization.logoColor || 'bg-blue-600';
 

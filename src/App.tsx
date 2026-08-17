@@ -112,7 +112,8 @@ export default function App() {
   // Customization state
   const [customization, setCustomization] = useState<AppCustomization>({
     appName: 'E-ABSENSI',
-    appSubtitle: 'Sekolah Digital',
+    appSubtitle: 'SMP NEGERI 11 PALU',
+    logoUrl: '/logo_smpn11.jpg',
     logoEmoji: '🎓',
     logoColor: 'bg-blue-600',
     fullAccessUsernames: [],

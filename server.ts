@@ -42,6 +42,7 @@ async function startServer() {
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+  app.use(express.static(path.join(process.cwd(), 'public')));
 
   // 1. API Health Check
   app.get('/api/health', (req, res) => {
@@ -51,10 +52,14 @@ async function startServer() {
   // 2. Global Web App URL & Customization sync across all devices / browsers
   app.get('/api/config', (req, res) => {
     const data = readServerData();
+    const cust = data.customization || {};
+    if (!cust.logoUrl) {
+      cust.logoUrl = '/logo_smpn11.jpg';
+    }
     res.json({
       status: 'success',
       webAppUrl: data.webAppUrl || '',
-      customization: data.customization || null,
+      customization: Object.keys(cust).length > 0 ? cust : null,
     });
   });
 
