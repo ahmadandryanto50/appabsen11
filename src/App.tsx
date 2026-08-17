@@ -40,6 +40,7 @@ import { LoginView } from './components/LoginView';
 import { DashboardView } from './components/DashboardView';
 import { AttendanceView } from './components/AttendanceView';
 import { TeacherPermitView } from './components/TeacherPermitView';
+import { TeacherAttendanceView } from './components/TeacherAttendanceView';
 import { TendikAttendanceView } from './components/TendikAttendanceView';
 import { TendikPermitView } from './components/TendikPermitView';
 import { HistoryView } from './components/HistoryView';
@@ -258,6 +259,7 @@ export default function App() {
         setCustomization((prev) => ({
           ...prev,
           ...parsed,
+          logoUrl: parsed.logoUrl || prev.logoUrl || '/logo_smpn11.jpg',
           userPhotos: { ...(prev.userPhotos || {}), ...(parsed.userPhotos || {}) },
           fullAccessUsernames: Array.isArray(parsed.fullAccessUsernames) && parsed.fullAccessUsernames.length > 0
             ? parsed.fullAccessUsernames
@@ -292,10 +294,10 @@ export default function App() {
 
           const merged: AppCustomization = {
             appName: c.appName?.trim() || prev.appName || 'E-ABSENSI',
-            appSubtitle: c.appSubtitle?.trim() || prev.appSubtitle || 'SEKOLAH DIGITAL',
+            appSubtitle: c.appSubtitle?.trim() || prev.appSubtitle || 'SMP NEGERI 11 PALU',
             logoEmoji: c.logoEmoji || prev.logoEmoji || '🎓',
             logoColor: c.logoColor || prev.logoColor || 'bg-blue-600',
-            logoUrl: c.logoUrl ? normalizeImageUrl(c.logoUrl.trim()) : (prev.logoUrl || ''),
+            logoUrl: (c.logoUrl ? normalizeImageUrl(c.logoUrl.trim()) : prev.logoUrl) || '/logo_smpn11.jpg',
             fullAccessUsernames: Array.isArray(c.fullAccessUsernames) ? c.fullAccessUsernames : prev.fullAccessUsernames,
             userPhotos: { ...(prev.userPhotos || {}), ...normalizedPhotos },
             kepalaSekolahNama: c.kepalaSekolahNama?.trim() ?? prev.kepalaSekolahNama ?? '',
@@ -485,10 +487,13 @@ export default function App() {
       });
     }
 
+    const targetLogo = newCust.logoUrl !== undefined ? (newCust.logoUrl ? normalizeImageUrl(newCust.logoUrl.trim()) : '') : (customization.logoUrl || '');
+    const logoUrlToSave = targetLogo.trim() || '/logo_smpn11.jpg';
+
     const cleanCust: AppCustomization = {
       ...customization,
       ...newCust,
-      logoUrl: newCust.logoUrl !== undefined ? (newCust.logoUrl ? normalizeImageUrl(newCust.logoUrl.trim()) : '') : (customization.logoUrl || ''),
+      logoUrl: logoUrlToSave,
       userPhotos: normalizedPhotos,
       externalApps: externalAppsToSave,
     };
@@ -547,6 +552,21 @@ export default function App() {
       }
     } catch (err: any) {
       addToast(err.message || 'Gagal memproses permohonan.', 'error');
+    }
+  };
+
+  // SUBMIT GURU ATTENDANCE (MANDIRI)
+  const handleSubmitGuruAttendance = async (payload: any) => {
+    try {
+      const res = await apiClient.submitGuruAttendance(payload);
+      if (res.status === 'success') {
+        addToast(res.message || 'Presensi hadir Guru berhasil disimpan.', 'success');
+        await loadHistoryData();
+      } else {
+        addToast(res.message || 'Gagal menyimpan presensi Guru.', 'error');
+      }
+    } catch (err: any) {
+      addToast(err.message || 'Gagal menyimpan presensi Guru.', 'error');
     }
   };
 
@@ -760,6 +780,7 @@ export default function App() {
     const titles: Record<ViewType, string> = {
       dashboard: 'Dashboard & Ringkasan Presensi',
       'absen-siswa': 'Presensi Siswa di Kelas',
+      'absen-guru': 'Formulir Presensi Mandiri Guru',
       'izin-guru': 'Formulir Permohonan Izin Guru',
       riwayat: 'Riwayat Presensi Siswa',
       'crud-guru': 'Kelola Data Master Guru & Tendik',
@@ -800,20 +821,16 @@ export default function App() {
                 className="flex items-center gap-3 text-left hover:opacity-90 transition-opacity cursor-pointer group"
                 title="Kembali ke Halaman Utama Dashboard"
               >
-                <div className={`w-10 h-10 rounded-xl ${customization.logoColor || 'bg-blue-600'} flex items-center justify-center text-white font-bold text-xl shadow-md shadow-blue-600/10 overflow-hidden group-hover:scale-105 transition-transform`}>
-                  {customization.logoUrl?.trim() ? (
-                    <img
-                      src={normalizeImageUrl(customization.logoUrl.trim())}
-                      alt="Logo"
-                      className="w-full h-full object-cover"
-                      referrerPolicy="no-referrer"
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    <span className="text-xl">{customization.logoEmoji || '🎓'}</span>
-                  )}
+                <div className={`w-10 h-10 rounded-xl bg-white p-0.5 flex items-center justify-center text-white font-bold text-xl shadow-md shadow-blue-600/10 overflow-hidden group-hover:scale-105 transition-transform border border-slate-700/50`}>
+                  <img
+                    src={normalizeImageUrl(customization.logoUrl?.trim() || '/logo_smpn11.jpg')}
+                    alt="Logo Sekolah"
+                    className="w-full h-full object-contain"
+                    referrerPolicy="no-referrer"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = '/logo_smpn11.jpg';
+                    }}
+                  />
                 </div>
                 <div className="overflow-hidden">
                   <h1 className="font-extrabold text-white text-sm leading-tight tracking-tight uppercase truncate max-w-[130px]" title={customization.appName || 'E-ABSENSI'}>
@@ -909,6 +926,21 @@ export default function App() {
                   >
                     <ClipboardList className="w-4 h-4 flex-shrink-0" />
                     <span>Presensi Siswa</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setActiveView('absen-guru');
+                      setMobileMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      activeView === 'absen-guru'
+                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <UserCheck className="w-4 h-4 flex-shrink-0" />
+                    <span>Absen Guru</span>
                   </button>
 
                   <button
@@ -1314,6 +1346,15 @@ export default function App() {
                     </button>
                   </div>
                 )
+              )}
+
+              {/* VIEW 2.5: GURU ATTENDANCE (MANDIRI) */}
+              {activeView === 'absen-guru' && (currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+                <TeacherAttendanceView
+                  currentUser={currentUser}
+                  onSubmit={handleSubmitGuruAttendance}
+                  currentTimeString={currentTimeString}
+                />
               )}
 
               {/* VIEW 3: TEACHER PERMIT */}

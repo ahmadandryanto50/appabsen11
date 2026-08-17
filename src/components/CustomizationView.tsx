@@ -30,7 +30,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
   const [appSubtitle, setAppSubtitle] = useState(customization.appSubtitle);
   const [logoEmoji, setLogoEmoji] = useState(customization.logoEmoji);
   const [logoColor, setLogoColor] = useState(customization.logoColor || 'bg-blue-600');
-  const [logoUrl, setLogoUrl] = useState(customization.logoUrl || '');
+  const [logoUrl, setLogoUrl] = useState(customization.logoUrl || '/logo_smpn11.jpg');
   const [fullAccessUsernames, setFullAccessUsernames] = useState<string[]>(customization.fullAccessUsernames || []);
   const [userPhotos, setUserPhotos] = useState<Record<string, string>>(customization.userPhotos || {});
   const [customEmojiInput, setCustomEmojiInput] = useState('');
@@ -130,7 +130,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
         if (c.appSubtitle) setAppSubtitle(c.appSubtitle);
         if (c.logoEmoji) setLogoEmoji(c.logoEmoji);
         if (c.logoColor) setLogoColor(c.logoColor);
-        if (c.logoUrl !== undefined) setLogoUrl(c.logoUrl);
+        if (c.logoUrl !== undefined) setLogoUrl(c.logoUrl || '/logo_smpn11.jpg');
         if (Array.isArray(c.fullAccessUsernames)) setFullAccessUsernames(c.fullAccessUsernames);
         if (c.userPhotos && typeof c.userPhotos === 'object') setUserPhotos(c.userPhotos);
         if (c.kepalaSekolahNama !== undefined) setKepalaSekolahNama(c.kepalaSekolahNama);
@@ -149,7 +149,7 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    const normalizedLogo = normalizeImageUrl(logoUrl.trim());
+    const normalizedLogo = normalizeImageUrl(logoUrl.trim()) || '/logo_smpn11.jpg';
     const normalizedPhotos: Record<string, string> = {};
     Object.entries(userPhotos).forEach(([k, v]) => {
       if (v && typeof v === 'string' && v.trim()) {

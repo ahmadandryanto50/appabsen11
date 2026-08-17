@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { motion } from 'motion/react';
 import { User, AttendanceRecord, AppCustomization } from '../types';
 import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, ExternalLink, ClipboardList, QrCode, Scan, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiClient } from '../api';
@@ -33,6 +34,8 @@ export function DashboardView({
   // State and hook for Tendik history inside Dashboard
   const [tendikList, setTendikList] = useState<any[]>([]);
   const [loadingTendik, setLoadingTendik] = useState(false);
+  const [guruAbsenList, setGuruAbsenList] = useState<any[]>([]);
+  const [loadingGuruAbsen, setLoadingGuruAbsen] = useState(false);
   const [guruHeaders, setGuruHeaders] = useState<string[]>([]);
 
   // State for Live Kiosk (Presensi Masuk Siswa Hari Ini) - initialize with cached list to prevent flicker/disappearing
@@ -136,7 +139,34 @@ export function DashboardView({
       }
     }, 30000);
 
-    if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') {
+    if (currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) {
+      const cachedG = localStorage.getItem('absensi_history_guru_absen');
+      if (cachedG) {
+        try {
+          const parsed = JSON.parse(cachedG);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setGuruAbsenList(parsed);
+          } else {
+            setLoadingGuruAbsen(true);
+          }
+        } catch (e) {
+          setLoadingGuruAbsen(true);
+        }
+      } else {
+        setLoadingGuruAbsen(true);
+      }
+
+      apiClient.getGuruAttendanceHistory('')
+        .then(res => {
+          if (res.status === 'success' && res.history) {
+            setGuruAbsenList(res.history);
+          }
+        })
+        .catch(err => console.error(err))
+        .finally(() => setLoadingGuruAbsen(false));
+    }
+
+    if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik' || isFullAccess) {
       const cached = localStorage.getItem('absensi_history_tendik_absen');
       if (cached) {
         try {
@@ -674,20 +704,31 @@ export function DashboardView({
           </p>
         </div>
 
-        {/* User avatar on the right of banner */}
-        {userPhoto?.trim() && !photoError && (
-          <div className="relative z-10 w-20 h-20 rounded-full border-4 border-white/20 overflow-hidden shadow-lg flex-shrink-0 bg-white/10 self-start sm:self-center">
-            <img
-              src={userPhoto.trim()}
-              alt={currentUser?.nama}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-              onError={(e) => {
-                handleImageFallbackError(e, () => setPhotoError(true));
-              }}
-            />
-          </div>
-        )}
+        {/* Animated User Profile Avatar on the right of banner */}
+        <div className="relative z-10 flex-shrink-0 self-start sm:self-center">
+          <motion.div
+            animate={{ y: [0, -10, 0] }}
+            transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut" }}
+            className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-4 border-white/30 overflow-hidden shadow-2xl flex-shrink-0 bg-white/20 backdrop-blur-md flex items-center justify-center cursor-pointer hover:scale-105 transition-transform"
+            title={`Profil: ${currentUser?.nama || ''}`}
+          >
+            {userPhoto?.trim() && !photoError ? (
+              <img
+                src={userPhoto.trim()}
+                alt={currentUser?.nama}
+                className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  handleImageFallbackError(e, () => setPhotoError(true));
+                }}
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-2xl uppercase">
+                {currentUser?.nama?.charAt(0) || '👤'}
+              </div>
+            )}
+          </motion.div>
+        </div>
         <School className="w-48 h-48 text-white/5 absolute -right-6 -bottom-10 pointer-events-none transform rotate-12" />
       </div>
 
@@ -1222,6 +1263,96 @@ export function DashboardView({
           </div>
         )}
 
+        {/* Render Riwayat Presensi Hadir Guru (Mandiri) Terbaru if Guru or Admin */}
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
+              <div>
+                <h4 className="font-extrabold text-slate-800 text-sm tracking-tight flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse"></span>
+                  <span>Riwayat Presensi Hadir Guru (Mandiri) Terbaru</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 font-medium">Log riwayat kehadiran harian Guru mandiri (datang & pulang) aktif.</p>
+              </div>
+              <button
+                onClick={() => onNavigate('riwayat')}
+                className="text-xs text-blue-600 hover:text-blue-700 font-bold transition-all cursor-pointer hover:underline self-start sm:self-center"
+              >
+                Lihat Semua Riwayat →
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-xl border border-slate-200/60 bg-slate-50/20">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200/60">
+                  <tr>
+                    <th className="p-3 pl-4">Tanggal & Waktu</th>
+                    <th className="p-3">Tipe Presensi</th>
+                    <th className="p-3">NIP</th>
+                    <th className="p-3">Nama Guru</th>
+                    <th className="p-3 text-center">Status Kehadiran</th>
+                    <th className="p-3 text-center w-24">Bukti Foto</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {loadingGuruAbsen ? (
+                    <tr>
+                      <td colSpan={6} className="p-12 text-center text-slate-400">
+                        <span className="inline-block animate-spin mr-2">⏳</span> Memuat riwayat...
+                      </td>
+                    </tr>
+                  ) : guruAbsenList.length > 0 ? (
+                    guruAbsenList.slice(0, 5).map((log, idx) => (
+                      <tr key={`guru-absen-${log.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="p-3 pl-4 font-mono text-slate-400 font-bold whitespace-nowrap">
+                          {log.tanggal} <span className="text-slate-300">|</span> {String(log.waktu || '').replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim()}
+                        </td>
+                        <td className="p-3 whitespace-nowrap">
+                          {String(log.tipeAbsen || '').toLowerCase().includes('pulang') ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 text-amber-800 rounded-full text-[10px] font-extrabold border border-amber-200">
+                              <span>🌙</span> Absen Pulang
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-50 text-emerald-800 rounded-full text-[10px] font-extrabold border border-emerald-200">
+                              <span>☀️</span> Absen Datang
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3 font-mono text-slate-550 font-semibold">{log.nip || '-'}</td>
+                        <td className="p-3 font-bold text-slate-850">{log.namaGuru}</td>
+                        <td className="p-3 text-center">
+                          <span className="inline-block px-2.5 py-1 bg-emerald-50 text-emerald-700 font-extrabold rounded-lg border border-emerald-100/80 text-[10px]">
+                            Hadir
+                          </span>
+                        </td>
+                        <td className="p-3 text-center whitespace-nowrap">
+                          {log.photo ? (
+                            <button
+                              onClick={() => setSelectedPhoto(log.photo || null)}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-[10px] font-bold cursor-pointer transition-all"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              <span>Lihat Foto</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 text-[10px] font-medium">Tidak Ada</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="p-12 text-center text-slate-400 font-medium">
+                        Belum ada riwayat presensi hadir Guru hari ini.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* Render Riwayat Presensi Hadir Tendik Terbaru if Tendik or Admin */}
         {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
@@ -1327,6 +1458,22 @@ export function DashboardView({
             <div>
               <h4 className="font-bold text-slate-800 text-sm group-hover:text-blue-600 transition-colors">Absen Siswa Sekarang</h4>
               <p className="text-xs text-slate-500 mt-0.5">Pilih kelas, mata pelajaran, foto kelas, dan catat kehadiran siswa.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Absen Mandiri Guru (Visible for Admin and Guru) */}
+        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+          <div
+            onClick={() => onNavigate('absen-guru')}
+            className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-blue-600 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
+          >
+            <div className="w-12 h-12 rounded-2xl bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white flex items-center justify-center text-xl transition-all flex-shrink-0">
+              <Clock className="w-6 h-6" />
+            </div>
+            <div>
+              <h4 className="font-bold text-slate-800 text-sm group-hover:text-blue-600 transition-colors">Absen Mandiri Guru</h4>
+              <p className="text-xs text-slate-500 mt-0.5">Catat kehadiran harian mandiri Guru beserta bukti foto selfie secara langsung.</p>
             </div>
           </div>
         )}

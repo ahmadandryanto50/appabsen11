@@ -32,20 +32,16 @@ export function LoginView({ onLogin, isLoading, customization }: LoginViewProps)
   return (
     <div className="max-w-md mx-auto my-8 bg-white p-8 rounded-3xl border border-slate-200/80 shadow-xl space-y-6">
       <div className="text-center space-y-3">
-        <div className={`w-16 h-16 ${customization?.logoColor || 'bg-blue-600'} rounded-2xl flex items-center justify-center text-white mx-auto shadow-lg shadow-blue-500/20 overflow-hidden`}>
-          {customization?.logoUrl?.trim() ? (
-            <img
-              src={normalizeImageUrl(customization.logoUrl.trim())}
-              alt="Logo"
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).style.display = 'none';
-              }}
-            />
-          ) : (
-            <span className="text-3xl">{customization?.logoEmoji || '🎓'}</span>
-          )}
+        <div className="w-20 h-20 bg-white rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-blue-500/10 p-2 overflow-hidden border border-slate-100">
+          <img
+            src={normalizeImageUrl(customization?.logoUrl?.trim() || '/logo_smpn11.jpg')}
+            alt="Logo Sekolah SMPN 11 Palu"
+            className="w-full h-full object-contain"
+            referrerPolicy="no-referrer"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).src = '/logo_smpn11.jpg';
+            }}
+          />
         </div>
         <div>
           <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight uppercase">

@@ -12,6 +12,7 @@ const STORAGE_KEYS = {
   USER: 'absensi_user',
   HISTORY_SISWA: 'absensi_history_siswa',
   HISTORY_GURU: 'absensi_history_guru',
+  HISTORY_GURU_ABSEN: 'absensi_history_guru_absen',
   HISTORY_TENDIK_ABSEN: 'absensi_history_tendik_absen',
   HISTORY_TENDIK_IZIN: 'absensi_history_tendik_izin',
   MASTER_GURU: 'absensi_master_guru',
@@ -514,6 +515,210 @@ export const apiClient = {
       return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
     }
     return { status: 'success' };
+  },
+
+  // 3.1 SAVE STUDENT CLASS RECAP TO SPREADSHEET (Rekap_Kehadiran_Siswa)
+  async saveStudentClassRecap(payload: {
+    guru: string;
+    kelas: string;
+    mapel: string;
+    periode: string;
+    tanggal: string;
+    recapRows: Array<{
+      nisn: string;
+      nama: string;
+      hadir: number;
+      sakit: number;
+      izin: number;
+      alpa: number;
+      terlambat?: number;
+      persentase: number;
+      status: string;
+    }>;
+  }) {
+    clearApiCache();
+    const url = this.getBackendUrl();
+    if (url) {
+      const { ok, result } = await safeCallGAS(url, 'saveStudentClassRecap', { payload }, false, 0, 60000);
+      if (ok && result && result.status === 'success') return result;
+    }
+
+    // Local Storage fallback for offline/demo
+    try {
+      const key = `absensi_rekap_kelas_${payload.guru}_${payload.kelas}`;
+      localStorage.setItem(key, JSON.stringify({
+        updatedAt: new Date().toISOString(),
+        ...payload
+      }));
+    } catch (e) {}
+
+    return { status: 'success', message: 'Rekap kehadiran siswa per kelas berhasil disimpan ke database.' };
+  },
+
+  // 3.2 SAVE GURU MONTHLY RECAP TO SPREADSHEET (Rekap_Kehadiran Guru)
+  async saveGuruMonthlyRecap(payload: {
+    bulanTahun: string;
+    nip: string;
+    namaGuru: string;
+    hadir: number;
+    izin: number;
+    sakit: number;
+    cutiDL: number;
+    alpa: number;
+    totalHari: number;
+    persentase: number;
+    catatan?: string;
+    dayRows?: Array<{
+      dayNumber: number;
+      tanggal: string;
+      dayName: string;
+      status: string;
+      jamDatang: string;
+      jamPulang: string;
+      keterangan: string;
+    }>;
+  }) {
+    clearApiCache();
+    const url = this.getBackendUrl();
+    const rowData = [
+      `RKP-GRU-${payload.nip}-${payload.bulanTahun}`,
+      payload.bulanTahun,
+      payload.nip,
+      payload.namaGuru,
+      payload.hadir,
+      payload.izin,
+      payload.sakit,
+      payload.cutiDL,
+      payload.alpa,
+      payload.totalHari,
+      `${payload.persentase}%`,
+      new Date().toISOString().split('T')[0],
+      payload.catatan || 'Lengkap'
+    ];
+
+    if (url) {
+      try {
+        await safeCallGAS(url, 'saveCrud', { sheetName: 'Rekap_Kehadiran Guru', rowData: rowData, rowIndex: null });
+      } catch (e) {}
+
+      // Save daily detail rows to Rekap_Kehadiran_Detail_Guru
+      if (Array.isArray(payload.dayRows) && payload.dayRows.length > 0) {
+        for (const r of payload.dayRows) {
+          if (r.status && r.status !== 'Belum Berlangsung' && r.status !== 'Libur Akhir Pekan') {
+            const detailRowData = [
+              `RKPD-GRU-${payload.nip}-${r.tanggal}`,
+              payload.bulanTahun,
+              payload.nip,
+              payload.namaGuru,
+              r.tanggal,
+              r.dayName,
+              r.status,
+              r.jamDatang || '-',
+              r.jamPulang || '-',
+              r.keterangan || '-'
+            ];
+            try {
+              await safeCallGAS(url, 'saveCrud', { sheetName: 'Rekap_Kehadiran_Detail_Guru', rowData: detailRowData, rowIndex: null });
+            } catch (e) {}
+          }
+        }
+      }
+
+      return { status: 'success', message: 'Rekap bulanan & log jam datang/pulang Guru berhasil disimpan ke spreadsheet (Sheet: Rekap_Kehadiran Guru).' };
+    }
+
+    try {
+      const key = `absensi_rekap_guru_monthly_${payload.nip}_${payload.bulanTahun}`;
+      localStorage.setItem(key, JSON.stringify({
+        updatedAt: new Date().toISOString(),
+        ...payload
+      }));
+    } catch (e) {}
+
+    return { status: 'success', message: 'Rekap bulanan & log jam datang/pulang Guru berhasil disimpan ke database.' };
+  },
+
+  // 3.3 SAVE TENDIK MONTHLY RECAP TO SPREADSHEET (Rekap_Kehadiran Tendik)
+  async saveTendikMonthlyRecap(payload: {
+    bulanTahun: string;
+    nip: string;
+    namaTendik: string;
+    hadir: number;
+    izin: number;
+    sakit: number;
+    cutiDL: number;
+    alpa: number;
+    totalHari: number;
+    persentase: number;
+    catatan?: string;
+    dayRows?: Array<{
+      dayNumber: number;
+      tanggal: string;
+      dayName: string;
+      status: string;
+      jamDatang: string;
+      jamPulang: string;
+      keterangan: string;
+    }>;
+  }) {
+    clearApiCache();
+    const url = this.getBackendUrl();
+    const rowData = [
+      `RKP-TDK-${payload.nip}-${payload.bulanTahun}`,
+      payload.bulanTahun,
+      payload.nip,
+      payload.namaTendik,
+      payload.hadir,
+      payload.izin,
+      payload.sakit,
+      payload.cutiDL,
+      payload.alpa,
+      payload.totalHari,
+      `${payload.persentase}%`,
+      new Date().toISOString().split('T')[0],
+      payload.catatan || 'Lengkap'
+    ];
+
+    if (url) {
+      try {
+        await safeCallGAS(url, 'saveCrud', { sheetName: 'Rekap_Kehadiran Tendik', rowData: rowData, rowIndex: null });
+      } catch (e) {}
+
+      // Save daily detail rows to Rekap_Kehadiran_Detail_Tendik
+      if (Array.isArray(payload.dayRows) && payload.dayRows.length > 0) {
+        for (const r of payload.dayRows) {
+          if (r.status && r.status !== 'Belum Berlangsung' && r.status !== 'Libur Akhir Pekan') {
+            const detailRowData = [
+              `RKPD-TDK-${payload.nip}-${r.tanggal}`,
+              payload.bulanTahun,
+              payload.nip,
+              payload.namaTendik,
+              r.tanggal,
+              r.dayName,
+              r.status,
+              r.jamDatang || '-',
+              r.jamPulang || '-',
+              r.keterangan || '-'
+            ];
+            try {
+              await safeCallGAS(url, 'saveCrud', { sheetName: 'Rekap_Kehadiran_Detail_Tendik', rowData: detailRowData, rowIndex: null });
+            } catch (e) {}
+          }
+        }
+      }
+
+      return { status: 'success', message: 'Rekap bulanan & log jam datang/pulang Tendik berhasil disimpan ke spreadsheet (Sheet: Rekap_Kehadiran Tendik).' };
+    }
+
+    try {
+      const key = `absensi_rekap_tendik_monthly_${payload.nip}_${payload.bulanTahun}`;
+      localStorage.setItem(key, JSON.stringify({
+        updatedAt: new Date().toISOString(),
+        ...payload
+      }));
+    } catch (e) {}
+
+    return { status: 'success', message: 'Rekap bulanan & log jam datang/pulang Tendik berhasil disimpan ke database.' };
   },
 
   // 3.5 SUBMIT KIOSK SCAN
@@ -1317,6 +1522,158 @@ export const apiClient = {
     }
 
     return { status: 'success', history };
+  },
+
+  // 5.2 SUBMIT GURU ATTENDANCE (MANDIRI)
+  async submitGuruAttendance(payload: any) {
+    clearApiCache();
+    const url = this.getBackendUrl();
+    let serverError = '';
+
+    const rawTipe = String(payload.tipeAbsen || payload.kategori || "Datang");
+    const tipeAbsen = rawTipe.toLowerCase().includes("pulang") ? "Absen Pulang" : "Absen Datang";
+    const cleanWaktu = String(payload.waktu || '').replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim();
+
+    const cleanPayload = {
+      ...payload,
+      waktu: cleanWaktu || payload.waktu,
+      tipeAbsen: tipeAbsen,
+      kategori: tipeAbsen,
+    };
+
+    const newRecord = {
+      rowIndex: "GRU-ABS-" + Date.now(),
+      tanggal: payload.tanggal,
+      waktu: cleanWaktu || payload.waktu,
+      nip: payload.nip || "",
+      namaGuru: payload.namaGuru || "",
+      tipeAbsen: tipeAbsen,
+      kategori: tipeAbsen,
+      photo: payload.photoBase64 || payload.photo || "",
+    };
+
+    // Always pre-save to local storage
+    try {
+      const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU_ABSEN) || '[]';
+      let history: any[] = JSON.parse(rawHistory);
+      history = history.filter(item => String(item.rowIndex) !== String(newRecord.rowIndex));
+      history.unshift(newRecord);
+      localStorage.setItem(STORAGE_KEYS.HISTORY_GURU_ABSEN, JSON.stringify(history));
+    } catch (e) {
+      console.error('Failed to update local guru attendance cache:', e);
+    }
+
+    if (url) {
+      const { ok, result, error } = await safeCallGAS(url, 'submitGuruAttendance', { payload: cleanPayload }, false, 0, 60000);
+      if (ok && result && result.status === 'success') {
+        return result;
+      }
+      serverError = error || result?.message || 'Gagal terhubung ke database.';
+    }
+
+    if (serverError) {
+      return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
+    }
+    return { status: 'success' };
+  },
+
+  // 5.3 GET GURU ATTENDANCE HISTORY
+  async getGuruAttendanceHistory(tanggal: string): Promise<{ status: string; history: any[] }> {
+    const url = this.getBackendUrl();
+    if (url) {
+      const { ok, result } = await safeCallGAS(url, 'getGuruAttendanceHistory', { tanggal }, true, 10000);
+      if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
+        const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU_ABSEN) || '[]';
+        let existingMap: Record<string, any> = {};
+        try {
+          const existingArr: any[] = JSON.parse(rawExisting);
+          existingArr.forEach(e => {
+            if (e.rowIndex) existingMap[String(e.rowIndex)] = e;
+            if (e.tanggal && e.waktu && e.nip) {
+              existingMap[`${e.tanggal}_${e.waktu}_${e.nip}`] = e;
+            }
+          });
+        } catch (e) {}
+
+        const sanitizedHistory = result.history.map((rec: any) => {
+          let rawWaktu = String(rec.waktu || '');
+          let tipe = rec.tipeAbsen || rec.kategori || rec.status;
+
+          if (rawWaktu.toLowerCase().includes('pulang')) {
+            tipe = 'Pulang';
+          } else if (rawWaktu.toLowerCase().includes('datang')) {
+            tipe = 'Datang';
+          }
+
+          const cleanWaktu = rawWaktu.replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim();
+
+          if (!tipe || tipe === 'Hadir' || tipe === 'Aktif') {
+            const matched = existingMap[String(rec.rowIndex)] || existingMap[`${rec.tanggal}_${cleanWaktu}_${rec.nip}`];
+            if (matched && (matched.tipeAbsen || matched.kategori)) {
+              tipe = matched.tipeAbsen || matched.kategori;
+            } else {
+              tipe = 'Datang';
+            }
+          }
+          return {
+            ...rec,
+            waktu: cleanWaktu || rawWaktu,
+            tipeAbsen: tipe,
+            kategori: tipe,
+          };
+        });
+
+        try {
+          if (!tanggal) {
+            localStorage.setItem(STORAGE_KEYS.HISTORY_GURU_ABSEN, JSON.stringify(sanitizedHistory));
+          } else if (sanitizedHistory.length > 0) {
+            const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU_ABSEN) || '[]';
+            let existing: any[] = JSON.parse(rawExisting);
+            const fetchedIds = new Set(sanitizedHistory.map((r: any) => String(r.rowIndex)));
+            existing = existing.filter(r => !fetchedIds.has(String(r.rowIndex)));
+            const merged = [...sanitizedHistory, ...existing];
+            localStorage.setItem(STORAGE_KEYS.HISTORY_GURU_ABSEN, JSON.stringify(merged));
+          }
+        } catch (e) {}
+
+        return { status: 'success', history: sanitizedHistory };
+      }
+
+      const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU_ABSEN) || '[]';
+      try {
+        let history: any[] = JSON.parse(rawHistory);
+        if (tanggal) {
+          history = history.filter((h) => h.tanggal === tanggal);
+        }
+        return { status: 'success', history };
+      } catch (e) {
+        return { status: 'success', history: [] };
+      }
+    }
+
+    const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU_ABSEN) || '[]';
+    let history: any[] = JSON.parse(rawHistory);
+    if (tanggal) {
+      history = history.filter((h) => h.tanggal === tanggal);
+    }
+    return { status: 'success', history };
+  },
+
+  // 5.4 DELETE GURU ATTENDANCE RECORD
+  async deleteGuruAttendanceRecord(rowIndex: string | number) {
+    clearApiCache();
+    const url = this.getBackendUrl();
+    if (url) {
+      const { ok, result, error } = await safeCallGAS(url, 'deleteGuruAttendanceRecord', { rowIndex });
+      if (ok && result) return result;
+      if (error) return { status: 'error', message: error };
+    }
+
+    const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU_ABSEN) || '[]';
+    let history: any[] = JSON.parse(rawHistory);
+    history = history.filter((h) => String(h.rowIndex) !== String(rowIndex));
+    localStorage.setItem(STORAGE_KEYS.HISTORY_GURU_ABSEN, JSON.stringify(history));
+    return { status: 'success' };
   },
 
   // 6.1 SUBMIT TENDIK ATTENDANCE

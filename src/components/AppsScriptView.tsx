@@ -217,6 +217,15 @@ function doPost(e) {
       case "deleteTeacherAbsenceRecord":
         result = deleteTeacherAbsenceRecord(contents.rowIndex);
         break;
+      case "submitGuruAttendance":
+        result = submitGuruAttendance(contents.payload);
+        break;
+      case "getGuruAttendanceHistory":
+        result = getGuruAttendanceHistory(contents.tanggal);
+        break;
+      case "deleteGuruAttendanceRecord":
+        result = deleteGuruAttendanceRecord(contents.rowIndex);
+        break;
       case "submitTendikAttendance":
         result = submitTendikAttendance(contents.payload);
         break;
@@ -243,6 +252,9 @@ function doPost(e) {
         break;
       case "saveCustomization":
         result = saveCustomization(contents.customization);
+        break;
+      case "saveStudentClassRecap":
+        result = saveStudentClassRecap(contents.payload);
         break;
       default:
         result = { status: "error", message: "Aksi '" + action + "' tidak didukung." };
@@ -350,6 +362,24 @@ function setupDatabase() {
       }
     }
 
+    // 8.1. Tabel Absen_Guru (Presensi Mandiri Guru)
+    let sheetAbsenGuru = ss.getSheetByName("Absen_Guru");
+    if (!sheetAbsenGuru) {
+      sheetAbsenGuru = ss.insertSheet("Absen_Guru");
+      sheetAbsenGuru.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Guru", "Tipe Absen", "Foto Bukti Base64"]);
+    } else {
+      var col6HeaderG = sheetAbsenGuru.getRange(1, 6).getValue().toString();
+      if (col6HeaderG.toLowerCase().indexOf("tipe") === -1 && col6HeaderG.toLowerCase().indexOf("status") === -1) {
+        if (col6HeaderG.toLowerCase().indexOf("foto") >= 0 || col6HeaderG.toLowerCase().indexOf("base64") >= 0) {
+          sheetAbsenGuru.insertColumnAfter(5);
+        }
+        sheetAbsenGuru.getRange(1, 6).setValue("Tipe Absen");
+        if (sheetAbsenGuru.getRange(1, 7).getValue().toString() === "") {
+          sheetAbsenGuru.getRange(1, 7).setValue("Foto Bukti Base64");
+        }
+      }
+    }
+
     // 9. Tabel Izin_Tendik
     let sheetIzinTendik = ss.getSheetByName("Izin_Tendik");
     if (!sheetIzinTendik) {
@@ -362,6 +392,41 @@ function setupDatabase() {
     if (!sheetKioskPresensi) {
       sheetKioskPresensi = ss.insertSheet("Presensi");
       sheetKioskPresensi.appendRow(["Timestamp", "NISN", "Nama", "Kelas", "Status Presensi"]);
+    }
+
+    // 11. Tabel Rekap_Kehadiran_Siswa (Rekap Per Kelas Guru)
+    let sheetRekapSiswa = ss.getSheetByName("Rekap_Kehadiran_Siswa");
+    if (!sheetRekapSiswa) {
+      sheetRekapSiswa = ss.insertSheet("Rekap_Kehadiran_Siswa");
+      sheetRekapSiswa.appendRow(["ID_Rekap", "TanggalRekap", "GuruPengampu", "MataPelajaran", "Kelas", "NISN", "NamaSiswa", "Hadir", "Sakit", "Izin", "Alpa", "Terlambat", "PersentaseKehadiran", "Status"]);
+    }
+
+    // 12. Tabel Rekap_Kehadiran Guru (Rekap Bulanan Perseorangan Guru)
+    let sheetRekapGuru = ss.getSheetByName("Rekap_Kehadiran Guru") || ss.getSheetByName("Rekap_Kehadiran_Guru");
+    if (!sheetRekapGuru) {
+      sheetRekapGuru = ss.insertSheet("Rekap_Kehadiran Guru");
+      sheetRekapGuru.appendRow(["ID_Rekap", "Bulan_Tahun", "NIP", "Nama_Guru", "Hadir", "Izin", "Sakit", "Cuti_DL", "Alpa", "Total_Hari_Kerja", "Persentase_Kehadiran", "Tanggal_Simpan", "Catatan"]);
+    }
+
+    // 12.1. Tabel Rekap_Kehadiran_Detail_Guru (Log Harian Jam Datang & Pulang)
+    let sheetRekapGuruDetail = ss.getSheetByName("Rekap_Kehadiran_Detail_Guru");
+    if (!sheetRekapGuruDetail) {
+      sheetRekapGuruDetail = ss.insertSheet("Rekap_Kehadiran_Detail_Guru");
+      sheetRekapGuruDetail.appendRow(["ID_Detail", "Bulan_Tahun", "NIP", "Nama_Guru", "Tanggal", "Hari", "Status", "Jam_Datang", "Jam_Pulang", "Keterangan"]);
+    }
+
+    // 13. Tabel Rekap_Kehadiran Tendik (Rekap Bulanan Perseorangan Tendik)
+    let sheetRekapTendik = ss.getSheetByName("Rekap_Kehadiran Tendik") || ss.getSheetByName("Rekap_Kehadiran_Tendik");
+    if (!sheetRekapTendik) {
+      sheetRekapTendik = ss.insertSheet("Rekap_Kehadiran Tendik");
+      sheetRekapTendik.appendRow(["ID_Rekap", "Bulan_Tahun", "NIP", "Nama_Tendik", "Hadir", "Izin", "Sakit", "Cuti_DL", "Alpa", "Total_Hari_Kerja", "Persentase_Kehadiran", "Tanggal_Simpan", "Catatan"]);
+    }
+
+    // 13.1. Tabel Rekap_Kehadiran_Detail_Tendik (Log Harian Jam Datang & Pulang)
+    let sheetRekapTendikDetail = ss.getSheetByName("Rekap_Kehadiran_Detail_Tendik");
+    if (!sheetRekapTendikDetail) {
+      sheetRekapTendikDetail = ss.insertSheet("Rekap_Kehadiran_Detail_Tendik");
+      sheetRekapTendikDetail.appendRow(["ID_Detail", "Bulan_Tahun", "NIP", "Nama_Tendik", "Tanggal", "Hari", "Status", "Jam_Datang", "Jam_Pulang", "Keterangan"]);
     }
 
     return { status: "success", message: "Setup Database Berhasil! Seluruh tabel dasar telah dibuat." };
@@ -507,6 +572,54 @@ function submitStudentAttendance(payload) {
     ]);
 
     return { status: "success", message: "Absensi kelas " + payload.kelas + " jam " + waktu + " berhasil disimpan!" };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function saveStudentClassRecap(payload) {
+  try {
+    const ss = getDb();
+    let sheet = ss.getSheetByName("Rekap_Kehadiran_Siswa");
+    if (!sheet) {
+      sheet = ss.insertSheet("Rekap_Kehadiran_Siswa");
+      sheet.appendRow(["ID_Rekap", "TanggalRekap", "GuruPengampu", "MataPelajaran", "Kelas", "NISN", "NamaSiswa", "Hadir", "Sakit", "Izin", "Alpa", "Terlambat", "PersentaseKehadiran", "Status"]);
+    }
+
+    const now = new Date();
+    const tz = Session.getScriptTimeZone();
+    const defaultTanggal = Utilities.formatDate(now, tz, "yyyy-MM-dd");
+    const tanggalRekap = payload.tanggal || defaultTanggal;
+    const guru = payload.guru || "";
+    const mapel = payload.mapel || "";
+    const kelas = payload.kelas || "";
+
+    const rows = payload.recapRows || [];
+    let savedCount = 0;
+
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const idRekap = "RK_" + kelas + "_" + (r.nisn || i) + "_" + now.getTime();
+      sheet.appendRow([
+        idRekap,
+        tanggalRekap,
+        guru,
+        mapel,
+        kelas,
+        r.nisn || "",
+        r.nama || "",
+        r.hadir || 0,
+        r.sakit || 0,
+        r.izin || 0,
+        r.alpa || 0,
+        r.terlambat || 0,
+        (r.persentase !== undefined ? r.persentase : 0) + "%",
+        r.status || "Aktif"
+      ]);
+      savedCount++;
+    }
+
+    return { status: "success", message: "Berhasil menyimpan " + savedCount + " data rekap siswa kelas " + kelas + " ke Spreadsheet!" };
   } catch (err) {
     return { status: "error", message: err.message };
   }
@@ -1058,6 +1171,128 @@ function saveCustomization(customizationObj) {
     }
 
     return { status: "success", message: "Pengaturan berhasil disinkronkan ke Spreadsheet!" };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+// ===========================================================================
+// FUNGSI KHUSUS GURU (PRESENSI MANDIRI)
+// ===========================================================================
+
+function submitGuruAttendance(payload) {
+  try {
+    const ss = getDb();
+    let sheet = ss.getSheetByName("Absen_Guru");
+    if (!sheet) {
+      sheet = ss.insertSheet("Absen_Guru");
+      sheet.appendRow(["RowIndex", "Tanggal", "Waktu", "NIP", "Nama Guru", "Tipe Absen", "Foto Bukti Base64"]);
+    }
+
+    const now = new Date();
+    const tz = Session.getScriptTimeZone();
+    const tanggalDefault = Utilities.formatDate(now, tz, "yyyy-MM-dd");
+    const waktuDefault = Utilities.formatDate(now, tz, "HH:mm:ss");
+
+    const tgl = payload.tanggal || tanggalDefault;
+    let wkt = payload.waktu || waktuDefault;
+    wkt = String(wkt).replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim();
+
+    var rawTipe = String(payload.tipeAbsen || payload.kategori || "Datang");
+    var tipeAbsen = rawTipe.toLowerCase().indexOf("pulang") >= 0 ? "Absen Pulang" : "Absen Datang";
+
+    const rIdx = "GRU-ABS-" + Date.now();
+
+    var col6Header = sheet.getRange(1, 6).getValue().toString();
+    if (col6Header.toLowerCase().indexOf("tipe") === -1 && col6Header.toLowerCase().indexOf("status") === -1) {
+      if (col6Header.toLowerCase().indexOf("foto") >= 0 || col6Header.toLowerCase().indexOf("base64") >= 0) {
+        sheet.insertColumnAfter(5);
+      }
+      sheet.getRange(1, 6).setValue("Tipe Absen");
+      if (sheet.getRange(1, 7).getValue().toString() === "") {
+        sheet.getRange(1, 7).setValue("Foto Bukti Base64");
+      }
+    }
+
+    sheet.appendRow([
+      rIdx,
+      tgl,
+      wkt,
+      payload.nip || "",
+      payload.namaGuru || "",
+      tipeAbsen,
+      payload.photo || payload.photoBase64 || ""
+    ]);
+
+    return { status: "success", message: "Presensi " + tipeAbsen + " Guru berhasil disimpan!" };
+  } catch (err) {
+    return { status: "error", message: err.message };
+  }
+}
+
+function getGuruAttendanceHistory(tanggal) {
+  try {
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Absen_Guru");
+    if (!sheet) return { status: "success", history: [] };
+
+    const values = sheet.getDataRange().getValues();
+    if (values.length <= 1) return { status: "success", history: [] };
+
+    const history = [];
+    const tz = Session.getScriptTimeZone();
+
+    for (let i = 1; i < values.length; i++) {
+      let rawTgl = values[i][1];
+      let tglStr = "";
+      if (rawTgl instanceof Date) {
+        tglStr = Utilities.formatDate(rawTgl, tz, "yyyy-MM-dd");
+      } else if (rawTgl) {
+        tglStr = rawTgl.toString().trim();
+      }
+
+      if (!tanggal || tglStr === tanggal) {
+        let rawWkt = values[i][2];
+        let wktStr = "";
+        if (rawWkt instanceof Date) {
+          wktStr = Utilities.formatDate(rawWkt, tz, "HH:mm:ss");
+        } else if (rawWkt) {
+          wktStr = rawWkt.toString().trim();
+        }
+
+        history.push({
+          rowIndex: values[i][0] ? values[i][0].toString() : i + 1,
+          tanggal: tglStr,
+          waktu: wktStr,
+          nip: values[i][3] ? values[i][3].toString() : "",
+          namaGuru: values[i][4] ? values[i][4].toString() : "",
+          tipeAbsen: values[i][5] ? values[i][5].toString() : "Absen Datang",
+          photo: values[i][6] ? values[i][6].toString() : ""
+        });
+      }
+    }
+
+    history.reverse();
+    return { status: "success", history: history };
+  } catch (err) {
+    return { status: "error", message: err.message, history: [] };
+  }
+}
+
+function deleteGuruAttendanceRecord(rowIndex) {
+  try {
+    const ss = getDb();
+    const sheet = ss.getSheetByName("Absen_Guru");
+    if (!sheet) return { status: "error", message: "Tabel Absen_Guru tidak ditemukan." };
+
+    const values = sheet.getDataRange().getValues();
+    for (let i = 1; i < values.length; i++) {
+      if (values[i][0].toString() === rowIndex.toString()) {
+        sheet.deleteRow(i + 1);
+        return { status: "success", message: "Data presensi Guru berhasil dihapus!" };
+      }
+    }
+    return { status: "error", message: "Data presensi Guru tidak ditemukan." };
   } catch (err) {
     return { status: "error", message: err.message };
   }
@@ -1653,6 +1888,20 @@ function deleteTendikPermitRecord(rowIndex) {
                 <span className="text-teal-600 font-extrabold uppercase text-[10px] tracking-wider block">7. Presensi (Kiosk Scanner Log)</span>
                 <p className="text-slate-500 font-mono bg-white p-2 rounded-xl border border-slate-100 select-all text-[11px]">
                   Timestamp, NISN, Nama, Kelas, Status Presensi
+                </p>
+              </div>
+
+              <div className="p-4 border border-slate-200/80 rounded-2xl bg-slate-50/50 space-y-2 md:col-span-2">
+                <span className="text-blue-600 font-extrabold uppercase text-[10px] tracking-wider block">8. Rekap_Kehadiran Guru (Rekap Bulanan Guru)</span>
+                <p className="text-slate-500 font-mono bg-white p-2 rounded-xl border border-slate-100 select-all text-[11px]">
+                  ID_Rekap, Bulan_Tahun, NIP, Nama_Guru, Hadir, Izin, Sakit, Cuti_DL, Alpa, Total_Hari_Kerja, Persentase_Kehadiran, Tanggal_Simpan, Catatan
+                </p>
+              </div>
+
+              <div className="p-4 border border-slate-200/80 rounded-2xl bg-slate-50/50 space-y-2 md:col-span-2">
+                <span className="text-emerald-600 font-extrabold uppercase text-[10px] tracking-wider block">9. Rekap_Kehadiran Tendik (Rekap Bulanan Tendik)</span>
+                <p className="text-slate-500 font-mono bg-white p-2 rounded-xl border border-slate-100 select-all text-[11px]">
+                  ID_Rekap, Bulan_Tahun, NIP, Nama_Tendik, Hadir, Izin, Sakit, Cuti_DL, Alpa, Total_Hari_Kerja, Persentase_Kehadiran, Tanggal_Simpan, Catatan
                 </p>
               </div>
             </div>

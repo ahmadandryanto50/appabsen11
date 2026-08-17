@@ -29,11 +29,14 @@ import {
   ScanLine,
   CheckCheck,
   RefreshCw,
+  GraduationCap,
+  Save,
 } from 'lucide-react';
 import { apiClient } from '../api';
 import { formatKeterlambatan } from '../utils/timeUtils';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 type PeriodType = 'semua' | '1_minggu' | '1_bulan' | 'kustom' | 'hari_ini';
 
@@ -118,6 +121,50 @@ const getPeriodeLabelText = (
   return 'Semua Tanggal';
 };
 
+const matchTeacher = (recordGuru: string, targetNama: string) => {
+  if (!recordGuru || !targetNama) return false;
+  return recordGuru.toLowerCase().trim() === targetNama.toLowerCase().trim();
+};
+
+const matchMapel = (recordMapel: string, targetMapel: string) => {
+  if (!recordMapel || !targetMapel) return false;
+  return recordMapel.toLowerCase().trim() === targetMapel.toLowerCase().trim();
+};
+
+const renderOfficialKopSurat = (doc: jsPDF, customization?: AppCustomization) => {
+  doc.setFont('Helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(30, 41, 59);
+  doc.text('PEMERINTAH KOTA PALU', 105, 12, { align: 'center' });
+
+  doc.setFontSize(15);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(15, 23, 42);
+  doc.text((customization?.appName || 'SMP NEGERI 11 PALU').toUpperCase(), 105, 18, { align: 'center' });
+
+  doc.setFontSize(8);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(30, 41, 59);
+  doc.text('NSS : 2011866001011 \u2013 NIS : 200110 \u2013 NPSN : 40203578', 105, 22.5, { align: 'center' });
+
+  doc.setFontSize(7.5);
+  doc.setFont('Helvetica', 'bold');
+  doc.setTextColor(51, 65, 85);
+  doc.text('ALAMAT : JL. KERAMIK KEL. DUYU KEC. TATANGA (0451) \u2013 8202057', 105, 26.5, { align: 'center' });
+
+  doc.setFontSize(7);
+  doc.setFont('Helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  doc.text('Website : http://www.smpn11palu.sch.id   Email : smpnegeri11palu@gmail.com', 105, 30, { align: 'center' });
+
+  // Double Kop Line Divider
+  doc.setDrawColor(30, 41, 59);
+  doc.setLineWidth(1.2);
+  doc.line(10, 32.5, 200, 32.5);
+  doc.setLineWidth(0.4);
+  doc.line(10, 34, 200, 34);
+};
+
 interface HistoryViewProps {
   currentUser: User | null;
   kelasList: string[];
@@ -147,7 +194,7 @@ export function HistoryView({
 }: HistoryViewProps) {
   const isFullAccess = currentUser?.role === 'Admin' || String(currentUser?.role || '').toLowerCase().includes('admin') || Boolean(currentUser?.username?.toLowerCase().includes('admin'));
 
-  const [subTab, setSubTab] = useState<'siswa' | 'kiosk-siswa' | 'guru' | 'tendik-absen' | 'tendik-izin' | 'rekap-pdf'>(
+  const [subTab, setSubTab] = useState<'siswa' | 'kiosk-siswa' | 'guru' | 'guru-absen' | 'tendik-absen' | 'tendik-izin' | 'rekap-pdf' | 'rekap-kelas-guru'>(
     currentUser?.role === 'Tendik' ? 'tendik-absen' : 'siswa'
   );
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
@@ -170,12 +217,25 @@ export function HistoryView({
   const [kioskHistory, setKioskHistory] = useState<KioskScanRecord[]>([]);
   const [isLoadingKiosk, setIsLoadingKiosk] = useState(false);
 
-  // Filter States - Guru
+  // Filter States - Guru (Izin)
   const [filterGuruTanggal, setFilterGuruTanggal] = useState('');
   const [filterGuruPeriode, setFilterGuruPeriode] = useState<PeriodType>('semua');
   const [filterGuruTanggalAwal, setFilterGuruTanggalAwal] = useState('');
   const [filterGuruTanggalAkhir, setFilterGuruTanggalAkhir] = useState('');
   const [isLoadingGuru, setIsLoadingGuru] = useState(false);
+
+  // Filter States - Guru (Absen Mandiri)
+  const [filterGuruAbsenPeriode, setFilterGuruAbsenPeriode] = useState<PeriodType>('semua');
+  const [filterGuruAbsenTanggalAwal, setFilterGuruAbsenTanggalAwal] = useState('');
+  const [filterGuruAbsenTanggalAkhir, setFilterGuruAbsenTanggalAkhir] = useState('');
+  const [guruAbsenHistory, setGuruAbsenHistory] = useState<any[]>(() => {
+    try {
+      const saved = localStorage.getItem('absensi_history_guru_absen');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // Filter States - Tendik
   const [filterTendikTanggal, setFilterTendikTanggal] = useState('');
@@ -257,9 +317,1122 @@ export function HistoryView({
     setTanggalAkhir(todayStr);
   }, []);
 
-  // Fetch Master lists and full history when opening PDF tab
+  // States for Rekap Per Kelas Guru
+  const [selectedGuruClass, setSelectedGuruClass] = useState<string>('');
+  const [searchStudentQuery, setSearchStudentQuery] = useState<string>('');
+  const [isSavingRecap, setIsSavingRecap] = useState<boolean>(false);
+  const [studentsRoster, setStudentsRoster] = useState<any[]>([]);
+  const [isLoadingRoster, setIsLoadingRoster] = useState<boolean>(false);
+
+  // Master Guru List State
+  const [masterGuruList, setMasterGuruList] = useState<any[]>([]);
+
   useEffect(() => {
-    if (subTab === 'rekap-pdf') {
+    apiClient.getCrud('Master_Guru').then((res) => {
+      if (res && res.status === 'success' && Array.isArray(res.rows)) {
+        const parsed = res.rows.map((row: any) => ({
+          id: row.data?.[0] || '',
+          nip: row.data?.[1] || '',
+          nama: row.data?.[2] || '',
+          gender: row.data?.[3] || '',
+          username: row.data?.[4] || '',
+          role: row.data?.[6] || 'Guru',
+        })).filter((g: any) => g.nama);
+        setMasterGuruList(parsed);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // States for Monthly Individual Recap - GURU
+  const [rekapGuruMonth, setRekapGuruMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [rekapGuruNip, setRekapGuruNip] = useState<string>('');
+  const [rekapGuruTargetDays, setRekapGuruTargetDays] = useState<number>(22);
+
+  // States for Monthly Individual Recap - TENDIK
+  const [rekapTendikMonth, setRekapTendikMonth] = useState<string>(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [rekapTendikNip, setRekapTendikNip] = useState<string>('');
+  const [rekapTendikTargetDays, setRekapTendikTargetDays] = useState<number>(22);
+
+  const [savingRecapMsg, setSavingRecapMsg] = useState<string>('');
+  const [isSavingGuruRecap, setIsSavingGuruRecap] = useState<boolean>(false);
+  const [isSavingTendikRecap, setIsSavingTendikRecap] = useState<boolean>(false);
+
+  // List Teachers & Tendik Users
+  const listGuruUsers = useMemo(() => {
+    const filtered = masterGuruList.filter(g => {
+      const r = String(g.role || '').toLowerCase();
+      return r === 'guru' || r === 'admin' || !r;
+    });
+    if (filtered.length > 0) return filtered;
+    return [
+      { nip: '19900202201502', nama: 'Budi Santoso, S.Pd.', role: 'Guru' },
+      { nip: '19920815201803', nama: 'Siti Rahma, M.Pd.', role: 'Guru' },
+      { nip: '19881112201201', nama: 'Hendra Wijaya, S.Si.', role: 'Guru' },
+    ];
+  }, [masterGuruList]);
+
+  const listTendikUsers = useMemo(() => {
+    const filtered = masterGuruList.filter(g => {
+      const r = String(g.role || '').toLowerCase();
+      return r.includes('tendik');
+    });
+    if (filtered.length > 0) return filtered;
+    return [
+      { nip: '19950505202005', nama: 'Rina Herawati, S.Pd.I.', role: 'Tendik' },
+      { nip: '19970606202206', nama: 'Doni Setiawan', role: 'Tendik' },
+    ];
+  }, [masterGuruList]);
+
+  useEffect(() => {
+    if (!rekapGuruNip) {
+      if (currentUser?.role === 'Guru' && currentUser?.nip) {
+        setRekapGuruNip(currentUser.nip);
+      } else if (listGuruUsers.length > 0) {
+        setRekapGuruNip(listGuruUsers[0].nip || listGuruUsers[0].nama);
+      }
+    }
+  }, [currentUser, listGuruUsers, rekapGuruNip]);
+
+  useEffect(() => {
+    if (!rekapTendikNip) {
+      if (currentUser?.role === 'Tendik' && currentUser?.nip) {
+        setRekapTendikNip(currentUser.nip);
+      } else if (listTendikUsers.length > 0) {
+        setRekapTendikNip(listTendikUsers[0].nip || listTendikUsers[0].nama);
+      }
+    }
+  }, [currentUser, listTendikUsers, rekapTendikNip]);
+
+  // Compute Guru Monthly Attendance Data
+  const guruMonthlyData = useMemo(() => {
+    const selectedObj = listGuruUsers.find(g => g.nip === rekapGuruNip || g.nama === rekapGuruNip) || {
+      nip: rekapGuruNip || currentUser?.nip || '-',
+      nama: currentUser?.nama || rekapGuruNip || 'Guru',
+    };
+
+    const targetNip = selectedObj.nip || '';
+    const targetNama = selectedObj.nama || '';
+
+    const parts = (rekapGuruMonth || '2026-08').split('-');
+    const year = parseInt(parts[0], 10) || 2026;
+    const month = parseInt(parts[1], 10) || 8;
+    const totalDaysInMonth = new Date(year, month, 0).getDate();
+
+    const dayRows = [];
+    let countHadir = 0;
+    let countIzin = 0;
+    let countSakit = 0;
+    let countCutiDL = 0;
+    let countAlpa = 0;
+
+    const todayStr = getLocalDateString(new Date());
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+    for (let day = 1; day <= totalDaysInMonth; day++) {
+      const dStr = `${parts[0]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dObj = new Date(year, month - 1, day);
+      const dayName = dayNames[dObj.getDay()];
+      const isWeekend = dObj.getDay() === 0 || dObj.getDay() === 6;
+
+      const allDayPresensi = (guruAbsenHistory || []).filter((log: any) => {
+        const logDate = getNormalizedDateStr(log.tanggal || log.rawTanggal);
+        if (logDate !== dStr) return false;
+        if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+        if (targetNama && log.namaGuru && matchTeacher(log.namaGuru, targetNama)) return true;
+        return false;
+      });
+
+      const presensiMatch = allDayPresensi.length > 0 ? allDayPresensi[0] : null;
+
+      const izinMatch = (teacherHistoryList || []).find((log: any) => {
+        const logDate = getNormalizedDateStr(log.tanggal);
+        if (logDate !== dStr) return false;
+        if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+        if (targetNama && log.namaGuru && matchTeacher(log.namaGuru, targetNama)) return true;
+        return false;
+      });
+
+      let status = '-';
+      let statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
+      let jamDatang = '-';
+      let jamPulang = '-';
+      let timeLog = '-';
+      let keterangan = '-';
+      let photo = null;
+
+      if (presensiMatch) {
+        status = 'Hadir';
+        statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold';
+        keterangan = presensiMatch.tipeAbsen || 'Presensi Mandiri';
+        photo = presensiMatch.photo || null;
+        countHadir++;
+
+        // Calculate Jam Datang & Jam Pulang
+        const logDatang = allDayPresensi.find((l: any) => {
+          const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+          return type.includes('datang') || type.includes('masuk');
+        });
+        const logPulang = allDayPresensi.find((l: any) => {
+          const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+          return type.includes('pulang') || type.includes('keluar');
+        });
+
+        if (logDatang && logDatang.waktu) {
+          jamDatang = String(logDatang.waktu).substring(0, 5);
+        }
+        if (logPulang && logPulang.waktu) {
+          jamPulang = String(logPulang.waktu).substring(0, 5);
+        }
+
+        if (jamDatang === '-' && allDayPresensi[0]?.waktu) {
+          jamDatang = String(allDayPresensi[0].waktu).substring(0, 5);
+        }
+        if (jamPulang === '-' && allDayPresensi.length > 1) {
+          const lastLog = allDayPresensi[allDayPresensi.length - 1];
+          if (lastLog?.waktu && lastLog !== allDayPresensi[0]) {
+            jamPulang = String(lastLog.waktu).substring(0, 5);
+          }
+        }
+
+        timeLog = jamDatang !== '-' ? (jamPulang !== '-' ? `${jamDatang} - ${jamPulang}` : jamDatang) : '-';
+      } else if (izinMatch) {
+        const st = String(izinMatch.status || '').toLowerCase();
+        if (st.includes('sakit')) {
+          status = 'Sakit';
+          statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-bold';
+          countSakit++;
+        } else if (st.includes('dinas') || st.includes('cuti') || st.includes('dl')) {
+          status = st.includes('cuti') ? 'Cuti' : 'Dinas Luar';
+          statusBadge = 'bg-indigo-50 text-indigo-700 border-indigo-200 font-bold';
+          countCutiDL++;
+        } else {
+          status = 'Izin';
+          statusBadge = 'bg-blue-50 text-blue-700 border-blue-200 font-bold';
+          countIzin++;
+        }
+        timeLog = izinMatch.waktu ? String(izinMatch.waktu).substring(0, 5) : '-';
+        jamDatang = timeLog;
+        keterangan = izinMatch.alasan || 'Permohonan Resmi';
+      } else if (isWeekend) {
+        status = 'Libur Akhir Pekan';
+        statusBadge = 'bg-slate-100 text-slate-400 border-slate-200';
+        keterangan = 'Akhir Pekan';
+      } else if (dStr <= todayStr) {
+        status = 'Alpa';
+        statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+        keterangan = 'Tanpa Keterangan';
+        countAlpa++;
+      } else {
+        status = 'Belum Berlangsung';
+        statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60';
+        keterangan = '-';
+      }
+
+      dayRows.push({
+        dayNumber: day,
+        tanggal: dStr,
+        dayName,
+        status,
+        statusBadge,
+        jamDatang,
+        jamPulang,
+        timeLog,
+        keterangan,
+        photo,
+      });
+    }
+
+    const totalHariKerja = rekapGuruTargetDays || 22;
+    const persentase = totalHariKerja > 0 ? Math.min(100, Math.round((countHadir / totalHariKerja) * 100)) : 0;
+
+    return {
+      selectedObj,
+      targetNip,
+      targetNama,
+      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
+      totalDaysInMonth,
+      dayRows,
+      countHadir,
+      countIzin,
+      countSakit,
+      countCutiDL,
+      countAlpa,
+      totalHariKerja,
+      persentase,
+    };
+  }, [rekapGuruMonth, rekapGuruNip, rekapGuruTargetDays, listGuruUsers, guruAbsenHistory, teacherHistoryList, currentUser]);
+
+  // Compute Tendik Monthly Attendance Data
+  const tendikMonthlyData = useMemo(() => {
+    const selectedObj = listTendikUsers.find(g => g.nip === rekapTendikNip || g.nama === rekapTendikNip) || {
+      nip: rekapTendikNip || currentUser?.nip || '-',
+      nama: currentUser?.nama || rekapTendikNip || 'Tendik',
+    };
+
+    const targetNip = selectedObj.nip || '';
+    const targetNama = selectedObj.nama || '';
+
+    const parts = (rekapTendikMonth || '2026-08').split('-');
+    const year = parseInt(parts[0], 10) || 2026;
+    const month = parseInt(parts[1], 10) || 8;
+    const totalDaysInMonth = new Date(year, month, 0).getDate();
+
+    const dayRows = [];
+    let countHadir = 0;
+    let countIzin = 0;
+    let countSakit = 0;
+    let countCutiDL = 0;
+    let countAlpa = 0;
+
+    const todayStr = getLocalDateString(new Date());
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+
+    for (let day = 1; day <= totalDaysInMonth; day++) {
+      const dStr = `${parts[0]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dObj = new Date(year, month - 1, day);
+      const dayName = dayNames[dObj.getDay()];
+      const isWeekend = dObj.getDay() === 0 || dObj.getDay() === 6;
+
+      const allDayPresensi = (tendikAbsenHistory || []).filter((log: any) => {
+        const logDate = getNormalizedDateStr(log.tanggal || log.rawTanggal);
+        if (logDate !== dStr) return false;
+        if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+        if (targetNama && log.namaTendik && matchTeacher(log.namaTendik, targetNama)) return true;
+        return false;
+      });
+
+      const presensiMatch = allDayPresensi.length > 0 ? allDayPresensi[0] : null;
+
+      const izinMatch = (tendikIzinHistory || []).find((log: any) => {
+        const logDate = getNormalizedDateStr(log.tanggal);
+        if (logDate !== dStr) return false;
+        if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+        if (targetNama && log.namaTendik && matchTeacher(log.namaTendik, targetNama)) return true;
+        return false;
+      });
+
+      let status = '-';
+      let statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
+      let jamDatang = '-';
+      let jamPulang = '-';
+      let timeLog = '-';
+      let keterangan = '-';
+      let photo = null;
+
+      if (presensiMatch) {
+        status = 'Hadir';
+        statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold';
+        keterangan = presensiMatch.tipeAbsen || 'Presensi Mandiri';
+        photo = presensiMatch.photo || null;
+        countHadir++;
+
+        // Calculate Jam Datang & Jam Pulang
+        const logDatang = allDayPresensi.find((l: any) => {
+          const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+          return type.includes('datang') || type.includes('masuk');
+        });
+        const logPulang = allDayPresensi.find((l: any) => {
+          const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+          return type.includes('pulang') || type.includes('keluar');
+        });
+
+        if (logDatang && logDatang.waktu) {
+          jamDatang = String(logDatang.waktu).substring(0, 5);
+        }
+        if (logPulang && logPulang.waktu) {
+          jamPulang = String(logPulang.waktu).substring(0, 5);
+        }
+
+        if (jamDatang === '-' && allDayPresensi[0]?.waktu) {
+          jamDatang = String(allDayPresensi[0].waktu).substring(0, 5);
+        }
+        if (jamPulang === '-' && allDayPresensi.length > 1) {
+          const lastLog = allDayPresensi[allDayPresensi.length - 1];
+          if (lastLog?.waktu && lastLog !== allDayPresensi[0]) {
+            jamPulang = String(lastLog.waktu).substring(0, 5);
+          }
+        }
+
+        timeLog = jamDatang !== '-' ? (jamPulang !== '-' ? `${jamDatang} - ${jamPulang}` : jamDatang) : '-';
+      } else if (izinMatch) {
+        const st = String(izinMatch.status || '').toLowerCase();
+        if (st.includes('sakit')) {
+          status = 'Sakit';
+          statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-bold';
+          countSakit++;
+        } else if (st.includes('dinas') || st.includes('cuti') || st.includes('dl')) {
+          status = st.includes('cuti') ? 'Cuti' : 'Dinas Luar';
+          statusBadge = 'bg-indigo-50 text-indigo-700 border-indigo-200 font-bold';
+          countCutiDL++;
+        } else {
+          status = 'Izin';
+          statusBadge = 'bg-blue-50 text-blue-700 border-blue-200 font-bold';
+          countIzin++;
+        }
+        timeLog = izinMatch.waktu ? String(izinMatch.waktu).substring(0, 5) : '-';
+        jamDatang = timeLog;
+        keterangan = izinMatch.alasan || 'Permohonan Resmi';
+      } else if (isWeekend) {
+        status = 'Libur Akhir Pekan';
+        statusBadge = 'bg-slate-100 text-slate-400 border-slate-200';
+        keterangan = 'Akhir Pekan';
+      } else if (dStr <= todayStr) {
+        status = 'Alpa';
+        statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+        keterangan = 'Tanpa Keterangan';
+        countAlpa++;
+      } else {
+        status = 'Belum Berlangsung';
+        statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60';
+        keterangan = '-';
+      }
+
+      dayRows.push({
+        dayNumber: day,
+        tanggal: dStr,
+        dayName,
+        status,
+        statusBadge,
+        jamDatang,
+        jamPulang,
+        timeLog,
+        keterangan,
+        photo,
+      });
+    }
+
+    const totalHariKerja = rekapTendikTargetDays || 22;
+    const persentase = totalHariKerja > 0 ? Math.min(100, Math.round((countHadir / totalHariKerja) * 100)) : 0;
+
+    return {
+      selectedObj,
+      targetNip,
+      targetNama,
+      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
+      totalDaysInMonth,
+      dayRows,
+      countHadir,
+      countIzin,
+      countSakit,
+      countCutiDL,
+      countAlpa,
+      totalHariKerja,
+      persentase,
+    };
+  }, [rekapTendikMonth, rekapTendikNip, rekapTendikTargetDays, listTendikUsers, tendikAbsenHistory, tendikIzinHistory, currentUser]);
+
+  // Handlers for Guru Monthly
+  const handleSaveGuruMonthlyToSheets = async () => {
+    setIsSavingGuruRecap(true);
+    setSavingRecapMsg('');
+    try {
+      const res = await apiClient.saveGuruMonthlyRecap({
+        bulanTahun: rekapGuruMonth,
+        nip: guruMonthlyData.targetNip || 'GURU',
+        namaGuru: guruMonthlyData.targetNama || 'Guru',
+        hadir: guruMonthlyData.countHadir,
+        izin: guruMonthlyData.countIzin,
+        sakit: guruMonthlyData.countSakit,
+        cutiDL: guruMonthlyData.countCutiDL,
+        alpa: guruMonthlyData.countAlpa,
+        totalHari: guruMonthlyData.totalHariKerja,
+        persentase: guruMonthlyData.persentase,
+        catatan: `Rekap Kehadiran Bulan ${guruMonthlyData.monthLabel}`,
+        dayRows: guruMonthlyData.dayRows,
+      });
+      if (res && res.status === 'success') {
+        setSavingRecapMsg('✅ ' + (res.message || 'Rekap bulanan Guru berhasil disimpan ke spreadsheet!'));
+      } else {
+        setSavingRecapMsg('❌ Gagal menyimpan: ' + (res?.message || 'Terjadi kesalahan'));
+      }
+    } catch (e: any) {
+      setSavingRecapMsg('❌ Error: ' + e.message);
+    } finally {
+      setIsSavingGuruRecap(false);
+      setTimeout(() => setSavingRecapMsg(''), 5000);
+    }
+  };
+
+  const handleExportGuruMonthlyPDF = () => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    renderOfficialKopSurat(doc, customization);
+
+    const primaryColor: [number, number, number] = [37, 99, 235];
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('LAPORAN REKAPITULASI KEHADIRAN BULANAN GURU (PERSEORANGAN)', 105, 40, { align: 'center' });
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Bulan / Periode: ${guruMonthlyData.monthLabel}`, 105, 45, { align: 'center' });
+
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(15, 48, 195, 48);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Nama Guru    : ${guruMonthlyData.targetNama}`, 15, 54);
+    doc.text(`NIP                 : ${guruMonthlyData.targetNip || '-'}`, 15, 59);
+    doc.text(`Target Hari   : ${guruMonthlyData.totalHariKerja} Hari Kerja`, 120, 54);
+    doc.text(`Persentase   : ${guruMonthlyData.persentase}% Kehadiran`, 120, 59);
+
+    autoTable(doc, {
+      startY: 64,
+      head: [['Hadir', 'Izin', 'Sakit', 'Cuti / DL', 'Alpa', 'Total Hari Kerja', 'Persentase']],
+      body: [[
+        `${guruMonthlyData.countHadir} Hari`,
+        `${guruMonthlyData.countIzin} Hari`,
+        `${guruMonthlyData.countSakit} Hari`,
+        `${guruMonthlyData.countCutiDL} Hari`,
+        `${guruMonthlyData.countAlpa} Hari`,
+        `${guruMonthlyData.totalHariKerja} Hari`,
+        `${guruMonthlyData.persentase}%`
+      ]],
+      theme: 'grid',
+      headStyles: { fillColor: primaryColor, textColor: [255, 255, 255], fontSize: 8, halign: 'center' },
+      bodyStyles: { fontSize: 8, halign: 'center', textColor: [30, 41, 59], fontStyle: 'bold' },
+      margin: { left: 15, right: 15 }
+    });
+
+    let currentY = (doc as any).lastAutoTable.finalY + 6;
+
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('RINCIAN PRESENSI HARIAN:', 15, currentY);
+
+    const tableBody = guruMonthlyData.dayRows.map((r) => [
+      r.dayNumber,
+      r.tanggal,
+      r.dayName,
+      r.status,
+      r.jamDatang,
+      r.jamPulang,
+      r.keterangan
+    ]);
+
+    autoTable(doc, {
+      startY: currentY + 3,
+      head: [['Tgl', 'Tanggal Lengkap', 'Hari', 'Status Kehadiran', 'Jam Datang', 'Jam Pulang', 'Keterangan']],
+      body: tableBody,
+      theme: 'striped',
+      headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontSize: 8, halign: 'center' },
+      bodyStyles: { fontSize: 7.5, textColor: [51, 65, 85] },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 28, halign: 'center' },
+        2: { cellWidth: 20, halign: 'center' },
+        3: { cellWidth: 35, halign: 'center' },
+        4: { cellWidth: 20, halign: 'center' },
+        5: { cellWidth: 20, halign: 'center' },
+        6: { cellWidth: 'auto' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 12;
+
+    if (currentY > 230) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'normal');
+    doc.text('Guru Yang Bersangkutan,', 25, currentY);
+    doc.text('Mengetahui, Kepala Sekolah,', 135, currentY);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.text(`( ${guruMonthlyData.targetNama} )`, 25, currentY + 25);
+    doc.text(`NIP. ${guruMonthlyData.targetNip || '....................'}`, 25, currentY + 30);
+
+    doc.text(`( ${customization?.kepalaSekolahNama || '....................'} )`, 135, currentY + 25);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '....................'}`, 135, currentY + 30);
+
+    doc.save(`Rekap_Bulanan_Guru_${guruMonthlyData.targetNip}_${rekapGuruMonth}.pdf`);
+  };
+
+  const handleExportGuruMonthlyExcel = () => {
+    const dataForSheet = guruMonthlyData.dayRows.map(r => ({
+      'No Tanggal': r.dayNumber,
+      'Tanggal': r.tanggal,
+      'Hari': r.dayName,
+      'Status Kehadiran': r.status,
+      'Jam Presensi': r.timeLog,
+      'Keterangan': r.keterangan
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Rekap Bulanan Guru');
+    XLSX.writeFile(workbook, `Rekap_Bulanan_Guru_${guruMonthlyData.targetNip}_${rekapGuruMonth}.xlsx`);
+  };
+
+  // Handlers for Tendik Monthly
+  const handleSaveTendikMonthlyToSheets = async () => {
+    setIsSavingTendikRecap(true);
+    setSavingRecapMsg('');
+    try {
+      const res = await apiClient.saveTendikMonthlyRecap({
+        bulanTahun: rekapTendikMonth,
+        nip: tendikMonthlyData.targetNip || 'TENDIK',
+        namaTendik: tendikMonthlyData.targetNama || 'Tendik',
+        hadir: tendikMonthlyData.countHadir,
+        izin: tendikMonthlyData.countIzin,
+        sakit: tendikMonthlyData.countSakit,
+        cutiDL: tendikMonthlyData.countCutiDL,
+        alpa: tendikMonthlyData.countAlpa,
+        totalHari: tendikMonthlyData.totalHariKerja,
+        persentase: tendikMonthlyData.persentase,
+        catatan: `Rekap Kehadiran Bulan ${tendikMonthlyData.monthLabel}`,
+        dayRows: tendikMonthlyData.dayRows,
+      });
+      if (res && res.status === 'success') {
+        setSavingRecapMsg('✅ ' + (res.message || 'Rekap bulanan Tendik berhasil disimpan ke spreadsheet!'));
+      } else {
+        setSavingRecapMsg('❌ Gagal menyimpan: ' + (res?.message || 'Terjadi kesalahan'));
+      }
+    } catch (e: any) {
+      setSavingRecapMsg('❌ Error: ' + e.message);
+    } finally {
+      setIsSavingTendikRecap(false);
+      setTimeout(() => setSavingRecapMsg(''), 5000);
+    }
+  };
+
+  const handleExportTendikMonthlyPDF = () => {
+    const doc = new jsPDF('p', 'mm', 'a4');
+    renderOfficialKopSurat(doc, customization);
+
+    const primaryColor: [number, number, number] = [16, 185, 129];
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(12);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('LAPORAN REKAPITULASI KEHADIRAN BULANAN TENDIK (PERSEORANGAN)', 105, 40, { align: 'center' });
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Bulan / Periode: ${tendikMonthlyData.monthLabel}`, 105, 45, { align: 'center' });
+
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(15, 48, 195, 48);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Nama Tendik : ${tendikMonthlyData.targetNama}`, 15, 54);
+    doc.text(`NIP                 : ${tendikMonthlyData.targetNip || '-'}`, 15, 59);
+    doc.text(`Target Hari   : ${tendikMonthlyData.totalHariKerja} Hari Kerja`, 120, 54);
+    doc.text(`Persentase   : ${tendikMonthlyData.persentase}% Kehadiran`, 120, 59);
+
+    autoTable(doc, {
+      startY: 64,
+      head: [['Hadir', 'Izin', 'Sakit', 'Cuti / DL', 'Alpa', 'Total Hari Kerja', 'Persentase']],
+      body: [[
+        `${tendikMonthlyData.countHadir} Hari`,
+        `${tendikMonthlyData.countIzin} Hari`,
+        `${tendikMonthlyData.countSakit} Hari`,
+        `${tendikMonthlyData.countCutiDL} Hari`,
+        `${tendikMonthlyData.countAlpa} Hari`,
+        `${tendikMonthlyData.totalHariKerja} Hari`,
+        `${tendikMonthlyData.persentase}%`
+      ]],
+      theme: 'grid',
+      headStyles: { fillColor: primaryColor, textColor: [255, 255, 255], fontSize: 8, halign: 'center' },
+      bodyStyles: { fontSize: 8, halign: 'center', textColor: [30, 41, 59], fontStyle: 'bold' },
+      margin: { left: 15, right: 15 }
+    });
+
+    let currentY = (doc as any).lastAutoTable.finalY + 6;
+
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('RINCIAN PRESENSI HARIAN:', 15, currentY);
+
+    const tableBody = tendikMonthlyData.dayRows.map((r) => [
+      r.dayNumber,
+      r.tanggal,
+      r.dayName,
+      r.status,
+      r.jamDatang,
+      r.jamPulang,
+      r.keterangan
+    ]);
+
+    autoTable(doc, {
+      startY: currentY + 3,
+      head: [['Tgl', 'Tanggal Lengkap', 'Hari', 'Status Kehadiran', 'Jam Datang', 'Jam Pulang', 'Keterangan']],
+      body: tableBody,
+      theme: 'striped',
+      headStyles: { fillColor: [51, 65, 85], textColor: [255, 255, 255], fontSize: 8, halign: 'center' },
+      bodyStyles: { fontSize: 7.5, textColor: [51, 65, 85] },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 28, halign: 'center' },
+        2: { cellWidth: 20, halign: 'center' },
+        3: { cellWidth: 35, halign: 'center' },
+        4: { cellWidth: 20, halign: 'center' },
+        5: { cellWidth: 20, halign: 'center' },
+        6: { cellWidth: 'auto' }
+      },
+      margin: { left: 15, right: 15 }
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 12;
+
+    if (currentY > 230) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    doc.setFontSize(9);
+    doc.setFont('Helvetica', 'normal');
+    doc.text('Tendik Yang Bersangkutan,', 25, currentY);
+    doc.text('Mengetahui, Kepala Sekolah,', 135, currentY);
+
+    doc.setFont('Helvetica', 'bold');
+    doc.text(`( ${tendikMonthlyData.targetNama} )`, 25, currentY + 25);
+    doc.text(`NIP. ${tendikMonthlyData.targetNip || '....................'}`, 25, currentY + 30);
+
+    doc.text(`( ${customization?.kepalaSekolahNama || '....................'} )`, 135, currentY + 25);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '....................'}`, 135, currentY + 30);
+
+    doc.save(`Rekap_Bulanan_Tendik_${tendikMonthlyData.targetNip}_${rekapTendikMonth}.pdf`);
+  };
+
+  const handleExportTendikMonthlyExcel = () => {
+    const dataForSheet = tendikMonthlyData.dayRows.map(r => ({
+      'No Tanggal': r.dayNumber,
+      'Tanggal': r.tanggal,
+      'Hari': r.dayName,
+      'Status Kehadiran': r.status,
+      'Jam Presensi': r.timeLog,
+      'Keterangan': r.keterangan
+    }));
+    const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Rekap Bulanan Tendik');
+    XLSX.writeFile(workbook, `Rekap_Bulanan_Tendik_${tendikMonthlyData.targetNip}_${rekapTendikMonth}.xlsx`);
+  };
+
+  // Auto-set selectedGuru if currentUser is a Teacher
+  useEffect(() => {
+    if (currentUser?.nama && !selectedGuru) {
+      setSelectedGuru(currentUser.nama);
+    }
+  }, [currentUser, selectedGuru]);
+
+  // Compute classes taught by selected teacher
+  const classesTaughtByGuru = useMemo(() => {
+    if (!selectedGuru) return kelasList || [];
+    const classSet = new Set<string>();
+    (allHistory || []).forEach((r) => {
+      if (r && r.guru && matchTeacher(r.guru, selectedGuru) && r.kelas) {
+        classSet.add(r.kelas);
+      }
+    });
+    const list = Array.from(classSet);
+    return list.length > 0 ? list : (kelasList || []);
+  }, [selectedGuru, allHistory, kelasList]);
+
+  // Auto-select class when classesTaughtByGuru updates
+  useEffect(() => {
+    if (classesTaughtByGuru && classesTaughtByGuru.length > 0 && (!selectedGuruClass || !classesTaughtByGuru.includes(selectedGuruClass))) {
+      setSelectedGuruClass(classesTaughtByGuru[0]);
+    }
+  }, [classesTaughtByGuru, selectedGuruClass]);
+
+  // Fetch roster when selectedGuruClass changes
+  useEffect(() => {
+    if ((subTab === 'rekap-kelas-guru' || subTab === 'rekap-pdf') && selectedGuruClass) {
+      setIsLoadingRoster(true);
+      apiClient.getStudents(selectedGuruClass)
+        .then((res) => {
+          if (res && res.status === 'success' && Array.isArray(res.students) && res.students.length > 0) {
+            setStudentsRoster(res.students);
+          } else {
+            apiClient.getCrud('Master_Siswa').then((crudRes) => {
+              if (crudRes && crudRes.status === 'success' && Array.isArray(crudRes.rows)) {
+                const headersLower = (crudRes.headers || []).map((h) => String(h || '').toLowerCase().trim());
+                const nisnIdx = headersLower.indexOf('nisn');
+                const namaIdx = headersLower.indexOf('nama') !== -1 ? headersLower.indexOf('nama') : headersLower.indexOf('nama siswa');
+                const kelasIdx = headersLower.indexOf('kelas');
+                const genderIdx = headersLower.indexOf('jenis kelamin') !== -1 ? headersLower.indexOf('jenis kelamin') : headersLower.indexOf('jk');
+
+                const filtered = crudRes.rows
+                  .map((row) => ({
+                    id: row.rowIndex,
+                    nisn: (nisnIdx !== -1 && row.data) ? row.data[nisnIdx] : '',
+                    nama: (namaIdx !== -1 && row.data) ? row.data[namaIdx] : '',
+                    kelas: (kelasIdx !== -1 && row.data) ? row.data[kelasIdx] : '',
+                    gender: (genderIdx !== -1 && row.data) ? row.data[genderIdx] : 'Laki-laki',
+                  }))
+                  .filter((s) => s.nama && s.kelas && String(s.kelas).toLowerCase().trim() === String(selectedGuruClass || '').toLowerCase().trim());
+
+                setStudentsRoster(filtered);
+              } else {
+                setStudentsRoster([]);
+              }
+            }).catch(() => setStudentsRoster([]));
+          }
+        })
+        .catch(() => setStudentsRoster([]))
+        .finally(() => setIsLoadingRoster(false));
+    }
+  }, [subTab, selectedGuruClass]);
+
+  // Matrix calculation per student
+  const classStudentMatrix = useMemo(() => {
+    if (!selectedGuru || !selectedGuruClass || !Array.isArray(studentsRoster)) return [];
+
+    const start = tanggalMulai ? new Date(tanggalMulai) : new Date(0);
+    const end = tanggalAkhir ? new Date(tanggalAkhir) : new Date(8640000000000000);
+
+    const matchedSessions = (allHistory || []).filter((record) => {
+      if (!record) return false;
+      const matchG = matchTeacher(record.guru, selectedGuru);
+      const matchK = record.kelas && String(record.kelas).toLowerCase().trim() === String(selectedGuruClass).toLowerCase().trim();
+      const matchM = !selectedMapel || matchMapel(record.mapel, selectedMapel);
+      const recordDate = new Date(record.tanggal);
+      const matchDate = recordDate >= start && recordDate <= end;
+      return matchG && matchK && matchM && matchDate;
+    });
+
+    const totalSessions = matchedSessions.length;
+
+    return (studentsRoster || [])
+      .filter((s) => s && (s.nama || s.nisn))
+      .map((s, idx) => {
+        let hadirCount = 0;
+        let sakitCount = 0;
+        let izinCount = 0;
+        let alpaCount = 0;
+        let terlambatCount = 0;
+
+        matchedSessions.forEach((session) => {
+          const ket = (session.keterangan || '').toLowerCase();
+          const studentNameLow = String(s.nama || '').toLowerCase();
+          const studentFirstName = studentNameLow.split(' ')[0] || '';
+
+          if (studentNameLow && ket.includes(`sakit: ${studentNameLow}`) || (studentFirstName.length > 2 && ket.includes(`sakit: ${studentFirstName}`))) {
+            sakitCount++;
+          } else if (studentNameLow && ket.includes(`izin: ${studentNameLow}`) || (studentFirstName.length > 2 && ket.includes(`izin: ${studentFirstName}`))) {
+            izinCount++;
+          } else if (studentNameLow && ket.includes(`alpa: ${studentNameLow}`) || (studentFirstName.length > 2 && ket.includes(`alpa: ${studentFirstName}`))) {
+            alpaCount++;
+          } else if (studentNameLow && ket.includes(`terlambat: ${studentNameLow}`) || (studentFirstName.length > 2 && ket.includes(`terlambat: ${studentFirstName}`))) {
+            hadirCount++;
+            terlambatCount++;
+          } else {
+            hadirCount++;
+          }
+        });
+
+        // Cross-reference kiosk scans
+        const studentKioskScans = (kioskHistory || []).filter((k) => {
+          if (!k) return false;
+          const matchN = (k.nisn && s.nisn && k.nisn === s.nisn) || (k.nama && s.nama && String(k.nama).toLowerCase().trim() === String(s.nama).toLowerCase().trim());
+          const recordDate = new Date(k.tanggal || '');
+          const matchDate = recordDate >= start && recordDate <= end;
+          return matchN && matchDate;
+        });
+
+        if (totalSessions === 0 && studentKioskScans.length > 0) {
+          studentKioskScans.forEach((k) => {
+            if (k.status === 'Hadir') hadirCount++;
+            else if (k.status === 'Terlambat') { hadirCount++; terlambatCount++; }
+            else if (k.status === 'Sakit') sakitCount++;
+            else if (k.status === 'Izin') izinCount++;
+            else if (k.status === 'Alpa') alpaCount++;
+          });
+        }
+
+        const effectiveSessions = totalSessions || (hadirCount + sakitCount + izinCount + alpaCount) || 1;
+        const persentase = Math.min(100, Math.round((hadirCount / effectiveSessions) * 100));
+
+        let statusBadge = 'Sangat Baik';
+        let badgeColor = 'bg-emerald-100 text-emerald-800 border-emerald-200';
+        if (persentase < 70 || alpaCount > 2) {
+          statusBadge = 'Alpa Tinggi';
+          badgeColor = 'bg-rose-100 text-rose-800 border-rose-200';
+        } else if (persentase < 80 || sakitCount + izinCount + alpaCount > 3) {
+          statusBadge = 'Perlu Perhatian';
+          badgeColor = 'bg-amber-100 text-amber-800 border-amber-200';
+        } else if (persentase < 90) {
+          statusBadge = 'Baik';
+          badgeColor = 'bg-blue-100 text-blue-800 border-blue-200';
+        }
+
+        return {
+          no: idx + 1,
+          id: s.id || idx,
+          nisn: s.nisn || '-',
+          nama: s.nama || 'Siswa',
+          gender: s.gender || 'Laki-laki',
+          kelas: selectedGuruClass,
+          totalSessions: effectiveSessions,
+          hadir: hadirCount,
+          sakit: sakitCount,
+          izin: izinCount,
+          alpa: alpaCount,
+          terlambat: terlambatCount,
+          persentase,
+          statusBadge,
+          badgeColor,
+        };
+      });
+  }, [selectedGuru, selectedGuruClass, selectedMapel, tanggalMulai, tanggalAkhir, allHistory, kioskHistory, studentsRoster]);
+
+  const handleSaveClassRecapToSpreadsheet = async () => {
+    if (!selectedGuru || !selectedGuruClass) {
+      alert('Harap pilih Guru Pengampu dan Kelas terlebih dahulu!');
+      return;
+    }
+    if (classStudentMatrix.length === 0) {
+      alert('Tidak ada data siswa untuk disimpan.');
+      return;
+    }
+
+    setIsSavingRecap(true);
+    try {
+      const payload = {
+        guru: selectedGuru,
+        kelas: selectedGuruClass,
+        mapel: selectedMapel || 'Semua Mapel',
+        periode: `${tanggalMulai} s/d ${tanggalAkhir}`,
+        tanggal: getLocalDateString(),
+        recapRows: classStudentMatrix.map((r) => ({
+          nisn: r.nisn,
+          nama: r.nama,
+          hadir: r.hadir,
+          sakit: r.sakit,
+          izin: r.izin,
+          alpa: r.alpa,
+          terlambat: r.terlambat,
+          persentase: r.persentase,
+          status: r.statusBadge,
+        })),
+      };
+
+      const res = await apiClient.saveStudentClassRecap(payload);
+      alert(res.message || 'Rekap kehadiran siswa per kelas berhasil disimpan ke Spreadsheet!');
+    } catch (err: any) {
+      console.error(err);
+      alert('Gagal menyimpan rekap: ' + (err.message || 'Terjadi kesalahan'));
+    } finally {
+      setIsSavingRecap(false);
+    }
+  };
+
+  const handleDownloadClassMatrixPDF = () => {
+    if (classStudentMatrix.length === 0) {
+      alert('Tidak ada data siswa untuk dicetak.');
+      return;
+    }
+
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const today = new Date();
+    const formattedDateStr = today.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
+
+    const primaryColor: [number, number, number] = [30, 41, 59];
+
+    // Official Kop Surat Header
+    renderOfficialKopSurat(doc, customization);
+
+    // Title
+    doc.setFontSize(11);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`LAPORAN REKAPITULASI KEHADIRAN SISWA KELAS ${selectedGuruClass}`, 105, 40, { align: 'center' });
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Periode: ${tanggalMulai} s/d ${tanggalAkhir}`, 105, 45, { align: 'center' });
+
+    // Summary Box
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(10, 49, 190, 15, 2, 2, 'FD');
+
+    const avgRate = classStudentMatrix.length > 0
+      ? Math.round(classStudentMatrix.reduce((acc, curr) => acc + curr.persentase, 0) / classStudentMatrix.length)
+      : 0;
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Guru Pengampu : ${selectedGuru}`, 14, 54);
+    doc.text(`Mata Pelajaran : ${selectedMapel || 'Semua Mata Pelajaran'}`, 14, 59);
+
+    doc.text(`Total Siswa          : ${classStudentMatrix.length} Siswa`, 120, 54);
+    doc.text(`Rata-rata Kelas : ${avgRate}% Kehadiran`, 120, 59);
+
+    const tableBody = classStudentMatrix.map((r, i) => [
+      i + 1,
+      r.nisn || '-',
+      r.nama,
+      r.gender ? r.gender.charAt(0) : 'L',
+      r.totalSessions,
+      r.hadir,
+      r.sakit,
+      r.izin,
+      r.alpa,
+      r.terlambat,
+      `${r.persentase}%`,
+      r.statusBadge,
+    ]);
+
+    autoTable(doc, {
+      startY: 63,
+      head: [['No', 'NISN', 'Nama Siswa', 'JK', 'Sesi', 'Hadir', 'Sakit', 'Izin', 'Alpa', 'Terl.', '% Hadir', 'Status']],
+      body: tableBody,
+      theme: 'grid',
+      headStyles: {
+        fillColor: [30, 41, 59],
+        textColor: 255,
+        fontSize: 8,
+        fontStyle: 'bold',
+        halign: 'center',
+      },
+      bodyStyles: {
+        fontSize: 7.5,
+        textColor: [51, 65, 85],
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252],
+      },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 8 },
+        1: { halign: 'center', cellWidth: 22 },
+        2: { cellWidth: 48 },
+        3: { halign: 'center', cellWidth: 10 },
+        4: { halign: 'center', cellWidth: 12 },
+        5: { halign: 'center', cellWidth: 12 },
+        6: { halign: 'center', cellWidth: 12 },
+        7: { halign: 'center', cellWidth: 12 },
+        8: { halign: 'center', cellWidth: 12 },
+        9: { halign: 'center', cellWidth: 12 },
+        10: { halign: 'center', cellWidth: 14 },
+        11: { halign: 'center', cellWidth: 18 },
+      },
+      margin: { left: 10, right: 10 },
+    });
+
+    let finalY = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 12 : 180;
+
+    if (finalY + 45 > 280) {
+      doc.addPage();
+      finalY = 25;
+    }
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(30, 41, 59);
+
+    const leftX = 20;
+    const rightX = 135;
+
+    doc.text('Mengetahui,', leftX, finalY);
+    doc.text('Kepala Sekolah', leftX, finalY + 5);
+    doc.setFont('Helvetica', 'bold');
+    doc.text(customization?.kepalaSekolahNama || 'Kepala Sekolah', leftX, finalY + 25);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '-'}`, leftX, finalY + 30);
+
+    doc.text(`Palu, ${formattedDateStr}`, rightX, finalY);
+    doc.text('Guru Pengampu Mata Pelajaran', rightX, finalY + 5);
+    doc.setFont('Helvetica', 'bold');
+    doc.text(selectedGuru, rightX, finalY + 25);
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`NIP. ${teachers.find((t) => t.nama === selectedGuru)?.nip || '-'}`, rightX, finalY + 30);
+
+    doc.save(`Rekap_Kehadiran_Siswa_Kelas_${selectedGuruClass}_${selectedGuru.replace(/\s+/g, '_')}.pdf`);
+  };
+
+  const handleExportClassMatrixExcel = () => {
+    if (classStudentMatrix.length === 0) {
+      alert('Tidak ada data siswa untuk diekspor.');
+      return;
+    }
+
+    const todayStr = getLocalDateString();
+
+    const dataRows = [
+      ['REKAPITULASI KEHADIRAN SISWA PER KELAS'],
+      [`Sekolah: ${customization?.appName || 'SMP NEGERI 11 PALU'}`],
+      [`Guru Pengampu: ${selectedGuru}`, `Mata Pelajaran: ${selectedMapel || 'Semua Mapel'}`, `Kelas: ${selectedGuruClass}`],
+      [`Periode: ${tanggalMulai} s/d ${tanggalAkhir}`, `Tanggal Unduh: ${todayStr}`],
+      [],
+      ['ID_Rekap', 'TanggalRekap', 'GuruPengampu', 'MataPelajaran', 'Kelas', 'NISN', 'NamaSiswa', 'Hadir', 'Sakit', 'Izin', 'Alpa', 'Terlambat', 'PersentaseKehadiran', 'Status']
+    ];
+
+    classStudentMatrix.forEach((r) => {
+      dataRows.push([
+        `RKP-${selectedGuruClass}-${r.nisn || '0'}`,
+        todayStr,
+        selectedGuru,
+        selectedMapel || 'Semua Mapel',
+        selectedGuruClass,
+        r.nisn || '-',
+        r.nama,
+        r.hadir,
+        r.sakit,
+        r.izin,
+        r.alpa,
+        r.terlambat,
+        `${r.persentase}%`,
+        r.statusBadge
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(dataRows);
+
+    ws['!cols'] = [
+      { wch: 22 }, // ID_Rekap
+      { wch: 14 }, // TanggalRekap
+      { wch: 28 }, // GuruPengampu
+      { wch: 22 }, // MataPelajaran
+      { wch: 10 }, // Kelas
+      { wch: 16 }, // NISN
+      { wch: 30 }, // NamaSiswa
+      { wch: 8 },  // Hadir
+      { wch: 8 },  // Sakit
+      { wch: 8 },  // Izin
+      { wch: 8 },  // Alpa
+      { wch: 10 }, // Terlambat
+      { wch: 20 }, // PersentaseKehadiran
+      { wch: 18 }  // Status
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `Rekap_Kelas_${selectedGuruClass}`);
+
+    const fileName = `Rekap_Kehadiran_Kelas_${selectedGuruClass}_${selectedGuru.replace(/\s+/g, '_')}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  };
+
+  // Fetch Master lists and full history when opening PDF or Rekap Kelas tab
+  useEffect(() => {
+    if (subTab === 'rekap-pdf' || subTab === 'rekap-kelas-guru') {
       setIsLoadingMasters(true);
       setIsLoadingAllHistory(true);
       
@@ -447,6 +1620,34 @@ export function HistoryView({
     }
   };
 
+  const handleApplyGuruAbsenFilter = async () => {
+    const cachedAbsen = localStorage.getItem('absensi_history_guru_absen');
+    let hasCache = false;
+    if (cachedAbsen) {
+      try {
+        let parsed = JSON.parse(cachedAbsen);
+        if (filterGuruTanggal) parsed = parsed.filter((h: any) => h.tanggal === filterGuruTanggal);
+        setGuruAbsenHistory(parsed);
+        hasCache = true;
+      } catch (e) {}
+    }
+
+    if (!hasCache) {
+      setIsLoadingGuru(true);
+    }
+
+    try {
+      const res = await apiClient.getGuruAttendanceHistory('');
+      if (res.status === 'success' && Array.isArray(res.history)) {
+        setGuruAbsenHistory(res.history);
+      }
+    } catch (err) {
+      console.error('Failed to load Guru attendance history:', err);
+    } finally {
+      setIsLoadingGuru(false);
+    }
+  };
+
   const handleApplyKioskFilter = async (targetPeriode = filterKioskPeriode) => {
     setIsLoadingKiosk(true);
     try {
@@ -518,6 +1719,12 @@ export function HistoryView({
   }, [subTab, filterKioskTanggal, filterKioskKelas]);
 
   useEffect(() => {
+    if (subTab === 'guru-absen') {
+      handleApplyGuruAbsenFilter();
+    }
+  }, [subTab, filterGuruTanggal]);
+
+  useEffect(() => {
     if (subTab === 'tendik-absen' || subTab === 'tendik-izin') {
       handleApplyTendikFilter();
     }
@@ -525,7 +1732,7 @@ export function HistoryView({
 
   const openDeleteConfirmModal = (
     rowIndex: string | number,
-    type: 'siswa' | 'kiosk-siswa' | 'guru' | 'tendik-absen' | 'tendik-izin',
+    type: 'siswa' | 'kiosk-siswa' | 'guru' | 'guru-absen' | 'tendik-absen' | 'tendik-izin',
     kioskItem?: KioskScanRecord
   ) => {
     setDeletingRowIndex(rowIndex);
@@ -559,6 +1766,9 @@ export function HistoryView({
       } else if (deletingRecordType === 'guru') {
         await onDeleteTeacherRecord(deletingRowIndex);
         await onFilterTeacher(filterGuruTanggal);
+      } else if (deletingRecordType === 'guru-absen') {
+        await apiClient.deleteGuruAttendanceRecord(deletingRowIndex);
+        await handleApplyGuruAbsenFilter();
       } else if (deletingRecordType === 'tendik-absen') {
         await apiClient.deleteTendikAttendanceRecord(deletingRowIndex);
         await handleApplyTendikFilter();
@@ -683,6 +1893,17 @@ export function HistoryView({
     });
   }, [teacherHistoryList, filterGuruPeriode, filterGuruTanggal, filterGuruTanggalAwal, filterGuruTanggalAkhir]);
 
+  // 3.5. Filtered Guru Absen History
+  const filteredGuruAbsenHistory = useMemo(() => {
+    return guruAbsenHistory.filter((item) => {
+      const range = getDateRangeForPeriode(filterGuruAbsenPeriode, filterGuruAbsenTanggalAwal, filterGuruAbsenTanggalAkhir);
+      if (filterGuruTanggal && filterGuruAbsenPeriode === 'kustom') {
+        return isRecordInDateRange(item.tanggal, filterGuruTanggal, filterGuruTanggal);
+      }
+      return isRecordInDateRange(item.tanggal, range.startDate, range.endDate);
+    });
+  }, [guruAbsenHistory, filterGuruAbsenPeriode, filterGuruTanggal, filterGuruAbsenTanggalAwal, filterGuruAbsenTanggalAkhir]);
+
   // 4. Filtered Tendik Absen History
   const filteredTendikAbsenHistory = useMemo(() => {
     return tendikAbsenHistory.filter((item) => {
@@ -714,24 +1935,18 @@ export function HistoryView({
 
     const periodeLabel = getPeriodeLabelText(filterSiswaPeriode, filterSiswaTanggalAwal, filterSiswaTanggalAkhir);
 
-    // Header Title
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.rect(0, 0, 210, 15, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(11);
-    doc.setFont('Helvetica', 'bold');
-    doc.text((customization?.appName || 'E-ABSENSI').toUpperCase(), 15, 10);
+    // Render Official Kop Surat
+    renderOfficialKopSurat(doc, customization);
 
-    doc.setFontSize(15);
+    doc.setFontSize(12);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('LAPORAN REKAPITULASI PRESENSI KELAS SISWA', 15, 28);
+    doc.text('LAPORAN REKAPITULASI PRESENSI KELAS SISWA', 105, 41, { align: 'center' });
 
-    doc.setFontSize(9.5);
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
-    doc.text(`Periode: ${periodeLabel} | Kelas: ${filterSiswaKelas || 'Semua Kelas'}`, 15, 35);
-    doc.text(`Dicetak pada: ${new Date().toLocaleString('id-ID')}`, 15, 40);
+    doc.text(`Periode: ${periodeLabel} | Kelas: ${filterSiswaKelas || 'Semua Kelas'} | Dicetak: ${new Date().toLocaleString('id-ID')}`, 105, 46, { align: 'center' });
 
     let totalHadir = 0, totalSakit = 0, totalIzin = 0, totalAlpa = 0;
     filteredSiswaHistory.forEach(item => {
@@ -742,11 +1957,11 @@ export function HistoryView({
     });
 
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(15, 45, 180, 12, 2, 2, 'F');
+    doc.roundedRect(15, 50, 180, 12, 2, 2, 'F');
     doc.setFontSize(9);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
-    doc.text(`Total Sesi: ${filteredSiswaHistory.length} | Hadir: ${totalHadir} | Sakit: ${totalSakit} | Izin: ${totalIzin} | Alpa: ${totalAlpa}`, 20, 52.5);
+    doc.text(`Total Sesi: ${filteredSiswaHistory.length} | Hadir: ${totalHadir} | Sakit: ${totalSakit} | Izin: ${totalIzin} | Alpa: ${totalAlpa}`, 20, 57.5);
 
     const tableHeaders = [['No', 'Tanggal', 'Waktu', 'Kelas', 'Mata Pelajaran', 'Hadir', 'Sakit', 'Izin', 'Alpa', 'Guru Absen']];
     const tableBody = filteredSiswaHistory.map((item, idx) => [
@@ -763,7 +1978,7 @@ export function HistoryView({
     ]);
 
     autoTable(doc, {
-      startY: 62,
+      startY: 67,
       head: tableHeaders,
       body: tableBody,
       theme: 'striped',
@@ -821,24 +2036,17 @@ export function HistoryView({
 
     const periodeLabel = getPeriodeLabelText(filterKioskPeriode, filterKioskTanggalAwal, filterKioskTanggalAkhir);
 
-    // Header Title
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.rect(0, 0, 210, 15, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(11);
-    doc.setFont('Helvetica', 'bold');
-    doc.text((customization?.appName || 'E-ABSENSI').toUpperCase(), 15, 10);
+    renderOfficialKopSurat(doc, customization);
 
-    doc.setFontSize(15);
+    doc.setFontSize(12);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text('REKAPITULASI PRESENSI MASUK SISWA (GERBANG/KIOSK)', 15, 28);
+    doc.text('REKAPITULASI PRESENSI MASUK SISWA (GERBANG/KIOSK)', 105, 40, { align: 'center' });
 
-    doc.setFontSize(9.5);
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
-    doc.text(`Periode: ${periodeLabel} | Kelas: ${filterKioskKelas || 'Semua Kelas'}`, 15, 35);
-    doc.text(`Dicetak pada: ${new Date().toLocaleString('id-ID')}`, 15, 40);
+    doc.text(`Periode: ${periodeLabel} | Kelas: ${filterKioskKelas || 'Semua Kelas'} | Dicetak: ${new Date().toLocaleString('id-ID')}`, 105, 45, { align: 'center' });
 
     // Summary counts
     const totalScan = filteredKioskHistory.length;
@@ -846,11 +2054,11 @@ export function HistoryView({
     const totalTerlambat = filteredKioskHistory.filter(h => (h.status || '').toLowerCase().includes('terlambat')).length;
 
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(15, 45, 180, 12, 2, 2, 'F');
+    doc.roundedRect(15, 49, 180, 12, 2, 2, 'F');
     doc.setFontSize(9);
     doc.setFont('Helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
-    doc.text(`Total Masuk: ${totalScan} Siswa  |  Tepat Waktu (Hadir): ${totalHadir}  |  Terlambat: ${totalTerlambat}`, 20, 52.5);
+    doc.text(`Total Masuk: ${totalScan} Siswa  |  Tepat Waktu (Hadir): ${totalHadir}  |  Terlambat: ${totalTerlambat}`, 20, 56.5);
 
     const tableHeaders = [['No', 'Tanggal', 'Waktu', 'NISN', 'Nama Siswa', 'Kelas', 'Status', 'Keterlambatan']];
     const tableBody = filteredKioskHistory.map((item, idx) => {
@@ -868,7 +2076,7 @@ export function HistoryView({
     });
 
     autoTable(doc, {
-      startY: 62,
+      startY: 66,
       head: tableHeaders,
       body: tableBody,
       theme: 'striped',
@@ -933,16 +2141,6 @@ export function HistoryView({
       setTanggalMulai(getLocalDateString(lastMonth));
       setTanggalAkhir(todayStr);
     }
-  };
-
-  const matchTeacher = (recordGuru: string, targetNama: string) => {
-    if (!recordGuru || !targetNama) return false;
-    return recordGuru.toLowerCase().trim() === targetNama.toLowerCase().trim();
-  };
-
-  const matchMapel = (recordMapel: string, targetMapel: string) => {
-    if (!recordMapel || !targetMapel) return false;
-    return recordMapel.toLowerCase().trim() === targetMapel.toLowerCase().trim();
   };
 
   // Generate grouped processed attendance logs
@@ -1030,42 +2228,40 @@ export function HistoryView({
     const primaryColor: [number, number, number] = [30, 41, 59]; // Slate 800 (#1e293b)
     const secondaryColor: [number, number, number] = [59, 130, 246]; // Blue 600
 
-    // Page 1: Header
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.rect(0, 0, 210, 15, 'F'); // Top accent bar
+    // Official Kop Surat Header
+    renderOfficialKopSurat(doc, customization);
 
     // Title
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(16);
+    doc.setFontSize(13);
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text('LAPORAN REKAPITULASI KEHADIRAN GURU & SISWA', 105, 30, { align: 'center' });
+    doc.text('LAPORAN REKAPITULASI KEHADIRAN GURU & SISWA', 105, 40, { align: 'center' });
     
-    // Subtitle / School Name
-    doc.setFontSize(11);
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(100, 116, 139); // Slate 500
-    doc.text('Sistem Informasi E-Absensi Sekolah Digital', 105, 36, { align: 'center' });
+    doc.text(`Guru: ${selectedGuru} | Mapel: ${selectedMapel} | Periode: ${tanggalMulai} s.d. ${tanggalAkhir}`, 105, 45, { align: 'center' });
 
     // Decorative underline
     doc.setDrawColor(226, 232, 240); // Slate 200
-    doc.setLineWidth(1);
-    doc.line(15, 41, 195, 41);
+    doc.setLineWidth(0.5);
+    doc.line(15, 48, 195, 48);
 
     // Metadata Grid (Teacher and Subject Info)
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text('INFORMASI LAPORAN:', 15, 48);
+    doc.text('INFORMASI LAPORAN:', 15, 54);
 
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105); // Slate 600
-    doc.text(`Nama Guru Pengampu :  ${selectedGuru}`, 15, 54);
-    doc.text(`NIP Guru                      :  ${teachers.find(t => t.nama === selectedGuru)?.nip || '-'}`, 15, 60);
-    doc.text(`Mata Pelajaran            :  ${selectedMapel}`, 15, 66);
-    doc.text(`Periode Laporan          :  ${tanggalMulai} s.d. ${tanggalAkhir}`, 15, 72);
-    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 78);
+    doc.text(`Nama Guru Pengampu :  ${selectedGuru}`, 15, 60);
+    doc.text(`NIP Guru                      :  ${teachers.find(t => t.nama === selectedGuru)?.nip || '-'}`, 15, 65);
+    doc.text(`Mata Pelajaran            :  ${selectedMapel}`, 15, 70);
+    doc.text(`Periode Laporan          :  ${tanggalMulai} s.d. ${tanggalAkhir}`, 15, 75);
+    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 80);
 
-    doc.line(15, 83, 195, 83);
+    doc.line(15, 84, 195, 84);
 
     let currentY = 90;
 
@@ -1191,42 +2387,39 @@ export function HistoryView({
     const primaryColor: [number, number, number] = [30, 41, 59]; // Slate 800
     const periodeLabel = getPeriodeLabelText(filterGuruPeriode, filterGuruTanggalAwal, filterGuruTanggalAkhir);
 
-    // Page 1: Header
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.rect(0, 0, 210, 15, 'F'); // Top accent bar
+    renderOfficialKopSurat(doc, customization);
 
     // Title
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(15);
+    doc.setFontSize(13);
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text('LAPORAN REKAPITULASI IZIN & KETIDAKHADIRAN GURU', 105, 30, { align: 'center' });
+    doc.text('LAPORAN REKAPITULASI IZIN & KETIDAKHADIRAN GURU', 105, 40, { align: 'center' });
     
-    // Subtitle / School Name
-    doc.setFontSize(11);
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(100, 116, 139); // Slate 500
-    doc.text('Sistem Informasi E-Absensi Sekolah Digital', 105, 36, { align: 'center' });
+    doc.text(`Periode: ${periodeLabel} | Total Guru Izin/Sakit: ${filteredGuruHistory.length} Orang`, 105, 45, { align: 'center' });
 
     // Decorative underline
     doc.setDrawColor(226, 232, 240); // Slate 200
-    doc.setLineWidth(1);
-    doc.line(15, 41, 195, 41);
+    doc.setLineWidth(0.5);
+    doc.line(15, 48, 195, 48);
 
     // Metadata Grid
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text('INFORMASI REKAPITULASI:', 15, 48);
+    doc.text('INFORMASI REKAPITULASI:', 15, 54);
 
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105); // Slate 600
-    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 54);
-    doc.text(`Total Guru Izin/Sakit   :  ${filteredGuruHistory.length} Orang`, 15, 60);
-    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 66);
+    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 60);
+    doc.text(`Total Guru Izin/Sakit   :  ${filteredGuruHistory.length} Orang`, 15, 65);
+    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 70);
 
-    doc.line(15, 71, 195, 71);
+    doc.line(15, 74, 195, 74);
 
-    let currentY = 78;
+    let currentY = 80;
 
     // Render Teacher History logs table
     const tableHeaders = [['No', 'Tanggal', 'Waktu', 'NIP Guru', 'Nama Guru', 'Status / Keterangan', 'Alasan / Detail Izin']];
@@ -1307,42 +2500,39 @@ export function HistoryView({
     const primaryColor: [number, number, number] = [30, 41, 59]; // Slate 800
     const periodeLabel = getPeriodeLabelText(filterTendikAbsenPeriode, filterTendikAbsenTanggalAwal, filterTendikAbsenTanggalAkhir);
 
-    // Header
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.rect(0, 0, 210, 15, 'F'); // Top accent bar
+    renderOfficialKopSurat(doc, customization);
 
     // Title
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(14);
+    doc.setFontSize(13);
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text('LAPORAN REKAPITULASI PRESENSI HADIR TENDIK', 105, 30, { align: 'center' });
+    doc.text('LAPORAN REKAPITULASI PRESENSI HADIR TENDIK', 105, 40, { align: 'center' });
     
-    // Subtitle / School Name
-    doc.setFontSize(11);
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(100, 116, 139); // Slate 500
-    doc.text('Sistem Informasi E-Absensi Sekolah Digital', 105, 36, { align: 'center' });
+    doc.text(`Periode: ${periodeLabel} | Total Tendik Hadir: ${filteredTendikAbsenHistory.length} Orang`, 105, 45, { align: 'center' });
 
     // Decorative underline
     doc.setDrawColor(226, 232, 240); // Slate 200
-    doc.setLineWidth(1);
-    doc.line(15, 41, 195, 41);
+    doc.setLineWidth(0.5);
+    doc.line(15, 48, 195, 48);
 
     // Metadata Grid
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text('INFORMASI REKAPITULASI:', 15, 48);
+    doc.text('INFORMASI REKAPITULASI:', 15, 54);
 
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105); // Slate 600
-    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 54);
-    doc.text(`Total Tendik Hadir       :  ${filteredTendikAbsenHistory.length} Orang`, 15, 60);
-    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 66);
+    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 60);
+    doc.text(`Total Tendik Hadir       :  ${filteredTendikAbsenHistory.length} Orang`, 15, 65);
+    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 70);
 
-    doc.line(15, 71, 195, 71);
+    doc.line(15, 74, 195, 74);
 
-    let currentY = 78;
+    let currentY = 80;
 
     // Table
     const tableHeaders = [['No', 'Tanggal', 'Waktu', 'Tipe Presensi', 'NIP Tendik', 'Nama Lengkap', 'Status']];
@@ -1406,6 +2596,117 @@ export function HistoryView({
     doc.save(`Rekap_Presensi_Hadir_Tendik_${filterTendikAbsenPeriode}.pdf`);
   };
 
+  // Download Guru Presence PDF Report
+  const handleDownloadGuruAbsenPDF = () => {
+    if (filteredGuruAbsenHistory.length === 0) return;
+
+    const doc = new jsPDF('p', 'mm', 'a4');
+    const today = new Date();
+    const formattedDateStr = today.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+
+    const primaryColor: [number, number, number] = [30, 41, 59]; // Slate 800
+    const periodeLabel = getPeriodeLabelText(filterGuruAbsenPeriode, filterGuruAbsenTanggalAwal, filterGuruAbsenTanggalAkhir);
+
+    renderOfficialKopSurat(doc, customization);
+
+    // Title
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('LAPORAN REKAPITULASI PRESENSI HADIR GURU', 105, 40, { align: 'center' });
+    
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(100, 116, 139); // Slate 500
+    doc.text(`Periode: ${periodeLabel} | Total Guru Hadir: ${filteredGuruAbsenHistory.length} Orang`, 105, 45, { align: 'center' });
+
+    // Decorative underline
+    doc.setDrawColor(226, 232, 240); // Slate 200
+    doc.setLineWidth(0.5);
+    doc.line(15, 48, 195, 48);
+
+    // Metadata Grid
+    doc.setFont('Helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('INFORMASI REKAPITULASI:', 15, 54);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(71, 85, 105); // Slate 600
+    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 60);
+    doc.text(`Total Guru Hadir         :  ${filteredGuruAbsenHistory.length} Orang`, 15, 65);
+    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 70);
+
+    doc.line(15, 74, 195, 74);
+
+    let currentY = 80;
+
+    // Table
+    const tableHeaders = [['No', 'Tanggal', 'Waktu', 'Tipe Presensi', 'NIP Guru', 'Nama Lengkap', 'Status']];
+    const tableBody = filteredGuruAbsenHistory.map((item, idx) => [
+      idx + 1,
+      item.tanggal,
+      item.waktu ? item.waktu.substring(0, 5) : '-',
+      item.tipeAbsen === 'Pulang' ? 'Absen Pulang' : 'Absen Datang',
+      item.nip || '-',
+      item.namaGuru,
+      'Hadir'
+    ]);
+
+    autoTable(doc, {
+      startY: currentY,
+      head: tableHeaders,
+      body: tableBody,
+      theme: 'striped',
+      headStyles: {
+        fillColor: primaryColor,
+        textColor: [255, 255, 255],
+        fontSize: 9,
+        halign: 'center'
+      },
+      bodyStyles: {
+        fontSize: 9,
+        textColor: [51, 65, 85]
+      },
+      columnStyles: {
+        0: { cellWidth: 15, halign: 'center' },
+        1: { cellWidth: 35, halign: 'center' },
+        2: { cellWidth: 30, halign: 'center' },
+        3: { cellWidth: 35, halign: 'center' },
+        4: { cellWidth: 'auto' },
+        5: { cellWidth: 35, halign: 'center' }
+      },
+      margin: { left: 15, right: 15 },
+      styles: { overflow: 'linebreak' }
+    });
+
+    currentY = (doc as any).lastAutoTable.finalY + 15;
+
+    // Signature Block
+    if (currentY > 230) {
+      doc.addPage();
+      doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.rect(0, 0, 210, 10, 'F');
+      currentY = 25;
+    }
+
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('Mengetahui,', 140, currentY);
+    doc.text('Kepala Sekolah,', 140, currentY + 5);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
+
+    doc.save(`Rekap_Presensi_Hadir_Guru_${filterGuruAbsenPeriode}.pdf`);
+  };
+
   // Download Tendik Permits PDF Report
   const handleDownloadTendikIzinPDF = () => {
     if (filteredTendikIzinHistory.length === 0) return;
@@ -1421,42 +2722,39 @@ export function HistoryView({
     const primaryColor: [number, number, number] = [79, 70, 229]; // Indigo 600
     const periodeLabel = getPeriodeLabelText(filterTendikIzinPeriode, filterTendikIzinTanggalAwal, filterTendikIzinTanggalAkhir);
 
-    // Header
-    doc.setFillColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.rect(0, 0, 210, 15, 'F'); // Top accent bar
+    renderOfficialKopSurat(doc, customization);
 
     // Title
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(14);
+    doc.setFontSize(13);
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text('LAPORAN REKAPITULASI IZIN & CUTI TENDIK', 105, 30, { align: 'center' });
+    doc.text('LAPORAN REKAPITULASI IZIN & CUTI TENDIK', 105, 40, { align: 'center' });
     
-    // Subtitle / School Name
-    doc.setFontSize(11);
+    doc.setFontSize(8.5);
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(100, 116, 139); // Slate 500
-    doc.text('Sistem Informasi E-Absensi Sekolah Digital', 105, 36, { align: 'center' });
+    doc.text(`Periode: ${periodeLabel} | Total Tendik Izin/Cuti: ${filteredTendikIzinHistory.length} Orang`, 105, 45, { align: 'center' });
 
     // Decorative underline
     doc.setDrawColor(226, 232, 240); // Slate 200
-    doc.setLineWidth(1);
-    doc.line(15, 41, 195, 41);
+    doc.setLineWidth(0.5);
+    doc.line(15, 48, 195, 48);
 
     // Metadata Grid
     doc.setFont('Helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-    doc.text('INFORMASI REKAPITULASI:', 15, 48);
+    doc.text('INFORMASI REKAPITULASI:', 15, 54);
 
     doc.setFont('Helvetica', 'normal');
     doc.setTextColor(71, 85, 105); // Slate 600
-    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 54);
-    doc.text(`Total Tendik Izin/Cuti :  ${filteredTendikIzinHistory.length} Orang`, 15, 60);
-    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 66);
+    doc.text(`Periode Rekap            :  ${periodeLabel}`, 15, 60);
+    doc.text(`Total Tendik Izin/Cuti :  ${filteredTendikIzinHistory.length} Orang`, 15, 65);
+    doc.text(`Tanggal Cetak             :  ${formattedDateStr}`, 15, 70);
 
-    doc.line(15, 71, 195, 71);
+    doc.line(15, 74, 195, 74);
 
-    let currentY = 78;
+    let currentY = 80;
 
     // Table
     const tableHeaders = [['No', 'Tanggal', 'Waktu', 'NIP Tendik', 'Nama Lengkap', 'Status', 'Keterangan / Alasan']];
@@ -1574,6 +2872,23 @@ export function HistoryView({
               <span>Riwayat Izin Guru</span>
             </button>
           )}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSubTab('guru-absen');
+                handleApplyGuruAbsenFilter();
+              }}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'guru-absen'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Clock className="w-4 h-4" />
+              <span>Riwayat Absen Guru</span>
+            </button>
+          )}
           {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
             <button
               type="button"
@@ -1618,6 +2933,48 @@ export function HistoryView({
             >
               <Download className="w-4 h-4" />
               <span>Unduh Rekap PDF</span>
+            </button>
+          )}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+            <button
+              type="button"
+              onClick={() => setSubTab('rekap-kelas-guru')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'rekap-kelas-guru'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <GraduationCap className="w-4 h-4" />
+              <span>Rekap Siswa Per Kelas (Guru)</span>
+            </button>
+          )}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+            <button
+              type="button"
+              onClick={() => setSubTab('rekap-guru')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'rekap-guru'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Calendar className="w-4 h-4" />
+              <span>Rekap Bulanan Guru</span>
+            </button>
+          )}
+          {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+            <button
+              type="button"
+              onClick={() => setSubTab('rekap-tendik')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 ${
+                subTab === 'rekap-tendik'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/10'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Rekap Bulanan Tendik</span>
             </button>
           )}
         </div>
@@ -2243,6 +3600,161 @@ export function HistoryView({
           </div>
         )}
 
+        {/* SUB TAB 1.5: RIWAYAT ABSEN GURU */}
+        {subTab === 'guru-absen' && (
+          <div className="space-y-6">
+            <div>
+              <h3 className="text-lg font-bold text-slate-800 tracking-tight">Riwayat Presensi Hadir Guru (Mandiri)</h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Daftar log kehadiran harian Guru (datang & pulang) beserta bukti foto diri.
+              </p>
+            </div>
+
+            {/* Filter Bar */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div className="sm:col-span-4">
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Periode Rekap</label>
+                <select
+                  value={filterGuruAbsenPeriode}
+                  onChange={(e) => {
+                    const val = e.target.value as PeriodType;
+                    setFilterGuruAbsenPeriode(val);
+                    handleApplyGuruAbsenFilter();
+                  }}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                >
+                  <option value="semua">Semua Waktu</option>
+                  <option value="hari_ini">Hari Ini</option>
+                  <option value="minggu_ini">7 Hari Terakhir</option>
+                  <option value="bulan_ini">Bulan Ini</option>
+                  <option value="kustom">Filter Tanggal Spesifik</option>
+                </select>
+              </div>
+
+              {filterGuruAbsenPeriode === 'kustom' && (
+                <>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Dari Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterGuruAbsenTanggalAwal}
+                      onChange={(e) => setFilterGuruAbsenTanggalAwal(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1.5">Sampai Tanggal</label>
+                    <input
+                      type="date"
+                      value={filterGuruAbsenTanggalAkhir}
+                      onChange={(e) => setFilterGuruAbsenTanggalAkhir(e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className={filterGuruAbsenPeriode === 'kustom' ? "sm:col-span-2 flex items-end gap-2" : "sm:col-span-8 flex items-end gap-2"}>
+                <button
+                  type="button"
+                  onClick={() => handleApplyGuruAbsenFilter()}
+                  disabled={isLoadingGuru}
+                  className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-sm shadow-blue-600/20"
+                >
+                  {isLoadingGuru ? <Loader2 className="w-4 h-4 animate-spin" /> : <Filter className="w-4 h-4" />}
+                  <span>Terapkan</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadGuruAbsenPDF}
+                  disabled={filteredGuruAbsenHistory.length === 0}
+                  className="py-2.5 px-3.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white font-bold rounded-xl text-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm shadow-emerald-600/20 whitespace-nowrap"
+                  title="Cetak Laporan PDF Presensi Guru"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="hidden sm:inline">Cetak PDF</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto rounded-2xl border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
+                  <tr>
+                    <th className="p-3.5 pl-4 w-40">Waktu Presensi</th>
+                    <th className="p-3.5 w-36">Tipe Presensi</th>
+                    <th className="p-3.5 w-36">NIP</th>
+                    <th className="p-3.5 w-56">Nama Lengkap</th>
+                    <th className="p-3.5 text-center w-36">Bukti Foto</th>
+                    <th className="p-3.5 pr-4 text-center w-24">Aksi</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredGuruAbsenHistory.length > 0 ? (
+                    filteredGuruAbsenHistory.map((item, idx) => (
+                      <tr key={`g-absen-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
+                        <td className="p-3.5 pl-4 font-mono text-slate-500 font-medium whitespace-nowrap">
+                          {item.tanggal} <span className="text-slate-300">|</span> {String(item.waktu || '').replace(/\s*\[.*?\]|\s*\(.*?\)/g, '').trim()}
+                        </td>
+                        <td className="p-3.5 whitespace-nowrap">
+                          {String(item.tipeAbsen || item.kategori || '').toLowerCase().includes('pulang') ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-50 text-amber-800 rounded-full text-[10px] font-extrabold border border-amber-200">
+                              <span>🌙</span> Absen Pulang
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-emerald-50 text-emerald-800 rounded-full text-[10px] font-extrabold border border-emerald-200">
+                              <span>☀️</span> Absen Datang
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-3.5 font-mono text-slate-600 font-semibold">{item.nip || '-'}</td>
+                        <td className="p-3.5 font-bold text-slate-800 text-sm">{item.namaGuru}</td>
+                        <td className="p-3.5 text-center">
+                          {item.photo ? (
+                            <button
+                              type="button"
+                              onClick={() => setSelectedPhoto(item.photo)}
+                              className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-[10px] font-bold inline-flex items-center gap-1 cursor-pointer border border-blue-200/40"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Lihat Foto</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-400 font-medium text-[10px]">Tanpa Foto</span>
+                          )}
+                        </td>
+                        <td className="p-3.5 pr-4 text-center">
+                          <div className="flex items-center justify-center gap-1.5">
+                            {currentUser?.role === 'Admin' && (
+                              <button
+                                type="button"
+                                onClick={() => openDeleteConfirmModal(item.rowIndex, 'guru-absen')}
+                                className="p-1.5 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-500 rounded-lg transition-colors cursor-pointer"
+                                title="Hapus presensi guru"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={6} className="p-12 text-center text-slate-400">
+                        <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                        <p className="text-xs font-semibold">Tidak ada riwayat presensi hadir Guru pada tanggal ini.</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {/* SUB TAB 2.1: RIWAYAT ABSEN TENDIK */}
         {subTab === 'tendik-absen' && (
           <div className="space-y-6">
@@ -2577,7 +4089,7 @@ export function HistoryView({
                 >
                   <option value="">-- Pilih Guru --</option>
                   {teachers.map((t, idx) => (
-                    <option key={`teacher-${t.nip || 'nip'}-${idx}`} value={t.nama}>
+                    <option key={`teacher-${t.nama || 'guru'}-${idx}`} value={t.nama}>
                       {t.nama}
                     </option>
                   ))}
@@ -2769,6 +4281,598 @@ export function HistoryView({
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* SUB TAB 4: REKAP SISWA PER KELAS GURU MENGAJAR */}
+        {subTab === 'rekap-kelas-guru' && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 tracking-tight flex items-center gap-2">
+                  <GraduationCap className="w-5.5 h-5.5 text-blue-600" />
+                  <span>Rekap Kehadiran Siswa Per Kelas (Guru Mengajar)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Rekap kehadiran siswa per kelas yang diampu oleh masing-masing guru. Data tersimpan ke Spreadsheet Google Sheets.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveClassRecapToSpreadsheet}
+                  disabled={isSavingRecap || classStudentMatrix.length === 0}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-600/15 cursor-pointer flex items-center gap-2"
+                >
+                  {isSavingRecap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>Simpan Ke Spreadsheet</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadClassMatrixPDF}
+                  disabled={classStudentMatrix.length === 0}
+                  className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-600/15 cursor-pointer flex items-center gap-2"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Cetak PDF Kelas</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleExportClassMatrixExcel}
+                  disabled={classStudentMatrix.length === 0}
+                  className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition-all border border-emerald-200/60 cursor-pointer flex items-center gap-1.5"
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                  <span>Unduh Excel (.xlsx)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Card */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Guru Pengampu</label>
+                <select
+                  value={selectedGuru}
+                  onChange={(e) => setSelectedGuru(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
+                >
+                  <option value="">-- Pilih Guru --</option>
+                  {teachers.map((t, idx) => (
+                    <option key={`gt-${t.nama || 'guru'}-${idx}`} value={t.nama}>
+                      {t.nama}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pilih Kelas Mengajar</label>
+                <select
+                  value={selectedGuruClass}
+                  onChange={(e) => setSelectedGuruClass(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
+                >
+                  <option value="">-- Pilih Kelas --</option>
+                  {classesTaughtByGuru.map((k, idx) => (
+                    <option key={`ck-${k}-${idx}`} value={k}>
+                      Kelas {k}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Mata Pelajaran (Opsional)</label>
+                <select
+                  value={selectedMapel}
+                  onChange={(e) => setSelectedMapel(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
+                >
+                  <option value="">-- Semua Mapel --</option>
+                  {mapels.map((m, idx) => (
+                    <option key={`m2-${m}-${idx}`} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Rentang Tanggal</label>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    value={tanggalMulai}
+                    onChange={(e) => setTanggalMulai(e.target.value)}
+                    className="w-1/2 p-2 rounded-xl border border-slate-200 text-[11px] font-semibold text-slate-700 bg-white"
+                  />
+                  <span className="text-slate-400 font-bold text-xs">s.d</span>
+                  <input
+                    type="date"
+                    value={tanggalAkhir}
+                    onChange={(e) => setTanggalAkhir(e.target.value)}
+                    className="w-1/2 p-2 rounded-xl border border-slate-200 text-[11px] font-semibold text-slate-700 bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Class Summary Bar */}
+            {selectedGuruClass && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Siswa Roster</span>
+                  <p className="text-xl font-extrabold text-slate-800">{classStudentMatrix.length} <span className="text-xs font-semibold text-slate-500">Siswa</span></p>
+                </div>
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Rata-Rata Kehadiran Kelas</span>
+                  <p className="text-xl font-extrabold text-emerald-600">
+                    {classStudentMatrix.length > 0
+                      ? (classStudentMatrix.reduce((acc, curr) => acc + curr.persentase, 0) / classStudentMatrix.length).toFixed(1)
+                      : '0'}%
+                  </p>
+                </div>
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Guru Pengampu</span>
+                  <p className="text-sm font-extrabold text-slate-800 truncate" title={selectedGuru}>{selectedGuru || '-'}</p>
+                  <p className="text-[10px] text-slate-400 font-medium truncate">NIP: {teachers.find(t => t.nama === selectedGuru)?.nip || '-'}</p>
+                </div>
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Kelas Active</span>
+                  <p className="text-xl font-extrabold text-blue-600">Kelas {selectedGuruClass}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Matrix Table */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/50">
+                <div className="relative flex-1 max-w-xs">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Cari nama siswa / NISN..."
+                    value={searchStudentQuery}
+                    onChange={(e) => setSearchStudentQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white"
+                  />
+                </div>
+
+                <div className="text-xs text-slate-500 font-semibold">
+                  Menampilkan <span className="font-bold text-slate-800">{classStudentMatrix.filter(s => !searchStudentQuery || s.nama.toLowerCase().includes(searchStudentQuery.toLowerCase()) || s.nisn.includes(searchStudentQuery)).length}</span> dari <span className="font-bold text-slate-800">{classStudentMatrix.length}</span> siswa
+                </div>
+              </div>
+
+              {isLoadingRoster ? (
+                <div className="p-12 text-center text-slate-400 space-y-2">
+                  <Loader2 className="w-8 h-8 animate-spin mx-auto text-blue-600" />
+                  <p className="text-xs font-semibold">Memuat daftar siswa kelas {selectedGuruClass}...</p>
+                </div>
+              ) : classStudentMatrix.length === 0 ? (
+                <div className="p-12 text-center space-y-3">
+                  <Users className="w-10 h-10 text-slate-300 mx-auto" />
+                  <p className="text-sm font-bold text-slate-600">Belum ada data siswa untuk kelas {selectedGuruClass || 'ini'}</p>
+                  <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                    Pilih guru dan kelas mengajar di atas untuk menampilkan matrix kehadiran per siswa.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/80 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                        <th className="py-3 px-4 text-center">No</th>
+                        <th className="py-3 px-4">NISN</th>
+                        <th className="py-3 px-4">Nama Siswa</th>
+                        <th className="py-3 px-4 text-center">Gender</th>
+                        <th className="py-3 px-4 text-center">Total Sesi</th>
+                        <th className="py-3 px-4 text-center text-emerald-700">Hadir</th>
+                        <th className="py-3 px-4 text-center text-amber-700">Sakit</th>
+                        <th className="py-3 px-4 text-center text-blue-700">Izin</th>
+                        <th className="py-3 px-4 text-center text-rose-700">Alpa</th>
+                        <th className="py-3 px-4 text-center text-indigo-700">% Hadir</th>
+                        <th className="py-3 px-4 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {classStudentMatrix
+                        .filter(s => !searchStudentQuery || s.nama.toLowerCase().includes(searchStudentQuery.toLowerCase()) || s.nisn.includes(searchStudentQuery))
+                        .map((row, idx) => (
+                          <tr key={`matrix-${row.id || idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
+                            <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                            <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">{row.nisn}</td>
+                            <td className="py-3 px-4 font-bold text-slate-800">{row.nama}</td>
+                            <td className="py-3 px-4 text-center text-slate-500 text-[11px]">{row.gender}</td>
+                            <td className="py-3 px-4 text-center font-bold text-slate-700">{row.totalSessions}</td>
+                            <td className="py-3 px-4 text-center font-black text-emerald-600">{row.hadir}</td>
+                            <td className="py-3 px-4 text-center font-bold text-amber-600">{row.sakit}</td>
+                            <td className="py-3 px-4 text-center font-bold text-blue-600">{row.izin}</td>
+                            <td className="py-3 px-4 text-center font-black text-rose-600">{row.alpa}</td>
+                            <td className="py-3 px-4 text-center font-black text-slate-800">
+                              <span className={`px-2 py-0.5 rounded-full text-[11px] ${row.persentase >= 85 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                                {row.persentase}%
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold border ${row.badgeColor}`}>
+                                {row.statusBadge}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SUB TAB 8: REKAP BULANAN GURU (PERSEORANGAN) */}
+        {subTab === 'rekap-guru' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 tracking-tight">Rekapitulasi Kehadiran Bulanan Guru (Perseorangan)</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Laporan rekap presensi bulanan perseorangan Guru. Tersimpan otomatis ke sheet <span className="font-bold text-blue-600">Rekap_Kehadiran Guru</span>.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveGuruMonthlyToSheets}
+                  disabled={isSavingGuruRecap}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isSavingGuruRecap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>Simpan ke Spreadsheet</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportGuruMonthlyPDF}
+                  className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Cetak PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportGuruMonthlyExcel}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Excel</span>
+                </button>
+              </div>
+            </div>
+
+            {savingRecapMsg && (
+              <div className={`p-4 rounded-2xl text-xs font-bold flex items-center gap-2 animate-fade-in ${savingRecapMsg.startsWith('✅') ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'}`}>
+                <span>{savingRecapMsg}</span>
+              </div>
+            )}
+
+            {/* Filter controls */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pilih Guru</label>
+                <select
+                  value={rekapGuruNip}
+                  onChange={(e) => setRekapGuruNip(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
+                >
+                  {listGuruUsers.map((g: any, idx: number) => (
+                    <option key={`guru-opt-${g.nip || idx}`} value={g.nip || g.nama}>
+                      {g.nama} {g.nip ? `(NIP: ${g.nip})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pilih Bulan & Tahun</label>
+                <input
+                  type="month"
+                  value={rekapGuruMonth}
+                  onChange={(e) => setRekapGuruMonth(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Target Hari Kerja (Bulan Ini)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={rekapGuruTargetDays}
+                  onChange={(e) => setRekapGuruTargetDays(parseInt(e.target.value, 10) || 22)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* Summary Stat Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Identitas Guru</span>
+                <p className="text-sm font-extrabold text-slate-800 truncate" title={guruMonthlyData.targetNama}>{guruMonthlyData.targetNama}</p>
+                <p className="text-[10px] text-slate-400 font-medium">NIP: {guruMonthlyData.targetNip || '-'}</p>
+              </div>
+
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Hadir</span>
+                <p className="text-xl font-extrabold text-emerald-600">{guruMonthlyData.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                <p className="text-[10px] text-slate-400 font-medium">Presensi Mandiri / Kiosk</p>
+              </div>
+
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                <p className="text-xl font-extrabold text-amber-600">
+                  {guruMonthlyData.countIzin + guruMonthlyData.countSakit + guruMonthlyData.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                </p>
+                <p className="text-[10px] text-slate-400 font-medium">S: {guruMonthlyData.countSakit} | I: {guruMonthlyData.countIzin} | DL/C: {guruMonthlyData.countCutiDL}</p>
+              </div>
+
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                <p className="text-xl font-extrabold text-rose-600">{guruMonthlyData.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                <p className="text-[10px] text-slate-400 font-medium">Hari Kerja Belum Presensi</p>
+              </div>
+
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 col-span-2 sm:col-span-1">
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">% Kehadiran</span>
+                <p className="text-xl font-extrabold text-blue-600">{guruMonthlyData.persentase}%</p>
+                <p className="text-[10px] text-slate-400 font-medium">{guruMonthlyData.countHadir} dari {guruMonthlyData.totalHariKerja} Hari Target</p>
+              </div>
+            </div>
+
+            {/* Daily Matrix Table */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                  Rincian Kehadiran Bulan {guruMonthlyData.monthLabel} ({guruMonthlyData.totalDaysInMonth} Hari)
+                </h4>
+                <span className="text-[11px] text-slate-500 font-bold bg-white px-3 py-1 rounded-full border border-slate-200 shadow-xs">
+                  Sheet Target: <span className="text-blue-600 font-black">Rekap_Kehadiran Guru</span>
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-100/80 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                      <th className="py-3 px-4 text-center">Tgl</th>
+                      <th className="py-3 px-4">Tanggal Lengkap</th>
+                      <th className="py-3 px-4">Hari</th>
+                      <th className="py-3 px-4 text-center">Status Kehadiran</th>
+                      <th className="py-3 px-4 text-center">Jam Datang</th>
+                      <th className="py-3 px-4 text-center">Jam Pulang</th>
+                      <th className="py-3 px-4">Keterangan / Alasan</th>
+                      <th className="py-3 px-4 text-center">Foto Bukti</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {guruMonthlyData.dayRows.map((r, idx) => (
+                      <tr key={`g-day-${r.tanggal}-${idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
+                        <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{r.dayNumber}</td>
+                        <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{r.tanggal}</td>
+                        <td className="py-3 px-4 font-bold text-slate-800">{r.dayName}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] border ${r.statusBadge}`}>
+                            {r.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamDatang}</td>
+                        <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamPulang}</td>
+                        <td className="py-3 px-4 text-slate-600">{r.keterangan}</td>
+                        <td className="py-3 px-4 text-center">
+                          {r.photo ? (
+                            <button
+                              onClick={() => setSelectedPhoto(r.photo)}
+                              className="px-2.5 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-[10px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Foto</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SUB TAB 9: REKAP BULANAN TENDIK (PERSEORANGAN) */}
+        {subTab === 'rekap-tendik' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 tracking-tight">Rekapitulasi Kehadiran Bulanan Tendik (Perseorangan)</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Laporan rekap presensi bulanan perseorangan Tendik. Tersimpan otomatis ke sheet <span className="font-bold text-emerald-600">Rekap_Kehadiran Tendik</span>.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleSaveTendikMonthlyToSheets}
+                  disabled={isSavingTendikRecap}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isSavingTendikRecap ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span>Simpan ke Spreadsheet</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportTendikMonthlyPDF}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Cetak PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportTendikMonthlyExcel}
+                  className="px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>Excel</span>
+                </button>
+              </div>
+            </div>
+
+            {savingRecapMsg && (
+              <div className={`p-4 rounded-2xl text-xs font-bold flex items-center gap-2 animate-fade-in ${savingRecapMsg.startsWith('✅') ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-rose-50 text-rose-800 border border-rose-200'}`}>
+                <span>{savingRecapMsg}</span>
+              </div>
+            )}
+
+            {/* Filter controls */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pilih Tendik</label>
+                <select
+                  value={rekapTendikNip}
+                  onChange={(e) => setRekapTendikNip(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-white font-semibold text-slate-800"
+                >
+                  {listTendikUsers.map((t: any, idx: number) => (
+                    <option key={`tendik-opt-${t.nip || idx}`} value={t.nip || t.nama}>
+                      {t.nama} {t.nip ? `(NIP: ${t.nip})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pilih Bulan & Tahun</label>
+                <input
+                  type="month"
+                  value={rekapTendikMonth}
+                  onChange={(e) => setRekapTendikMonth(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-white font-semibold text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Target Hari Kerja (Bulan Ini)</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={rekapTendikTargetDays}
+                  onChange={(e) => setRekapTendikTargetDays(parseInt(e.target.value, 10) || 22)}
+                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-white font-semibold text-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* Summary Stat Cards */}
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Identitas Tendik</span>
+                <p className="text-sm font-extrabold text-slate-800 truncate" title={tendikMonthlyData.targetNama}>{tendikMonthlyData.targetNama}</p>
+                <p className="text-[10px] text-slate-400 font-medium">NIP: {tendikMonthlyData.targetNip || '-'}</p>
+              </div>
+
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Hadir</span>
+                <p className="text-xl font-extrabold text-emerald-600">{tendikMonthlyData.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                <p className="text-[10px] text-slate-400 font-medium">Presensi Mandiri / Kiosk</p>
+              </div>
+
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                <p className="text-xl font-extrabold text-amber-600">
+                  {tendikMonthlyData.countIzin + tendikMonthlyData.countSakit + tendikMonthlyData.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                </p>
+                <p className="text-[10px] text-slate-400 font-medium">S: {tendikMonthlyData.countSakit} | I: {tendikMonthlyData.countIzin} | DL/C: {tendikMonthlyData.countCutiDL}</p>
+              </div>
+
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                <p className="text-xl font-extrabold text-rose-600">{tendikMonthlyData.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                <p className="text-[10px] text-slate-400 font-medium">Hari Kerja Belum Presensi</p>
+              </div>
+
+              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 col-span-2 sm:col-span-1">
+                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">% Kehadiran</span>
+                <p className="text-xl font-extrabold text-emerald-600">{tendikMonthlyData.persentase}%</p>
+                <p className="text-[10px] text-slate-400 font-medium">{tendikMonthlyData.countHadir} dari {tendikMonthlyData.totalHariKerja} Hari Target</p>
+              </div>
+            </div>
+
+            {/* Daily Matrix Table */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                  Rincian Kehadiran Bulan {tendikMonthlyData.monthLabel} ({tendikMonthlyData.totalDaysInMonth} Hari)
+                </h4>
+                <span className="text-[11px] text-slate-500 font-bold bg-white px-3 py-1 rounded-full border border-slate-200 shadow-xs">
+                  Sheet Target: <span className="text-emerald-600 font-black">Rekap_Kehadiran Tendik</span>
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-100/80 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                      <th className="py-3 px-4 text-center">Tgl</th>
+                      <th className="py-3 px-4">Tanggal Lengkap</th>
+                      <th className="py-3 px-4">Hari</th>
+                      <th className="py-3 px-4 text-center">Status Kehadiran</th>
+                      <th className="py-3 px-4 text-center">Jam Datang</th>
+                      <th className="py-3 px-4 text-center">Jam Pulang</th>
+                      <th className="py-3 px-4">Keterangan / Alasan</th>
+                      <th className="py-3 px-4 text-center">Foto Bukti</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {tendikMonthlyData.dayRows.map((r, idx) => (
+                      <tr key={`t-day-${r.tanggal}-${idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
+                        <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{r.dayNumber}</td>
+                        <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{r.tanggal}</td>
+                        <td className="py-3 px-4 font-bold text-slate-800">{r.dayName}</td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] border ${r.statusBadge}`}>
+                            {r.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamDatang}</td>
+                        <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamPulang}</td>
+                        <td className="py-3 px-4 text-slate-600">{r.keterangan}</td>
+                        <td className="py-3 px-4 text-center">
+                          {r.photo ? (
+                            <button
+                              onClick={() => setSelectedPhoto(r.photo)}
+                              className="px-2.5 py-1 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-[10px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1"
+                            >
+                              <Eye className="w-3 h-3" />
+                              <span>Foto</span>
+                            </button>
+                          ) : (
+                            <span className="text-slate-300 text-[10px]">-</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           </div>
         )}
       </div>

@@ -129,17 +129,15 @@ export function CetakBarcodeView({ students, kelasList, customization }: CetakBa
               return (
                 <div key={idx} className="border-2 border-slate-800 rounded-2xl overflow-hidden flex flex-col print:border-slate-800 print:break-inside-avoid">
                   <div className="bg-slate-800 text-white text-center py-3 px-4 flex items-center justify-center gap-2">
-                    {customization?.logoUrl?.trim() ? (
-                      <img
-                        src={normalizeImageUrl(customization.logoUrl.trim())}
-                        alt="Logo"
-                        className="w-5 h-5 rounded object-cover"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          (e.currentTarget as HTMLImageElement).style.display = 'none';
-                        }}
-                      />
-                    ) : null}
+                    <img
+                      src={normalizeImageUrl(customization?.logoUrl?.trim() || '/logo_smpn11.jpg')}
+                      alt="Logo Sekolah"
+                      className="w-6 h-6 rounded bg-white p-0.5 object-contain flex-shrink-0"
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = '/logo_smpn11.jpg';
+                      }}
+                    />
                     <div>
                       <h4 className="font-bold text-sm tracking-widest uppercase truncate max-w-[150px]">
                         {customization?.appName || 'Kartu Presensi'}

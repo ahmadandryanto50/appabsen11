@@ -71,6 +71,16 @@ export interface TendikAttendanceRecord {
   photo?: string;
 }
 
+export interface GuruAttendanceRecord {
+  rowIndex: number | string;
+  tanggal: string;
+  waktu: string;
+  nip: string;
+  namaGuru: string;
+  tipeAbsen?: string;
+  photo?: string;
+}
+
 export interface TendikAbsenceRecord {
   rowIndex: number | string;
   tanggal: string;
@@ -91,6 +101,7 @@ export interface ToastMessage {
 export type ViewType =
   | 'dashboard'
   | 'absen-siswa'
+  | 'absen-guru'
   | 'izin-guru'
   | 'riwayat'
   | 'crud-guru'
