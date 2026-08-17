@@ -115,13 +115,38 @@ export function DashboardView({
     // Fetch Live Kiosk Presensi Masuk Siswa Hari Ini (initial fetch)
     fetchKioskTodayData(true);
 
+    const fetchTeacherTendikHistory = () => {
+      if (currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) {
+        apiClient.getGuruAttendanceHistory('')
+          .then(res => {
+            if (res.status === 'success' && res.history) {
+              setGuruAbsenList(res.history);
+            }
+          })
+          .catch(err => console.error(err))
+          .finally(() => setLoadingGuruAbsen(false));
+      }
+      if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik' || isFullAccess) {
+        apiClient.getTendikAttendanceHistory('')
+          .then(res => {
+            if (res.status === 'success' && res.history) {
+              setTendikList(res.history);
+            }
+          })
+          .catch(err => console.error(err))
+          .finally(() => setLoadingTendik(false));
+      }
+    };
+
     // Auto-refresh seamlessly in background when tab is focused
     const handleFocus = () => {
       fetchKioskTodayData(false);
+      fetchTeacherTendikHistory();
     };
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         fetchKioskTodayData(false);
+        fetchTeacherTendikHistory();
       }
     };
     const handleScanAdded = () => {
@@ -136,6 +161,7 @@ export function DashboardView({
     const intervalId = setInterval(() => {
       if (!document.hidden) {
         fetchKioskTodayData(false);
+        fetchTeacherTendikHistory();
       }
     }, 30000);
 
@@ -155,15 +181,6 @@ export function DashboardView({
       } else {
         setLoadingGuruAbsen(true);
       }
-
-      apiClient.getGuruAttendanceHistory('')
-        .then(res => {
-          if (res.status === 'success' && res.history) {
-            setGuruAbsenList(res.history);
-          }
-        })
-        .catch(err => console.error(err))
-        .finally(() => setLoadingGuruAbsen(false));
     }
 
     if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik' || isFullAccess) {
@@ -182,16 +199,9 @@ export function DashboardView({
       } else {
         setLoadingTendik(true);
       }
-
-      apiClient.getTendikAttendanceHistory('')
-        .then(res => {
-          if (res.status === 'success' && res.history) {
-            setTendikList(res.history);
-          }
-        })
-        .catch(err => console.error(err))
-        .finally(() => setLoadingTendik(false));
     }
+
+    fetchTeacherTendikHistory();
 
     return () => {
       window.removeEventListener('focus', handleFocus);

@@ -20,6 +20,43 @@ export function TeacherAttendanceView({
 }: TeacherAttendanceViewProps) {
   const [tipeAbsen, setTipeAbsen] = useState<'Datang' | 'Pulang'>('Datang');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const [alreadyDatang, setAlreadyDatang] = useState(false);
+  const [alreadyPulang, setAlreadyPulang] = useState(false);
+
+  useEffect(() => {
+    try {
+      const rawHistory = localStorage.getItem('absensi_history_guru_absen');
+      if (rawHistory && currentUser) {
+        const history = JSON.parse(rawHistory);
+        const todayStr = getLocalDateString(new Date());
+        
+        let foundDatang = false;
+        let foundPulang = false;
+        
+        history.forEach((log: any) => {
+          if (log.tanggal === todayStr && 
+             (log.nip === currentUser.nip || (log.namaGuru && currentUser.nama && log.namaGuru.includes(currentUser.nama)))) {
+            const tipe = String(log.tipeAbsen || log.kategori || '').toLowerCase();
+            if (tipe.includes('datang') || tipe.includes('masuk')) {
+              foundDatang = true;
+            } else if (tipe.includes('pulang') || tipe.includes('keluar')) {
+              foundPulang = true;
+            }
+          }
+        });
+        
+        setAlreadyDatang(foundDatang);
+        setAlreadyPulang(foundPulang);
+        
+        if (foundDatang && !foundPulang) {
+          setTipeAbsen('Pulang');
+        } else if (!foundDatang) {
+          setTipeAbsen('Datang');
+        }
+      }
+    } catch(e) {}
+  }, [currentUser]);
 
   // Camera Snapshot State
   const [showCameraStream, setShowCameraStream] = useState(false);
@@ -172,6 +209,8 @@ export function TeacherAttendanceView({
     }
   };
 
+  const isSubmitDisabled = isSubmitting || !cameraPhoto || (tipeAbsen === 'Datang' && alreadyDatang) || (tipeAbsen === 'Pulang' && alreadyPulang);
+
   return (
     <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
@@ -218,38 +257,44 @@ export function TeacherAttendanceView({
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
+              disabled={alreadyDatang}
               onClick={() => setTipeAbsen('Datang')}
-              className={`p-3.5 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-extrabold text-xs transition-all cursor-pointer ${
-                tipeAbsen === 'Datang'
+              className={`p-3.5 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-extrabold text-xs transition-all ${
+                alreadyDatang ? 'opacity-50 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400' : 'cursor-pointer'
+              } ${
+                tipeAbsen === 'Datang' && !alreadyDatang
                   ? 'border-emerald-500 bg-emerald-50/80 text-emerald-800 shadow-sm'
-                  : 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70'
+                  : !alreadyDatang ? 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70' : ''
               }`}
             >
               <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
-                tipeAbsen === 'Datang' ? 'border-emerald-600 bg-emerald-600' : 'border-slate-400'
+                tipeAbsen === 'Datang' && !alreadyDatang ? 'border-emerald-600 bg-emerald-600' : 'border-slate-400'
               }`}>
-                {tipeAbsen === 'Datang' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                {tipeAbsen === 'Datang' && !alreadyDatang && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
               </div>
               <span className="text-base">☀️</span>
-              <span>Absen Datang</span>
+              <span>Absen Datang {alreadyDatang && '(Selesai)'}</span>
             </button>
 
             <button
               type="button"
+              disabled={alreadyPulang}
               onClick={() => setTipeAbsen('Pulang')}
-              className={`p-3.5 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-extrabold text-xs transition-all cursor-pointer ${
-                tipeAbsen === 'Pulang'
+              className={`p-3.5 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-extrabold text-xs transition-all ${
+                alreadyPulang ? 'opacity-50 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400' : 'cursor-pointer'
+              } ${
+                tipeAbsen === 'Pulang' && !alreadyPulang
                   ? 'border-amber-500 bg-amber-50/80 text-amber-900 shadow-sm'
-                  : 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70'
+                  : !alreadyPulang ? 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70' : ''
               }`}
             >
               <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
-                tipeAbsen === 'Pulang' ? 'border-amber-600 bg-amber-600' : 'border-slate-400'
+                tipeAbsen === 'Pulang' && !alreadyPulang ? 'border-amber-600 bg-amber-600' : 'border-slate-400'
               }`}>
-                {tipeAbsen === 'Pulang' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                {tipeAbsen === 'Pulang' && !alreadyPulang && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
               </div>
               <span className="text-base">🌙</span>
-              <span>Absen Pulang</span>
+              <span>Absen Pulang {alreadyPulang && '(Selesai)'}</span>
             </button>
           </div>
         </div>
@@ -356,7 +401,7 @@ export function TeacherAttendanceView({
           <button
             type="button"
             onClick={handleSave}
-            disabled={isSubmitting || !cameraPhoto}
+            disabled={isSubmitDisabled}
             className="px-6 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-md shadow-blue-600/10 transition-all flex items-center gap-2 cursor-pointer hover:scale-102"
           >
             {isSubmitting ? (

@@ -1581,7 +1581,7 @@ export const apiClient = {
   async getGuruAttendanceHistory(tanggal: string): Promise<{ status: string; history: any[] }> {
     const url = this.getBackendUrl();
     if (url) {
-      const { ok, result } = await safeCallGAS(url, 'getGuruAttendanceHistory', { tanggal }, true, 10000);
+      const { ok, result } = await safeCallGAS(url, 'getGuruAttendanceHistory', { tanggal }, true, 10000, 30000);
       if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
         const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU_ABSEN) || '[]';
         let existingMap: Record<string, any> = {};
@@ -1768,7 +1768,7 @@ export const apiClient = {
   async getTendikAttendanceHistory(tanggal: string): Promise<{ status: string; history: any[] }> {
     const url = this.getBackendUrl();
     if (url) {
-      const { ok, result } = await safeCallGAS(url, 'getTendikAttendanceHistory', { tanggal }, true, 10000);
+      const { ok, result } = await safeCallGAS(url, 'getTendikAttendanceHistory', { tanggal }, true, 10000, 30000);
       if (ok && result && result.status === 'success' && Array.isArray(result.history)) {
         // Local map to ensure tipeAbsen is never lost even if backend script is pending deployment
         const rawExisting = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
