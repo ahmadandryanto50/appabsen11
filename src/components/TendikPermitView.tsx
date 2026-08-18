@@ -71,7 +71,7 @@ export function TendikPermitView({
       const canvas = document.createElement('canvas');
       let w = video.videoWidth || 640;
       let h = video.videoHeight || 480;
-      const maxDim = 480;
+      const maxDim = 320;
       if (w > maxDim || h > maxDim) {
         if (w > h) {
           h = Math.round((h * maxDim) / w);
@@ -86,7 +86,7 @@ export function TendikPermitView({
       const ctx = canvas.getContext('2d');
       if (ctx) {
         ctx.drawImage(video, 0, 0, w, h);
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
         setCameraPhoto(dataUrl);
       }
       stopCamera();
@@ -112,7 +112,7 @@ export function TendikPermitView({
           img.onload = () => {
             let w = img.width;
             let h = img.height;
-            const maxDim = 480;
+            const maxDim = 320;
             if (w > maxDim || h > maxDim) {
               if (w > h) {
                 h = Math.round((h * maxDim) / w);
@@ -128,7 +128,7 @@ export function TendikPermitView({
             const ctx = canvas.getContext('2d');
             if (ctx) {
               ctx.drawImage(img, 0, 0, w, h);
-              setCameraPhoto(canvas.toDataURL('image/jpeg', 0.6));
+              setCameraPhoto(canvas.toDataURL('image/jpeg', 0.5));
             } else {
               setCameraPhoto(rawUrl);
             }

@@ -45,13 +45,13 @@ export function normalizeImageUrl(rawUrl?: string | null): string {
     // Try extract file ID from /file/d/FILE_ID or /d/FILE_ID
     const fileDMatch = url.match(/\/file(?:\/u\/\d+)?\/d\/([a-zA-Z0-9_-]+)/i) || url.match(/\/d\/([a-zA-Z0-9_-]+)/i);
     if (fileDMatch && fileDMatch[1]) {
-      return `https://drive.google.com/thumbnail?id=${fileDMatch[1]}&sz=w1000`;
+      return `https://lh3.googleusercontent.com/d/${fileDMatch[1]}`;
     }
 
     // Try extract file ID from ?id=FILE_ID or &id=FILE_ID
     const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
     if (idMatch && idMatch[1]) {
-      return `https://drive.google.com/thumbnail?id=${idMatch[1]}&sz=w1000`;
+      return `https://lh3.googleusercontent.com/d/${idMatch[1]}`;
     }
   }
 
@@ -163,21 +163,21 @@ export function handleImageFallbackError(
   const img = e.currentTarget;
   const currentSrc = img.src;
 
-  // If failed on drive.google.com/thumbnail, try lh3.googleusercontent.com/d/
-  if (currentSrc.includes('drive.google.com/thumbnail')) {
-    const idMatch = currentSrc.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
-    if (idMatch && idMatch[1]) {
-      img.src = `https://lh3.googleusercontent.com/d/${idMatch[1]}`;
-      return;
-    }
-  }
-
-  // If failed on lh3, try drive.google.com/uc?export=view&id=
+  // If failed on lh3, try drive.google.com/thumbnail?id=
   if (currentSrc.includes('lh3.googleusercontent.com/d/')) {
     const parts = currentSrc.split('/d/');
     if (parts[1]) {
       const fileId = parts[1].split(/[?#/]/)[0];
-      img.src = `https://drive.google.com/uc?export=view&id=${fileId}`;
+      img.src = `https://drive.google.com/thumbnail?id=${fileId}&sz=w1000`;
+      return;
+    }
+  }
+
+  // If failed on drive.google.com/thumbnail, try drive.google.com/uc?export=view&id=
+  if (currentSrc.includes('drive.google.com/thumbnail')) {
+    const idMatch = currentSrc.match(/[?&]id=([a-zA-Z0-9_-]+)/i);
+    if (idMatch && idMatch[1]) {
+      img.src = `https://drive.google.com/uc?export=view&id=${idMatch[1]}`;
       return;
     }
   }
