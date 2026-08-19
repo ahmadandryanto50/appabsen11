@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { User, getLocalDateString } from '../types';
+import { User, getLocalDateString, getLocalTimeString } from '../types';
 import { Camera, FileImage, Trash2, CheckCircle, Clock, Loader2, Play, UserCheck, RotateCw } from 'lucide-react';
 
 interface TendikAttendanceViewProps {
@@ -186,7 +186,7 @@ export function TendikAttendanceView({
     try {
       const now = new Date();
       const dateString = getLocalDateString(now);
-      const timeString = now.toTimeString().split(' ')[0];
+      const timeString = getLocalTimeString(now);
 
       const statusAbsenLabel = tipeAbsen === 'Pulang' ? 'Absen Pulang' : 'Absen Datang';
       const payload = {

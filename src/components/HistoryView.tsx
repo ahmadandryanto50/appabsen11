@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { AttendanceRecord, TeacherAbsenceRecord, User, AppCustomization, getLocalDateString, KioskScanRecord } from '../types';
+import { AttendanceRecord, TeacherAbsenceRecord, User, AppCustomization, getLocalDateString, getLocalTimeString, KioskScanRecord } from '../types';
 import {
   Calendar,
   Users,
@@ -51,16 +51,10 @@ const getNormalizedDateStr = (dateInput: any): string => {
     }
     const dObj = new Date(s);
     if (!isNaN(dObj.getTime())) {
-      const y = dObj.getFullYear();
-      const m = String(dObj.getMonth() + 1).padStart(2, '0');
-      const d = String(dObj.getDate()).padStart(2, '0');
-      return `${y}-${m}-${d}`;
+      return getLocalDateString(dObj);
     }
   } else if (dateInput instanceof Date && !isNaN(dateInput.getTime())) {
-    const y = dateInput.getFullYear();
-    const m = String(dateInput.getMonth() + 1).padStart(2, '0');
-    const d = String(dateInput.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    return getLocalDateString(dateInput);
   }
   return String(dateInput).slice(0, 10);
 };
@@ -555,7 +549,7 @@ export function HistoryView({
       selectedObj,
       targetNip,
       targetNama,
-      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
+      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', month: 'long', year: 'numeric' }),
       totalDaysInMonth,
       dayRows,
       countHadir,
@@ -714,7 +708,7 @@ export function HistoryView({
       selectedObj,
       targetNip,
       targetNama,
-      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
+      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', month: 'long', year: 'numeric' }),
       totalDaysInMonth,
       dayRows,
       countHadir,
@@ -1246,7 +1240,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', {
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
       day: 'numeric',
       month: 'long',
       year: 'numeric',
@@ -1794,20 +1788,14 @@ export function HistoryView({
     if (tgl.match(/[a-zA-Z]/) && (tgl.includes('00:00:00') || tgl.includes('GMT') || tgl.includes('WIB') || tgl.length > 15)) {
       const p = new Date(tgl);
       if (!isNaN(p.getTime())) {
-        const y = p.getFullYear();
-        const m = String(p.getMonth() + 1).padStart(2, '0');
-        const d = String(p.getDate()).padStart(2, '0');
-        tgl = `${y}-${m}-${d}`;
+        tgl = getLocalDateString(p);
       }
     }
 
     if (wkt.match(/[a-zA-Z]/) && (wkt.includes('00:00:00') || wkt.includes('GMT') || wkt.includes('WIB') || wkt.length > 15)) {
       const p = new Date(wkt);
       if (!isNaN(p.getTime())) {
-        const h = String(p.getHours()).padStart(2, '0');
-        const min = String(p.getMinutes()).padStart(2, '0');
-        const s = String(p.getSeconds()).padStart(2, '0');
-        wkt = `${h}:${min}:${s}`;
+        wkt = getLocalTimeString(p);
       } else {
         wkt = '-';
       }
@@ -1818,16 +1806,10 @@ export function HistoryView({
         const p = new Date(ts);
         if (!isNaN(p.getTime())) {
           if (!tgl) {
-            const y = p.getFullYear();
-            const m = String(p.getMonth() + 1).padStart(2, '0');
-            const d = String(p.getDate()).padStart(2, '0');
-            tgl = `${y}-${m}-${d}`;
+            tgl = getLocalDateString(p);
           }
           if (!wkt || wkt === '-') {
-            const h = String(p.getHours()).padStart(2, '0');
-            const min = String(p.getMinutes()).padStart(2, '0');
-            const s = String(p.getSeconds()).padStart(2, '0');
-            wkt = `${h}:${min}:${s}`;
+            wkt = getLocalTimeString(p);
           }
         }
       }
@@ -2218,7 +2200,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', {
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
       day: 'numeric',
       month: 'long',
       year: 'numeric'
@@ -2378,7 +2360,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', {
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
       day: 'numeric',
       month: 'long',
       year: 'numeric'
@@ -2491,7 +2473,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', {
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
       day: 'numeric',
       month: 'long',
       year: 'numeric'
@@ -2602,7 +2584,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', {
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
       day: 'numeric',
       month: 'long',
       year: 'numeric'
@@ -2713,7 +2695,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', {
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
       day: 'numeric',
       month: 'long',
       year: 'numeric'

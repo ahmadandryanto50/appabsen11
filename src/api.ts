@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Student, AttendanceRecord, TeacherAbsenceRecord } from './types';
+import { Student, AttendanceRecord, TeacherAbsenceRecord, getLocalDateString, getLocalTimeString } from './types';
 import { formatKeterlambatan, parseMenitTerlambat } from './utils/timeUtils';
 
 // Pre-seeded local data keys
@@ -140,7 +140,7 @@ export function initializeStorage() {
 
   if (!localStorage.getItem(STORAGE_KEYS.HISTORY_SISWA)) {
     const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const today = getLocalDateString(now);
     const defaultHistorySiswa: AttendanceRecord[] = [
       {
         rowIndex: 2,
@@ -187,7 +187,7 @@ export function initializeStorage() {
 
   if (!localStorage.getItem(STORAGE_KEYS.HISTORY_GURU)) {
     const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const today = getLocalDateString(now);
     const defaultHistoryGuru: TeacherAbsenceRecord[] = [
       {
         rowIndex: 2,
@@ -258,7 +258,7 @@ async function safeCallGAS(
   data: any = {}, 
   useCache = false, 
   ttlMs = 4000,
-  timeoutMs = 30000
+  timeoutMs = 15000
 ): Promise<{ ok: boolean; result?: any; error?: string }> {
   const cacheKey = `${url}:${action}:${JSON.stringify(data)}`;
 
@@ -492,7 +492,7 @@ export const apiClient = {
     const url = this.getBackendUrl();
     let serverError = '';
     if (url) {
-      const { ok, result, error } = await safeCallGAS(url, 'submitAttendance', { payload }, false, 0, 60000);
+      const { ok, result, error } = await safeCallGAS(url, 'submitAttendance', { payload }, false, 0, 15000);
       if (ok && result && result.status === 'success') return result;
       serverError = error || result?.message || 'Gagal terhubung ke database.';
     }
@@ -733,8 +733,8 @@ export const apiClient = {
   async submitKioskScan(payload: any) {
     clearApiCache();
     const now = new Date();
-    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const timeClockStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+    const dateStr = getLocalDateString(now);
+    const timeClockStr = getLocalTimeString(now);
     const timeStr = `${dateStr} ${timeClockStr}`;
     
     const newRecord = {
@@ -811,13 +811,7 @@ export const apiClient = {
       if (!val) return { dateStr: '', timeStr: '' };
       if (val instanceof Date) {
         if (isNaN(val.getTime())) return { dateStr: '', timeStr: '' };
-        const y = val.getFullYear();
-        const m = String(val.getMonth() + 1).padStart(2, '0');
-        const d = String(val.getDate()).padStart(2, '0');
-        const h = String(val.getHours()).padStart(2, '0');
-        const min = String(val.getMinutes()).padStart(2, '0');
-        const s = String(val.getSeconds()).padStart(2, '0');
-        return { dateStr: `${y}-${m}-${d}`, timeStr: `${h}:${min}:${s}` };
+        return { dateStr: getLocalDateString(val), timeStr: getLocalTimeString(val) };
       }
 
       const str = String(val).trim();
@@ -827,17 +821,15 @@ export const apiClient = {
       if (str.match(/[a-zA-Z]{3}\s+[a-zA-Z]{3}\s+\d{1,2}\s+\d{4}/) || str.includes('GMT') || str.includes('WIB')) {
         const dObj = new Date(str);
         if (!isNaN(dObj.getTime())) {
-          const y = dObj.getFullYear();
-          const m = String(dObj.getMonth() + 1).padStart(2, '0');
-          const d = String(dObj.getDate()).padStart(2, '0');
-          const h = String(dObj.getHours()).padStart(2, '0');
-          const min = String(dObj.getMinutes()).padStart(2, '0');
-          const s = String(dObj.getSeconds()).padStart(2, '0');
-          return { dateStr: `${y}-${m}-${d}`, timeStr: `${h}:${min}:${s}` };
+          return { dateStr: getLocalDateString(dObj), timeStr: getLocalTimeString(dObj) };
         }
       }
 
       if (str.includes('T')) {
+        const dObj = new Date(str);
+        if (!isNaN(dObj.getTime())) {
+          return { dateStr: getLocalDateString(dObj), timeStr: getLocalTimeString(dObj) };
+        }
         const parts = str.split('T');
         return { dateStr: parts[0] || '', timeStr: (parts[1] || '').split('.')[0] || '' };
       }
@@ -862,10 +854,7 @@ export const apiClient = {
       if (!dateInput) return '';
       if (dateInput instanceof Date) {
         if (isNaN(dateInput.getTime())) return '';
-        const y = dateInput.getFullYear();
-        const m = String(dateInput.getMonth() + 1).padStart(2, '0');
-        const d = String(dateInput.getDate()).padStart(2, '0');
-        return `${y}-${m}-${d}`;
+        return getLocalDateString(dateInput);
       }
       const trimmed = String(dateInput).trim();
       if (!trimmed) return '';
@@ -874,10 +863,7 @@ export const apiClient = {
       if (trimmed.match(/[a-zA-Z]{3}\s+[a-zA-Z]{3}\s+\d{1,2}\s+\d{4}/) || trimmed.includes('GMT') || trimmed.includes('WIB')) {
         const dObj = new Date(trimmed);
         if (!isNaN(dObj.getTime())) {
-          const y = dObj.getFullYear();
-          const m = String(dObj.getMonth() + 1).padStart(2, '0');
-          const d = String(dObj.getDate()).padStart(2, '0');
-          return `${y}-${m}-${d}`;
+          return getLocalDateString(dObj);
         }
       }
 
@@ -885,10 +871,7 @@ export const apiClient = {
       if (trimmed.includes('T')) {
         const dObj = new Date(trimmed);
         if (!isNaN(dObj.getTime())) {
-          const y = dObj.getFullYear();
-          const m = String(dObj.getMonth() + 1).padStart(2, '0');
-          const d = String(dObj.getDate()).padStart(2, '0');
-          return `${y}-${m}-${d}`;
+          return getLocalDateString(dObj);
         }
         return trimmed.split('T')[0];
       }
@@ -926,10 +909,7 @@ export const apiClient = {
 
       const fallbackDate = new Date(trimmed);
       if (!isNaN(fallbackDate.getTime()) && trimmed.length > 5 && !trimmed.match(/^\d+$/)) {
-        const y = fallbackDate.getFullYear();
-        const m = String(fallbackDate.getMonth() + 1).padStart(2, '0');
-        const d = String(fallbackDate.getDate()).padStart(2, '0');
-        return `${y}-${m}-${d}`;
+        return getLocalDateString(fallbackDate);
       }
 
       return trimmed.split(' ')[0] || trimmed;
@@ -1429,7 +1409,7 @@ export const apiClient = {
     const url = this.getBackendUrl();
     let serverError = '';
     if (url) {
-      const { ok, result, error } = await safeCallGAS(url, 'submitTeacherAbsence', { payload }, false, 0, 60000);
+      const { ok, result, error } = await safeCallGAS(url, 'submitTeacherAbsence', { payload }, false, 0, 15000);
       if (ok && result && result.status === 'success') return result;
       serverError = error || result?.message || 'Gagal terhubung ke database.';
     }
@@ -1572,7 +1552,7 @@ export const apiClient = {
     }
 
     if (url) {
-      const { ok, result, error } = await safeCallGAS(url, 'submitGuruAttendance', { payload: cleanPayload }, false, 0, 60000);
+      const { ok, result, error } = await safeCallGAS(url, 'submitGuruAttendance', { payload: cleanPayload }, false, 0, 15000);
       if (ok && result && result.status === 'success') {
         return result;
       }
@@ -1730,7 +1710,7 @@ export const apiClient = {
     }
 
     if (url) {
-      const { ok, result, error } = await safeCallGAS(url, 'submitTendikAttendance', { payload: cleanPayload }, false, 0, 60000);
+      const { ok, result, error } = await safeCallGAS(url, 'submitTendikAttendance', { payload: cleanPayload }, false, 0, 15000);
       if (ok && result && result.status === 'success') {
         return result;
       }
@@ -1755,7 +1735,7 @@ export const apiClient = {
     const url = this.getBackendUrl();
     let serverError = '';
     if (url) {
-      const { ok, result, error } = await safeCallGAS(url, 'submitTendikPermit', { payload }, false, 0, 60000);
+      const { ok, result, error } = await safeCallGAS(url, 'submitTendikPermit', { payload }, false, 0, 15000);
       if (ok && result && result.status === 'success') return result;
       serverError = error || result?.message || 'Gagal terhubung ke database.';
     }

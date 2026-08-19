@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
-import { User, AttendanceRecord, AppCustomization } from '../types';
+import { User, AttendanceRecord, AppCustomization, getLocalDateString } from '../types';
 import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, ExternalLink, ClipboardList, QrCode, Scan, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiClient } from '../api';
 import { normalizeImageUrl, getUserPhotoUrl, handleImageFallbackError } from '../utils/imageUrl';
@@ -63,12 +63,7 @@ export function DashboardView({
     (customization?.fullAccessUsernames?.includes(currentUser?.username || '') ?? false) ||
     (currentUser?.nip ? (customization?.fullAccessUsernames?.includes(currentUser.nip) ?? false) : false);
 
-  const getLocalDateString = (d: Date = new Date()) => {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
+
 
   const fetchKioskTodayData = useCallback(async (isInitial: boolean = false) => {
     // Only show loading indicator if we currently have NO data at all

@@ -30,7 +30,7 @@ import {
   Download,
 } from 'lucide-react';
 
-import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString } from './types';
+import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString, getLocalTimeString } from './types';
 import { apiClient, initializeStorage, clearApiCache } from './api';
 import { normalizeImageUrl, getUserPhotoUrl, handleImageFallbackError } from './utils/imageUrl';
 import { updateAppMetadataAndIcon } from './utils/appIcon';
@@ -167,11 +167,7 @@ export default function App() {
   // Clock ticks
   useEffect(() => {
     const updateClock = () => {
-      const now = new Date();
-      const hh = String(now.getHours()).padStart(2, '0');
-      const mm = String(now.getMinutes()).padStart(2, '0');
-      const ss = String(now.getSeconds()).padStart(2, '0');
-      setCurrentTimeString(`${hh}:${mm}:${ss}`);
+      setCurrentTimeString(getLocalTimeString(new Date()));
     };
     updateClock();
     const interval = setInterval(updateClock, 1000);
@@ -543,8 +539,8 @@ export default function App() {
       const res = await apiClient.submitAttendance(payload);
       if (res.status === 'success') {
         addToast(res.message || `Absensi kelas ${payload.kelas} (${payload.mapel}) berhasil disimpan!`, 'success');
-        // Reload history list immediately
-        await loadHistoryData();
+        // Reload history list in background
+        loadHistoryData();
       } else {
         addToast(res.message || 'Gagal menyimpan absensi.', 'error');
       }
@@ -559,7 +555,7 @@ export default function App() {
       const res = await apiClient.submitTeacherAbsence(payload);
       if (res.status === 'success') {
         addToast(res.message || 'Permohonan izin Anda berhasil dikirim ke Kepala Sekolah.', 'success');
-        await loadHistoryData();
+        loadHistoryData();
       } else {
         addToast(res.message || 'Gagal mengirim formulir izin.', 'error');
       }
@@ -574,7 +570,7 @@ export default function App() {
       const res = await apiClient.submitGuruAttendance(payload);
       if (res.status === 'success') {
         addToast(res.message || 'Presensi hadir Guru berhasil disimpan.', 'success');
-        await loadHistoryData();
+        loadHistoryData();
         return true;
       } else {
         addToast(res.message || 'Gagal menyimpan presensi Guru.', 'error');
@@ -592,7 +588,7 @@ export default function App() {
       const res = await apiClient.submitTendikAttendance(payload);
       if (res.status === 'success') {
         addToast(res.message || 'Presensi hadir Tendik berhasil disimpan.', 'success');
-        await loadHistoryData();
+        loadHistoryData();
         return true;
       } else {
         addToast(res.message || 'Gagal menyimpan presensi.', 'error');
@@ -610,7 +606,7 @@ export default function App() {
       const res = await apiClient.submitTendikPermit(payload);
       if (res.status === 'success') {
         addToast(res.message || 'Formulir izin/sakit Tendik berhasil dikirim.', 'success');
-        await loadHistoryData();
+        loadHistoryData();
       } else {
         addToast(res.message || 'Gagal mengirim formulir izin.', 'error');
       }
@@ -817,7 +813,7 @@ export default function App() {
   };
 
   const getFormattedDate = () => {
-    const options: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const options: Intl.DateTimeFormatOptions = { timeZone: 'Asia/Jakarta', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     return new Date().toLocaleDateString('id-ID', options);
   };
 
