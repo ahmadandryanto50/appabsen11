@@ -129,10 +129,10 @@ export default function App() {
     updateAppMetadataAndIcon(customization);
   }, [customization]);
 
-  // Track failed user photos for fallback to initials
   const [failedUserPhotos, setFailedUserPhotos] = useState<Record<string, boolean>>({});
 
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallModal, setShowInstallModal] = useState(false);
 
   useEffect(() => {
     const handler = (e: any) => {
@@ -142,18 +142,6 @@ export default function App() {
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
   }, []);
-
-  const handleInstallClick = async () => {
-    if (!deferredPrompt) {
-      alert("Aplikasi tidak dapat di-instal otomatis dari browser ini. Silakan gunakan fitur 'Add to Home Screen' dari menu browser (Chrome/Safari) Anda.");
-      return;
-    }
-    deferredPrompt.prompt();
-    const { outcome } = await deferredPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setDeferredPrompt(null);
-    }
-  };
 
   // Permission Check Helper
   const hasFullAccess = useCallback((user: User | null): boolean => {
@@ -1210,11 +1198,24 @@ export default function App() {
           {/* Sidebar Footer Settings & Logout */}
           <div className={`p-3 border-t border-slate-800 space-y-1 ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
             <button
-              onClick={handleInstallClick}
+              onClick={() => {
+                if (deferredPrompt) {
+                  deferredPrompt.prompt();
+                  deferredPrompt.userChoice.then((choiceResult: any) => {
+                    if (choiceResult.outcome === 'accepted') {
+                      setDeferredPrompt(null);
+                    }
+                  });
+                } else {
+                  // Show instructional modal if prompt is not available
+                  setShowInstallModal(true);
+                }
+                setMobileMenuOpen(false);
+              }}
               className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-emerald-400 hover:text-white hover:bg-emerald-500/20 transition-colors cursor-pointer border border-emerald-500/30"
             >
               <Download className="w-4 h-4 flex-shrink-0 text-emerald-500" />
-              <span>Instal Aplikasi (APK)</span>
+              <span>Instal Aplikasi (PWA)</span>
             </button>
             <button
               onClick={() => {
@@ -1487,6 +1488,46 @@ export default function App() {
           onSaveCustomization={handleSaveCustomization}
           isAdmin={currentUser?.role === 'Admin'}
         />
+      )}
+      {/* PWA INSTALL INSTRUCTION MODAL */}
+      {showInstallModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-slide-up relative">
+            <button
+              onClick={() => setShowInstallModal(false)}
+              className="absolute top-4 right-4 p-2 rounded-full hover:bg-slate-100 text-slate-500 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="p-6 pb-2">
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 shadow-sm">
+                <Download className="w-6 h-6" />
+              </div>
+              <h3 className="text-xl font-extrabold text-slate-800 mb-2">Instal Aplikasi di HP Anda</h3>
+              <p className="text-sm text-slate-600 leading-relaxed mb-6">
+                Aplikasi ini menggunakan teknologi <strong>Web App (PWA)</strong> modern yang lebih ringan dari APK biasa dan <strong>otomatis update</strong> tanpa perlu didownload ulang.
+              </p>
+
+              <div className="space-y-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <p className="text-sm font-bold text-slate-700">Cara Instal via Chrome / Safari:</p>
+                <ol className="list-decimal pl-5 space-y-2 text-sm text-slate-600 font-medium">
+                  <li>Buka menu browser Anda (titik 3 di pojok kanan atas Chrome, atau tombol Share di Safari).</li>
+                  <li>Pilih opsi <strong className="text-slate-800">Tambahkan ke Layar Utama</strong> (Atau <em>Add to Home Screen</em> / <em>Install App</em>).</li>
+                  <li>Klik <strong>Tambah</strong> atau <strong>Instal</strong>.</li>
+                  <li>Aplikasi akan muncul di layar depan HP Anda seperti aplikasi biasa!</li>
+                </ol>
+              </div>
+            </div>
+            <div className="p-6 pt-4">
+              <button
+                onClick={() => setShowInstallModal(false)}
+                className="w-full py-3 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-colors shadow-md"
+              >
+                Saya Mengerti
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
