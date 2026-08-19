@@ -200,10 +200,15 @@ export function TendikAttendanceView({
         photoBase64: cameraPhoto,
       };
 
-      await onSubmit(payload);
-      setCameraPhoto(null);
-    } catch (err) {
+      const isSuccess = await onSubmit(payload);
+      if (isSuccess) {
+        setCameraPhoto(null);
+      } else {
+        alert("Gagal menyimpan presensi. Silakan coba tekan Kirim Presensi sekali lagi.");
+      }
+    } catch (err: any) {
       console.error('Failed to submit Tendik attendance:', err);
+      alert("Gagal menyimpan presensi: " + (err.message || 'Kesalahan jaringan'));
     } finally {
       setIsSubmitting(false);
     }

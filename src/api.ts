@@ -210,10 +210,10 @@ export function initializeStorage() {
   }
 }
 
-// Low-level HTTP Caller to Google Apps Script Web App (POST text/plain with 15s timeout)
-async function callGAS(url: string, action: string, data: any = {}, timeoutMs = 15000) {
+// Low-level HTTP Caller to Google Apps Script Web App (POST text/plain with 30s timeout)
+async function callGAS(url: string, action: string, data: any = {}, timeoutMs = 30000) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs); // Default 15s timeout for Google Apps Script execution
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs); // Default 30s timeout for Google Apps Script execution
 
   try {
     const body = JSON.stringify({ action, ...data });
@@ -258,7 +258,7 @@ async function safeCallGAS(
   data: any = {}, 
   useCache = false, 
   ttlMs = 4000,
-  timeoutMs = 15000
+  timeoutMs = 30000
 ): Promise<{ ok: boolean; result?: any; error?: string }> {
   const cacheKey = `${url}:${action}:${JSON.stringify(data)}`;
 
@@ -1572,7 +1572,13 @@ export const apiClient = {
     }
 
     if (serverError) {
-      return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
+      try {
+        const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_GURU_ABSEN) || '[]';
+        let history: any[] = JSON.parse(rawHistory);
+        history = history.filter(item => String(item.rowIndex) !== String(newRecord.rowIndex));
+        localStorage.setItem(STORAGE_KEYS.HISTORY_GURU_ABSEN, JSON.stringify(history));
+      } catch (e) {}
+      return { status: 'error', message: serverError };
     }
     return { status: 'success' };
   },
@@ -1724,7 +1730,13 @@ export const apiClient = {
     }
 
     if (serverError) {
-      return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
+      try {
+        const rawHistory = localStorage.getItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN) || '[]';
+        let history: any[] = JSON.parse(rawHistory);
+        history = history.filter(item => String(item.rowIndex) !== String(newRecord.rowIndex));
+        localStorage.setItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN, JSON.stringify(history));
+      } catch (e) {}
+      return { status: 'error', message: serverError };
     }
     return { status: 'success' };
   },

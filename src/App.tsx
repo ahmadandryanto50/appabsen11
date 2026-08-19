@@ -27,6 +27,7 @@ import {
   ExternalLink,
   Home,
   ArrowLeft,
+  Download,
 } from 'lucide-react';
 
 import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString } from './types';
@@ -130,6 +131,29 @@ export default function App() {
 
   // Track failed user photos for fallback to initials
   const [failedUserPhotos, setFailedUserPhotos] = useState<Record<string, boolean>>({});
+
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handler = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) {
+      alert("Aplikasi tidak dapat di-instal otomatis dari browser ini. Silakan gunakan fitur 'Add to Home Screen' dari menu browser (Chrome/Safari) Anda.");
+      return;
+    }
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setDeferredPrompt(null);
+    }
+  };
 
   // Permission Check Helper
   const hasFullAccess = useCallback((user: User | null): boolean => {
@@ -556,32 +580,38 @@ export default function App() {
   };
 
   // SUBMIT GURU ATTENDANCE (MANDIRI)
-  const handleSubmitGuruAttendance = async (payload: any) => {
+  const handleSubmitGuruAttendance = async (payload: any): Promise<boolean> => {
     try {
       const res = await apiClient.submitGuruAttendance(payload);
       if (res.status === 'success') {
         addToast(res.message || 'Presensi hadir Guru berhasil disimpan.', 'success');
         await loadHistoryData();
+        return true;
       } else {
         addToast(res.message || 'Gagal menyimpan presensi Guru.', 'error');
+        return false;
       }
     } catch (err: any) {
       addToast(err.message || 'Gagal menyimpan presensi Guru.', 'error');
+      return false;
     }
   };
 
   // SUBMIT TENDIK ATTENDANCE
-  const handleSubmitTendikAttendance = async (payload: any) => {
+  const handleSubmitTendikAttendance = async (payload: any): Promise<boolean> => {
     try {
       const res = await apiClient.submitTendikAttendance(payload);
       if (res.status === 'success') {
         addToast(res.message || 'Presensi hadir Tendik berhasil disimpan.', 'success');
         await loadHistoryData();
+        return true;
       } else {
         addToast(res.message || 'Gagal menyimpan presensi.', 'error');
+        return false;
       }
     } catch (err: any) {
       addToast(err.message || 'Gagal menyimpan presensi.', 'error');
+      return false;
     }
   };
 
@@ -1179,6 +1209,13 @@ export default function App() {
 
           {/* Sidebar Footer Settings & Logout */}
           <div className={`p-3 border-t border-slate-800 space-y-1 ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+            <button
+              onClick={handleInstallClick}
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-emerald-400 hover:text-white hover:bg-emerald-500/20 transition-colors cursor-pointer border border-emerald-500/30"
+            >
+              <Download className="w-4 h-4 flex-shrink-0 text-emerald-500" />
+              <span>Instal Aplikasi (APK)</span>
+            </button>
             <button
               onClick={() => {
                 setShowConfigModal(true);
