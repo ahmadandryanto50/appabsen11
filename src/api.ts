@@ -305,7 +305,15 @@ async function safeCallGAS(
 // MAIN API CLIENT
 export const apiClient = {
   getBackendUrl(): string {
-    return localStorage.getItem(STORAGE_KEYS.APP_URL) || (import.meta as any).env?.VITE_GAS_URL || '';
+    let url = localStorage.getItem(STORAGE_KEYS.APP_URL) || (import.meta as any).env?.VITE_GAS_URL || '';
+    if (!url) return '';
+    url = url.trim();
+    if (url.includes('/dev')) {
+      url = url.replace(/\/dev(\?|$)/, '/exec$1');
+    } else if (url.includes('/edit')) {
+      url = url.split('/edit')[0] + '/exec';
+    }
+    return url;
   },
 
   async syncConfigFromServer(): Promise<{ webAppUrl?: string; customization?: any }> {
@@ -2260,6 +2268,27 @@ export const apiClient = {
     }
 
     return { status: 'success' };
+  },
+
+  async uploadBerkas(filename: string, base64Data: string, uploader: string): Promise<{ status: string; message?: string; fileUrl?: string }> {
+    const url = this.getBackendUrl();
+    if (!url) {
+      return { status: 'error', message: 'Tidak dapat mengupload dalam Demo Mode. Silakan set Database URL.' };
+    }
+    const res = await safeCallGAS(url, 'uploadToDrive', {
+      payload: {
+        filename,
+        base64: base64Data,
+        folderId: '1OFVFI1xhsk45_ONTihtuSHeBVvEOr44m',
+        uploader
+      },
+      filename,
+      base64: base64Data,
+      folderId: '1OFVFI1xhsk45_ONTihtuSHeBVvEOr44m',
+      uploader
+    }, false, 0, 90000);
+    if (res.ok && res.result) return res.result;
+    return { status: 'error', message: res.error || 'Gagal terhubung ke Apps Script.' };
   },
 
   async setupDatabase(): Promise<{ status: string; message?: string }> {

@@ -14,7 +14,7 @@ interface AppsScriptViewProps {
 }
 
 export function AppsScriptView({ customization }: AppsScriptViewProps) {
-  const [activeTab, setActiveTab] = useState<'code' | 'guide' | 'schema'>('code');
+  const [activeTab, setActiveTab] = useState<'code' | 'guide' | 'schema' | 'manifest'>('code');
   const [copied, setCopied] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
@@ -112,6 +112,10 @@ export function AppsScriptView({ customization }: AppsScriptViewProps) {
  * GOOGLE APPS SCRIPT - BACKEND E-ABSENSI SEKOLAH DIGITAL
  * Author: AI Coding Agent & Admin
  * Spreadsheet ID: ID_DARI_URL_SPREADSHEET
+ * 
+ * @oauthScope https://www.googleapis.com/auth/spreadsheets
+ * @oauthScope https://www.googleapis.com/auth/drive
+ * @oauthScope https://www.googleapis.com/auth/script.external_request
  */
 
 const SPREADSHEET_ID = "ID_DARI_URL_SPREADSHEET";
@@ -126,6 +130,26 @@ function getDb() {
     Logger.log("Error opening spreadsheet: " + err.message);
     return SpreadsheetApp.getActiveSpreadsheet();
   }
+}
+
+// ===========================================================================
+// FUNGSI SATU-KLIK: INISIALISASI DATABASE & OTORISASI IZIN GOOGLE DRIVE + SHEETS
+// (JALANKAN FUNGSI INI 1x DENGAN MENGLIK 'JALANKAN' DI EDITOR APPS SCRIPT)
+// ===========================================================================
+function inialisasiDanIzinAksesSemuaGCP() {
+  var ss = getDb();
+  // PENTING: Panggilan createFile langsung ini MEMAKSA Google meminta Izin Akses LENGKAP ke Google Drive (https://www.googleapis.com/auth/drive)
+  var folderTarget;
+  try {
+    folderTarget = DriveApp.getFolderById("1OFVFI1xhsk45_ONTihtuSHeBVvEOr44m");
+  } catch(e) {
+    folderTarget = DriveApp.getRootFolder();
+  }
+  var testFile = folderTarget.createFile("Pemeriksaan_Izin_Drive.txt", "Izin Akses Google Drive Berhasil Diberikan pada " + new Date());
+  testFile.setTrashed(true);
+  
+  Logger.log("Izin Akses LENGKAP Google Drive & Sheets BERHASIL DIBERIKAN!");
+  return setupDatabase();
 }
 
 // ===========================================================================
@@ -255,6 +279,9 @@ function doPost(e) {
         break;
       case "saveStudentClassRecap":
         result = saveStudentClassRecap(contents.payload);
+        break;
+      case "uploadToDrive":
+        result = uploadToDrive(contents.payload || contents);
         break;
       default:
         result = { status: "error", message: "Aksi '" + action + "' tidak didukung." };
@@ -429,10 +456,114 @@ function setupDatabase() {
       sheetRekapTendikDetail.appendRow(["ID_Detail", "Bulan_Tahun", "NIP", "Nama_Tendik", "Tanggal", "Hari", "Status", "Jam_Datang", "Jam_Pulang", "Keterangan"]);
     }
 
+    // 14. Tabel Data_Berkas
+    let sheetBerkas = ss.getSheetByName("Data_Berkas");
+    if (!sheetBerkas) {
+      sheetBerkas = ss.insertSheet("Data_Berkas");
+      sheetBerkas.appendRow(["Tanggal Upload", "Nama File", "URL Berkas", "Pengupload"]);
+    }
+
     return { status: "success", message: "Setup Database Berhasil! Seluruh tabel dasar telah dibuat." };
   } catch (err) {
     return { status: "error", message: err.message };
   }
+}
+
+// ===========================================================================
+// FUNGSI UPLOAD BERKAS KE GOOGLE DRIVE
+// ===========================================================================
+
+// ===========================================================================
+// FUNGSI OTO-FOLDER & UPLOAD KE GOOGLE DRIVE DAHULU -> LALU SIMPAN KE DATABASE
+// ===========================================================================
+
+function buatFolderOtomatisDrive() {
+  var folderName = "Berkas_E-Absensi";
+  var folders = DriveApp.getFoldersByName(folderName);
+  var folder;
+  if (folders.hasNext()) {
+    folder = folders.next();
+  } else {
+    folder = DriveApp.createFolder(folderName);
+  }
+  Logger.log("Folder Otomatis Siap di Google Drive! ID: " + folder.getId() + " | URL: " + folder.getUrl());
+  return folder;
+}
+
+function uploadToDrive(payload) {
+  try {
+    var p = (payload && payload.payload) ? payload.payload : payload;
+    if (!p || (!p.base64 && !p.fileBase64)) {
+      return { status: "error", message: "Data file (base64) tidak ditemukan." };
+    }
+
+    var base64Data = p.base64 || p.fileBase64;
+    var filename = p.filename || p.fileName || ("Berkas_" + new Date().getTime() + ".png");
+    var uploader = p.uploader || "Unknown";
+    var TARGET_FOLDER_ID = "1OFVFI1xhsk45_ONTihtuSHeBVvEOr44m";
+
+    // 1. CARI / BUAT FOLDER TARGET DI GOOGLE DRIVE
+    var folder;
+    try {
+      if (TARGET_FOLDER_ID && TARGET_FOLDER_ID.trim() !== "") {
+        folder = DriveApp.getFolderById(TARGET_FOLDER_ID.trim());
+      } else {
+        folder = buatFolderOtomatisDrive();
+      }
+    } catch(fErr) {
+      folder = buatFolderOtomatisDrive();
+    }
+
+    // 2. SIMPAN BERKAS FISIK KE GOOGLE DRIVE
+    var parts = base64Data.split(',');
+    var base64Content = parts.length > 1 ? parts[1] : parts[0];
+    var contentType = "application/octet-stream";
+    if (parts.length > 1 && parts[0].indexOf(':') !== -1 && parts[0].indexOf(';') !== -1) {
+      contentType = parts[0].split(':')[1].split(';')[0];
+    }
+
+    var bytes = Utilities.base64Decode(base64Content);
+    var blob = Utilities.newBlob(bytes, contentType, filename);
+    var file = folder.createFile(blob);
+
+    try {
+      file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    } catch(sErr) {}
+
+    var fileUrl = file.getUrl();
+
+    // 3. CATAT KE DATABASE GOOGLE SPREADSHEET (Tabel Data_Berkas) DENGAN RUMUS HYPERLINK AKTIF BISA DIKLIK
+    var ss = getDb();
+    var sheet = ss.getSheetByName("Data_Berkas");
+    if (!sheet) {
+      sheet = ss.insertSheet("Data_Berkas");
+      sheet.appendRow(["Tanggal Upload", "Nama File", "URL Link Berkas", "Pengupload"]);
+    }
+    
+    // Formula =HYPERLINK("URL", "URL") memastikan Google Sheets menjadikannya LINK AKTIF YANG BISA DIKLIK 100%
+    var formulaHyperlink = '=HYPERLINK("' + fileUrl + '", "' + fileUrl + '")';
+    sheet.appendRow([new Date(), filename, formulaHyperlink, uploader]);
+
+    return { 
+      status: "success", 
+      fileUrl: fileUrl, 
+      message: "Berkas berhasil terupload ke Google Drive & URL Link Aktif tersimpan di Spreadsheet!" 
+    };
+  } catch (err) {
+    return { 
+      status: "error", 
+      message: "Gagal menyimpan ke Google Drive (" + err.message + "). Silakan jalankan fungsi 'inialisasiDanIzinAksesSemuaGCP' di Editor Apps Script 1 kali untuk memberikan izin Drive!" 
+    };
+  }
+}
+
+// ===========================================================================
+// FUNGSI UNTUK MEMBERIKAN IZIN GOOGLE DRIVE (JALANKAN SEKALI DI APPS SCRIPT EDITOR)
+// ===========================================================================
+
+function izinkanAksesGoogleDrive() {
+  var folder = DriveApp.getRootFolder();
+  Logger.log("Akses Google Drive Berhasil Diberikan! Nama Folder Root: " + folder.getName());
 }
 
 // ===========================================================================
@@ -1734,6 +1865,17 @@ function deleteTendikPermitRecord(rowIndex) {
           <Database className="w-4 h-4" />
           <span>Struktur Tabel (Headers)</span>
         </button>
+        <button
+          onClick={() => setActiveTab('manifest')}
+          className={`flex items-center gap-2 px-6 py-3 border-b-2 text-xs font-bold transition-all cursor-pointer ${
+            activeTab === 'manifest'
+              ? 'border-blue-600 text-blue-600 font-extrabold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <FileCode2 className="w-4 h-4" />
+          <span>Izin Google Drive (appsscript.json)</span>
+        </button>
       </div>
 
       {/* Tab contents */}
@@ -1831,6 +1973,72 @@ function deleteTendikPermitRecord(rowIndex) {
             </div>
           </div>
         )}
+
+
+        {activeTab === 'manifest' && (
+          <div className="space-y-6 animate-fade-in text-slate-600 text-xs sm:text-sm">
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-800 leading-relaxed">
+                <span className="font-bold">Penting Khusus Akun belajar.id / Google Workspace:</span>
+                <p className="mt-1">Akun Google Workspace sekolah/organisasi memerlukan file deklarasi izin <code className="bg-amber-100 px-1 rounded font-bold">appsscript.json</code> agar Google Drive mengizinkan pembuatan berkas secara langsung.</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h4 className="text-sm font-extrabold text-slate-800">4 Langkah Mudah Mengaktifkan Izin Drive di Apps Script:</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                  <span className="font-bold text-blue-600">Langkah 1:</span>
+                  <p>Di editor Apps Script, klik ikon <strong>⚙️ Setelan Project</strong> (Project Settings) pada menu bilah kiri.</p>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                  <span className="font-bold text-blue-600">Langkah 2:</span>
+                  <p>Centang kotak: <strong>"Tampilkan file manifes 'appsscript.json' di editor"</strong>.</p>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                  <span className="font-bold text-blue-600">Langkah 3:</span>
+                  <p>Kembali ke ikon <strong>&lt;&gt; Editor</strong>, klik file <strong>appsscript.json</strong> yang baru muncul di daftar file.</p>
+                </div>
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                  <span className="font-bold text-blue-600">Langkah 4:</span>
+                  <p>Hapus isi lamanya, tempel kode JSON di bawah ini, klik <strong>Simpan (Ctrl+S)</strong>, lalu ikuti langkah <strong>Deploy Versi Baru</strong>.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="relative rounded-2xl overflow-hidden border border-slate-200 bg-slate-900 shadow-inner">
+              <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950 border-b border-slate-800 text-[10px] text-slate-400 font-mono">
+                <span>appsscript.json (File Manifes Izin Google Drive)</span>
+                <button
+                  onClick={() => navigator.clipboard.writeText(`{\n  "timeZone": "Asia/Jakarta",\n  "dependencies": {},\n  "exceptionLogging": "STACKDRIVER",\n  "runtimeVersion": "V8",\n  "webapp": {\n    "executeAs": "USER_DEPLOYING",\n    "access": "ANYONE"\n  },\n  "oauthScopes": [\n    "https://www.googleapis.com/auth/spreadsheets",\n    "https://www.googleapis.com/auth/drive",\n    "https://www.googleapis.com/auth/script.external_request"\n  ]\n}`)}
+                  className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-sans text-[10px] font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
+                >
+                  <Copy className="w-3 h-3" />
+                  <span>Salin Manifes appsscript.json</span>
+                </button>
+              </div>
+              <pre className="p-4 overflow-x-auto text-[11px] text-emerald-400 font-mono leading-relaxed bg-slate-900">
+{`{
+  "timeZone": "Asia/Jakarta",
+  "dependencies": {},
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "webapp": {
+    "executeAs": "USER_DEPLOYING",
+    "access": "ANYONE"
+  },
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/script.external_request"
+  ]
+}`}
+              </pre>
+            </div>
+          </div>
+        )}
+
 
         {activeTab === 'schema' && (
           <div className="space-y-6 animate-fade-in text-slate-600">

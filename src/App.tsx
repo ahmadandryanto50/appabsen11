@@ -15,7 +15,7 @@ import {
   School,
   BookOpen,
   Settings,
-  LogOut,
+  LogOut, FileText,
   Menu,
   X,
   Loader2,
@@ -49,6 +49,7 @@ import { CrudView } from './components/CrudView';
 import { SettingsModal } from './components/SettingsModal';
 import { CustomizationView } from './components/CustomizationView';
 import { AppsScriptView } from './components/AppsScriptView';
+import { BerkasView } from './components/BerkasView';
 import { ScannerKioskView } from './components/ScannerKioskView';
 import { CetakBarcodeView } from './components/CetakBarcodeView';
 import { ExternalAppsModal, DEFAULT_APPS } from './components/ExternalAppsModal';
@@ -1136,6 +1137,21 @@ export default function App() {
                       <span>Data Mapel</span>
                     </button>
 
+                    <button
+                      onClick={() => {
+                        setActiveView('berkas');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+                        activeView === 'berkas'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <FileText className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                      <span>Upload Berkas</span>
+                    </button>
+
                     {currentUser?.role === 'Admin' && (
                       <button
                         onClick={() => {
@@ -1445,6 +1461,11 @@ export default function App() {
                   onSave={handleSaveCustomization}
                   currentUser={currentUser}
                 />
+              )}
+
+              {/* VIEW 8: BERKAS UPLOAD */}
+              {activeView === 'berkas' && (
+                <BerkasView currentUser={currentUser} />
               )}
 
               {/* VIEW 7: APPS SCRIPT CODE & GUIDE */}
