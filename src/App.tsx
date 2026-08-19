@@ -1197,26 +1197,15 @@ export default function App() {
 
           {/* Sidebar Footer Settings & Logout */}
           <div className={`p-3 border-t border-slate-800 space-y-1 ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
-            <button
-              onClick={() => {
-                if (deferredPrompt) {
-                  deferredPrompt.prompt();
-                  deferredPrompt.userChoice.then((choiceResult: any) => {
-                    if (choiceResult.outcome === 'accepted') {
-                      setDeferredPrompt(null);
-                    }
-                  });
-                } else {
-                  // Show instructional modal if prompt is not available
-                  setShowInstallModal(true);
-                }
-                setMobileMenuOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-emerald-400 hover:text-white hover:bg-emerald-500/20 transition-colors cursor-pointer border border-emerald-500/30"
+            <a
+              href="/e-absensi.apk"
+              download="e-absensi.apk"
+              onClick={() => setMobileMenuOpen(false)}
+              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-850 transition-colors cursor-pointer"
             >
-              <Download className="w-4 h-4 flex-shrink-0 text-emerald-500" />
-              <span>Instal Aplikasi (PWA)</span>
-            </button>
+              <Download className="w-4 h-4 flex-shrink-0 text-slate-500" />
+              <span>Download File APK (Manual)</span>
+            </a>
             <button
               onClick={() => {
                 setShowConfigModal(true);
