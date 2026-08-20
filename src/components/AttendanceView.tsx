@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Student, User, AppCustomization } from '../types';
+import { Student, User, AppCustomization, getLocalDateString, getLocalTimeString } from '../types';
 import { Camera, FileImage, Trash2, CheckCircle, Clock, CheckSquare, Sparkles, Loader2, Play, RotateCw, AlertTriangle } from 'lucide-react';
 
 interface AttendanceViewProps {
@@ -54,9 +54,12 @@ export function AttendanceView({
         return;
       }
 
+      const normK = (s: any) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+      const targetNorm = normK(selectedKelas);
+
       // Populate immediately from cache if available so UI responds in 0ms
-      const cached = localStorage.getItem(`absensi_students_${selectedKelas}`);
       let hasCache = false;
+      const cached = localStorage.getItem(`absensi_students_${selectedKelas}`);
       if (cached) {
         try {
           const parsed = JSON.parse(cached);
@@ -68,12 +71,36 @@ export function AttendanceView({
       }
 
       if (!hasCache) {
+        const rawMaster = localStorage.getItem('absensi_master_siswa');
+        if (rawMaster) {
+          try {
+            const parsed: any[] = JSON.parse(rawMaster);
+            const filtered = parsed
+              .filter((s) => s && s.data && normK(s.data[3]) === targetNorm && (normK(s.data[5]) === 'aktif' || !s.data[5]))
+              .map((s) => ({
+                id: s.data[0] ? String(s.data[0]) : `S_${s.data[1]}`,
+                nisn: s.data[1] ? String(s.data[1]) : '',
+                nama: s.data[2] || '',
+                kelas: s.data[3] || selectedKelas,
+                gender: s.data[4] || 'Laki-laki',
+                status: 'Hadir',
+                keterangan: '',
+              }));
+            if (filtered.length > 0) {
+              setStudentList(filtered);
+              hasCache = true;
+            }
+          } catch (e) {}
+        }
+      }
+
+      if (!hasCache) {
         setIsLoading(true);
       }
 
       onLoadStudentsRef.current(selectedKelas)
         .then((students) => {
-          if (students && students.length > 0 && !hasCache) {
+          if (students && students.length > 0) {
             setStudentList(students.map((s) => ({ ...s, status: 'Hadir', keterangan: '' })));
           }
           lastLoadedKelasRef.current = selectedKelas;
@@ -83,6 +110,7 @@ export function AttendanceView({
     } else {
       setStudentList([]);
       lastLoadedKelasRef.current = '';
+      setIsLoading(false);
     }
   }, [selectedKelas]);
 
@@ -127,11 +155,23 @@ export function AttendanceView({
     if (videoRef.current) {
       const video = videoRef.current;
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
+      let w = video.videoWidth || 640;
+      let h = video.videoHeight || 480;
+      const maxDim = 320; // Downscale to prevent payload bloat
+      if (w > maxDim || h > maxDim) {
+        if (w > h) {
+          h = Math.round((h * maxDim) / w);
+          w = maxDim;
+        } else {
+          w = Math.round((w * maxDim) / h);
+          h = maxDim;
+        }
+      }
+      canvas.width = w;
+      canvas.height = h;
       const ctx = canvas.getContext('2d');
       if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(video, 0, 0, w, h);
         const dataUrl = canvas.toDataURL('image/jpeg', 0.5);
         setCameraPhoto(dataUrl);
       }
@@ -153,7 +193,33 @@ export function AttendanceView({
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
-          setCameraPhoto(event.target.result as string);
+          const rawUrl = event.target.result as string;
+          const img = new Image();
+          img.onload = () => {
+            let w = img.width;
+            let h = img.height;
+            const maxDim = 320; // Downscale uploaded image
+            if (w > maxDim || h > maxDim) {
+              if (w > h) {
+                h = Math.round((h * maxDim) / w);
+                w = maxDim;
+              } else {
+                w = Math.round((w * maxDim) / h);
+                h = maxDim;
+              }
+            }
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, w, h);
+              setCameraPhoto(canvas.toDataURL('image/jpeg', 0.5));
+            } else {
+              setCameraPhoto(rawUrl);
+            }
+          };
+          img.src = rawUrl;
         }
       };
       reader.readAsDataURL(file);
@@ -187,6 +253,10 @@ export function AttendanceView({
     }
     if (!selectedMapel.trim()) {
       alert('Harap isi nama mata pelajaran!');
+      return;
+    }
+    if (studentList.length === 0) {
+      alert('Daftar siswa belum dimuat/kosong. Harap klik "Tampilkan Daftar Siswa" atau pilih kelas ulang!');
       return;
     }
 

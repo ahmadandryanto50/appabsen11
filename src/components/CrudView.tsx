@@ -355,6 +355,7 @@ export function CrudView({
                       className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold bg-white cursor-pointer"
                     >
                       <option value="">-- Pilih Role --</option>
+                      <option value="Admin Utama">Admin Utama</option>
                       <option value="Admin">Admin</option>
                       <option value="Guru">Guru</option>
                       <option value="Tendik">Tendik</option>

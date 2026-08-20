@@ -36,6 +36,49 @@ function writeServerData(data: any) {
   }
 }
 
+// Fetch customization from Apps Script Database directly
+async function fetchCustomizationFromGas(webAppUrl: string): Promise<any> {
+  if (!webAppUrl) return null;
+  try {
+    const response = await fetch(webAppUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'getCustomization' }),
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const text = await response.text();
+    if (!text || text.trim().startsWith('<') || text.includes('<!DOCTYPE html>')) {
+      // Try fallback to getCrud for 'Pengaturan' sheet
+      const fallbackResponse = await fetch(webAppUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'getCrud', sheetName: 'Pengaturan' }),
+      });
+      if (fallbackResponse.ok) {
+        const fallbackText = await fallbackResponse.text();
+        const fallbackData = JSON.parse(fallbackText);
+        if (fallbackData && fallbackData.status === 'success' && Array.isArray(fallbackData.rows)) {
+          const customRow = fallbackData.rows.find((row: any) => row.data && row.data[0] === 'customization');
+          if (customRow && customRow.data[1]) {
+            return JSON.parse(customRow.data[1]);
+          }
+        }
+      }
+      return null;
+    }
+    const data = JSON.parse(text);
+    if (data && data.status === 'success' && data.customization) {
+      return data.customization;
+    }
+    return null;
+  } catch (err) {
+    console.warn('[Server GAS Customization Fetch Warning]', err);
+    return null;
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -79,8 +122,19 @@ async function startServer() {
   });
 
   // 2. Global Web App URL & Customization sync across all devices / browsers
-  app.get('/api/config', (req, res) => {
+  app.get('/api/config', async (req, res) => {
     const data = readServerData();
+    
+    // Auto-fetch customization from Apps Script if missing
+    if (!data.customization && data.webAppUrl) {
+      console.log('[Server Config Cache] Fetching customization from Apps Script in background...');
+      const fetched = await fetchCustomizationFromGas(data.webAppUrl);
+      if (fetched) {
+        data.customization = fetched;
+        writeServerData(data);
+      }
+    }
+
     const cust = data.customization || {};
     if (!cust.logoUrl) {
       cust.logoUrl = '/logo_smpn11.jpg';
@@ -193,6 +247,22 @@ async function startServer() {
 
   app.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
+
+    // Background fetch customization on server boot if missing
+    const data = readServerData();
+    if (!data.customization && data.webAppUrl) {
+      console.log('[Server Boot Loader] Starting background boot fetch for customization...');
+      fetchCustomizationFromGas(data.webAppUrl)
+        .then((fetched) => {
+          if (fetched) {
+            const updatedData = readServerData();
+            updatedData.customization = fetched;
+            writeServerData(updatedData);
+            console.log('[Server Boot Loader] Successfully loaded and cached school customization on startup!');
+          }
+        })
+        .catch((e) => console.error('[Server Boot Loader] Failed loading customization:', e));
+    }
   });
 }
 

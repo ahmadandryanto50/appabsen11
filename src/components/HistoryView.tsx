@@ -44,7 +44,8 @@ const getNormalizedDateStr = (dateInput: any): string => {
   if (!dateInput) return '';
   if (typeof dateInput === 'string') {
     const s = dateInput.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const ymdMatch = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (ymdMatch) return ymdMatch[1];
     if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
       const [d, m, y] = s.split('/');
       return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
@@ -186,7 +187,7 @@ export function HistoryView({
   onDeleteTeacherRecord,
   customization,
 }: HistoryViewProps) {
-  const isFullAccess = currentUser?.role === 'Admin' || String(currentUser?.role || '').toLowerCase().includes('admin') || Boolean(currentUser?.username?.toLowerCase().includes('admin'));
+  const isFullAccess = (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || String(currentUser?.role || '').toLowerCase().includes('admin') || Boolean(currentUser?.username?.toLowerCase().includes('admin'));
 
   const [subTab, setSubTab] = useState<'siswa' | 'kiosk-siswa' | 'guru' | 'guru-absen' | 'tendik-absen' | 'tendik-izin' | 'rekap-pdf' | 'rekap-kelas-guru'>(
     currentUser?.role === 'Tendik' ? 'tendik-absen' : 'siswa'
@@ -549,7 +550,7 @@ export function HistoryView({
       selectedObj,
       targetNip,
       targetNama,
-      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', month: 'long', year: 'numeric' }),
+      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
       totalDaysInMonth,
       dayRows,
       countHadir,
@@ -708,7 +709,7 @@ export function HistoryView({
       selectedObj,
       targetNip,
       targetNama,
-      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta', month: 'long', year: 'numeric' }),
+      monthLabel: new Date(year, month - 1, 1).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }),
       totalDaysInMonth,
       dayRows,
       countHadir,
@@ -1030,18 +1031,42 @@ export function HistoryView({
     }
   }, [currentUser, selectedGuru]);
 
+  // Compute restricted teachers for dropdown
+  const filteredTeachersForRecap = useMemo(() => {
+    if (isFullAccess) return teachers;
+    if (currentUser?.role === 'Guru' && currentUser?.nama) {
+      return teachers.filter(t => matchTeacher(t.nama, currentUser.nama));
+    }
+    return teachers;
+  }, [isFullAccess, currentUser, teachers]);
+
   // Compute classes taught by selected teacher
   const classesTaughtByGuru = useMemo(() => {
-    if (!selectedGuru) return kelasList || [];
+    if (isFullAccess) return kelasList || [];
+    if (!selectedGuru) return [];
     const classSet = new Set<string>();
     (allHistory || []).forEach((r) => {
       if (r && r.guru && matchTeacher(r.guru, selectedGuru) && r.kelas) {
         classSet.add(r.kelas);
       }
     });
-    const list = Array.from(classSet);
+    const list = Array.from(classSet).sort();
     return list.length > 0 ? list : (kelasList || []);
-  }, [selectedGuru, allHistory, kelasList]);
+  }, [selectedGuru, allHistory, kelasList, isFullAccess]);
+
+  // Compute mapels taught by selected teacher
+  const mapelsTaughtByGuru = useMemo(() => {
+    if (isFullAccess) return mapels || [];
+    if (!selectedGuru) return [];
+    const mapelSet = new Set<string>();
+    (allHistory || []).forEach((r) => {
+      if (r && r.guru && matchTeacher(r.guru, selectedGuru) && r.mapel) {
+        mapelSet.add(r.mapel);
+      }
+    });
+    const list = Array.from(mapelSet).sort();
+    return list.length > 0 ? list : (mapels || []);
+  }, [selectedGuru, allHistory, mapels, isFullAccess]);
 
   // Auto-select class when classesTaughtByGuru updates
   useEffect(() => {
@@ -1240,7 +1265,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar',
       day: 'numeric',
       month: 'long',
       year: 'numeric',
@@ -2200,7 +2225,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar',
       day: 'numeric',
       month: 'long',
       year: 'numeric'
@@ -2360,7 +2385,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar',
       day: 'numeric',
       month: 'long',
       year: 'numeric'
@@ -2473,7 +2498,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar',
       day: 'numeric',
       month: 'long',
       year: 'numeric'
@@ -2584,7 +2609,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar',
       day: 'numeric',
       month: 'long',
       year: 'numeric'
@@ -2695,7 +2720,7 @@ export function HistoryView({
 
     const doc = new jsPDF('p', 'mm', 'a4');
     const today = new Date();
-    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Jakarta',
+    const formattedDateStr = today.toLocaleDateString('id-ID', { timeZone: 'Asia/Makassar',
       day: 'numeric',
       month: 'long',
       year: 'numeric'
@@ -2806,7 +2831,7 @@ export function HistoryView({
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
         {/* Sub tab buttons */}
         <div className="flex items-center gap-2 border-b border-slate-100 pb-4 flex-wrap">
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru') && (
             <button
               type="button"
               onClick={() => setSubTab('siswa')}
@@ -2820,7 +2845,7 @@ export function HistoryView({
               <span>Jurnal Presensi Kelas</span>
             </button>
           )}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru') && (
             <button
               type="button"
               onClick={() => {
@@ -2837,7 +2862,7 @@ export function HistoryView({
               <span>Presensi Masuk (Kiosk / Barcode)</span>
             </button>
           )}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru') && (
             <button
               type="button"
               onClick={() => {
@@ -2854,7 +2879,7 @@ export function HistoryView({
               <span>Riwayat Izin Guru</span>
             </button>
           )}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru') && (
             <button
               type="button"
               onClick={() => {
@@ -2871,7 +2896,7 @@ export function HistoryView({
               <span>Riwayat Absen Guru</span>
             </button>
           )}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik') && (
             <button
               type="button"
               onClick={() => {
@@ -2887,7 +2912,7 @@ export function HistoryView({
               <span>Riwayat Absen Tendik</span>
             </button>
           )}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik') && (
             <button
               type="button"
               onClick={() => {
@@ -2903,7 +2928,7 @@ export function HistoryView({
               <span>Riwayat Izin Tendik</span>
             </button>
           )}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru') && (
             <button
               type="button"
               onClick={() => setSubTab('rekap-pdf')}
@@ -2917,7 +2942,7 @@ export function HistoryView({
               <span>Unduh Rekap PDF</span>
             </button>
           )}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru') && (
             <button
               type="button"
               onClick={() => setSubTab('rekap-kelas-guru')}
@@ -2931,7 +2956,7 @@ export function HistoryView({
               <span>Rekap Siswa Per Kelas (Guru)</span>
             </button>
           )}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru') && (
             <button
               type="button"
               onClick={() => setSubTab('rekap-guru')}
@@ -2945,7 +2970,7 @@ export function HistoryView({
               <span>Rekap Bulanan Guru</span>
             </button>
           )}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik') && (
             <button
               type="button"
               onClick={() => setSubTab('rekap-tendik')}
@@ -3131,7 +3156,7 @@ export function HistoryView({
                             >
                               <PenSquare className="w-4 h-4" />
                             </button>
-                            {currentUser?.role === 'Admin' && (
+                            {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                               <button
                                 type="button"
                                 onClick={() => openDeleteConfirmModal(item.rowIndex, 'siswa')}
@@ -3331,7 +3356,7 @@ export function HistoryView({
                     <th className="p-3.5 w-24 text-center">Kelas</th>
                     <th className="p-3.5 w-32 text-center">Status Masuk</th>
                     <th className="p-3.5 w-36 text-center">Keterlambatan</th>
-                    {(currentUser?.role === 'Admin' || isFullAccess) && <th className="p-3.5 pr-4 text-center w-20">Aksi</th>}
+                    {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || isFullAccess) && <th className="p-3.5 pr-4 text-center w-20">Aksi</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -3396,7 +3421,7 @@ export function HistoryView({
                               return <span className="text-slate-400 font-bold">Tepat Waktu</span>;
                             })()}
                           </td>
-                          {(currentUser?.role === 'Admin' || isFullAccess) && (
+                          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || isFullAccess) && (
                             <td className="p-3.5 pr-4 text-center">
                               <button
                                 type="button"
@@ -3413,7 +3438,7 @@ export function HistoryView({
                     })
                   ) : (
                     <tr>
-                      <td colSpan={currentUser?.role === 'Admin' ? 9 : 8} className="p-12 text-center text-slate-400">
+                      <td colSpan={(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') ? 9 : 8} className="p-12 text-center text-slate-400">
                         <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
                         <p className="text-xs font-semibold">
                           Tidak ada rekaman presensi masuk siswa pada filter ini.
@@ -3554,7 +3579,7 @@ export function HistoryView({
                             >
                               <PenSquare className="w-4 h-4" />
                             </button>
-                            {currentUser?.role === 'Admin' && (
+                            {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                               <button
                                 type="button"
                                 onClick={() => openDeleteConfirmModal(item.rowIndex, 'guru')}
@@ -3709,7 +3734,7 @@ export function HistoryView({
                         </td>
                         <td className="p-3.5 pr-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            {currentUser?.role === 'Admin' && (
+                            {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                               <button
                                 type="button"
                                 onClick={() => openDeleteConfirmModal(item.rowIndex, 'guru-absen')}
@@ -3863,7 +3888,7 @@ export function HistoryView({
                         </td>
                         <td className="p-3.5 pr-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            {currentUser?.role === 'Admin' && (
+                            {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                               <button
                                 type="button"
                                 onClick={() => openDeleteConfirmModal(item.rowIndex, 'tendik-absen')}
@@ -4019,7 +4044,7 @@ export function HistoryView({
                         </td>
                         <td className="p-3.5 pr-4 text-center">
                           <div className="flex items-center justify-center gap-1.5">
-                            {currentUser?.role === 'Admin' && (
+                            {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                               <button
                                 type="button"
                                 onClick={() => openDeleteConfirmModal(item.rowIndex, 'tendik-izin')}
@@ -4070,7 +4095,7 @@ export function HistoryView({
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
                 >
                   <option value="">-- Pilih Guru --</option>
-                  {teachers.map((t, idx) => (
+                  {filteredTeachersForRecap.map((t, idx) => (
                     <option key={`teacher-${t.nama || 'guru'}-${idx}`} value={t.nama}>
                       {t.nama}
                     </option>
@@ -4086,7 +4111,7 @@ export function HistoryView({
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
                 >
                   <option value="">-- Pilih Mapel --</option>
-                  {mapels.map((m, idx) => (
+                  {mapelsTaughtByGuru.map((m, idx) => (
                     <option key={`mapel-${m}-${idx}`} value={m}>
                       {m}
                     </option>
@@ -4323,7 +4348,7 @@ export function HistoryView({
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
                 >
                   <option value="">-- Pilih Guru --</option>
-                  {teachers.map((t, idx) => (
+                  {filteredTeachersForRecap.map((t, idx) => (
                     <option key={`gt-${t.nama || 'guru'}-${idx}`} value={t.nama}>
                       {t.nama}
                     </option>
@@ -4355,7 +4380,7 @@ export function HistoryView({
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
                 >
                   <option value="">-- Semua Mapel --</option>
-                  {mapels.map((m, idx) => (
+                  {mapelsTaughtByGuru.map((m, idx) => (
                     <option key={`m2-${m}-${idx}`} value={m}>
                       {m}
                     </option>

@@ -72,14 +72,13 @@ export default function App() {
   const [mapelList, setMapelList] = useState<string[]>([]);
   const [historyList, setHistoryList] = useState<AttendanceRecord[]>(() => {
     try {
-      if (!apiClient.isDemoMode()) {
-        const saved = localStorage.getItem('absensi_history_siswa');
-        if (!saved) return [];
-        const parsed = JSON.parse(saved);
-        return parsed.filter((r: AttendanceRecord) => r.guru !== 'Budi Santoso, S.Pd.' || r.kelas !== 'X-A' || r.mapel !== 'Matematika');
-      }
       const saved = localStorage.getItem('absensi_history_siswa');
-      return saved ? JSON.parse(saved) : [];
+      if (!saved) return [];
+      const parsed: AttendanceRecord[] = JSON.parse(saved);
+      if (!apiClient.isDemoMode()) {
+        return parsed.filter((r) => r.guru !== 'Budi Santoso, S.Pd.' || r.kelas !== 'X-A' || r.mapel !== 'Matematika');
+      }
+      return parsed;
     } catch {
       return [];
     }
@@ -147,7 +146,7 @@ export default function App() {
   // Permission Check Helper
   const hasFullAccess = useCallback((user: User | null): boolean => {
     if (!user) return false;
-    if (user.role === 'Admin') return true;
+    if (user.role === 'Admin Utama' || user.role === 'Admin') return true;
     return customization.fullAccessUsernames.includes(user.username) || (user.nip ? customization.fullAccessUsernames.includes(user.nip) : false);
   }, [customization]);
 
@@ -266,16 +265,16 @@ export default function App() {
       try {
         const parsed = JSON.parse(savedCustomization);
         setCustomization((prev) => ({
-          ...prev,
           ...parsed,
-          logoUrl: parsed.logoUrl || prev.logoUrl || '/logo_smpn11.jpg',
-          userPhotos: { ...(prev.userPhotos || {}), ...(parsed.userPhotos || {}) },
-          fullAccessUsernames: Array.isArray(parsed.fullAccessUsernames) && parsed.fullAccessUsernames.length > 0
-            ? parsed.fullAccessUsernames
-            : prev.fullAccessUsernames,
-          externalApps: Array.isArray(parsed.externalApps) && parsed.externalApps.length > 0
-            ? parsed.externalApps
-            : (prev.externalApps && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS),
+          ...prev,
+          logoUrl: prev.logoUrl || parsed.logoUrl || '/logo_smpn11.jpg',
+          userPhotos: { ...(parsed.userPhotos || {}), ...(prev.userPhotos || {}) },
+          fullAccessUsernames: Array.isArray(prev.fullAccessUsernames) && prev.fullAccessUsernames.length > 0
+            ? prev.fullAccessUsernames
+            : parsed.fullAccessUsernames,
+          externalApps: Array.isArray(prev.externalApps) && prev.externalApps.length > 0
+            ? prev.externalApps
+            : (parsed.externalApps && parsed.externalApps.length > 0 ? parsed.externalApps : DEFAULT_APPS),
         }));
       } catch (e) {
         console.error('Error loading customization cache:', e);
@@ -813,7 +812,7 @@ export default function App() {
   };
 
   const getFormattedDate = () => {
-    const options: Intl.DateTimeFormatOptions = { timeZone: 'Asia/Jakarta', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const options: Intl.DateTimeFormatOptions = { timeZone: 'Asia/Makassar', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
     return new Date().toLocaleDateString('id-ID', options);
   };
 
@@ -897,8 +896,10 @@ export default function App() {
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                   <p className="text-[10px] text-slate-400 font-bold capitalize tracking-wide">
-                    {currentUser?.role === 'Admin'
+                    {currentUser?.role === 'Admin Utama'
                       ? 'Admin Utama'
+                      : currentUser?.role === 'Admin'
+                      ? 'Admin'
                       : currentUser?.role === 'Tendik'
                       ? 'Tendik'
                       : hasFullAccess(currentUser)
@@ -975,8 +976,8 @@ export default function App() {
                 </>
               )}
 
-              {/* Kiosk Scanner & Cetak Barcode: Strictly for Admin Utama and Admin */}
-              {hasFullAccess(currentUser) && (
+              {/* Kiosk Scanner & Cetak Barcode: Strictly for Admin Utama and Admin, plus Kiosk for Guru */}
+              {(hasFullAccess(currentUser) || currentUser?.role === 'Guru') && (
                 <>
                   <button
                     onClick={() => {
@@ -993,24 +994,26 @@ export default function App() {
                     <span>Kiosk Scanner</span>
                   </button>
 
-                  <button
-                    onClick={() => {
-                      setActiveView('cetak-barcode');
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeView === 'cetak-barcode'
-                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <QrCode className="w-4 h-4 flex-shrink-0" />
-                    <span>Cetak Barcode</span>
-                  </button>
+                  {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                    <button
+                      onClick={() => {
+                        setActiveView('cetak-barcode');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeView === 'cetak-barcode'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <QrCode className="w-4 h-4 flex-shrink-0" />
+                      <span>Cetak Barcode</span>
+                    </button>
+                  )}
                 </>
               )}
 
-              {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+              {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
                 <>
                   <button
                     onClick={() => {
@@ -1060,6 +1063,21 @@ export default function App() {
                 <span>Riwayat Absensi</span>
               </button>
 
+              <button
+                onClick={() => {
+                  setActiveView('berkas');
+                  setMobileMenuOpen(false);
+                }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  activeView === 'berkas'
+                    ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                    : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <FileText className="w-4 h-4 flex-shrink-0" />
+                <span>Upload Berkas</span>
+              </button>
+
               {/* Master CRUD Lists Folders (Strictly for Administrator or Full Access Role) */}
               {hasFullAccess(currentUser) && (
                 <div className="pt-4 pb-2 border-t border-slate-800/80 mt-2">
@@ -1067,7 +1085,7 @@ export default function App() {
                     Manajemen Master Data
                   </p>
                   <div className="space-y-1">
-                    {currentUser?.role === 'Admin' && (
+                    {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                       <button
                         onClick={() => {
                           setActiveView('crud-guru');
@@ -1133,22 +1151,7 @@ export default function App() {
                       <span>Data Mapel</span>
                     </button>
 
-                    <button
-                      onClick={() => {
-                        setActiveView('berkas');
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-                        activeView === 'berkas'
-                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <FileText className="w-4 h-4 flex-shrink-0 text-slate-500" />
-                      <span>Upload Berkas</span>
-                    </button>
-
-                    {currentUser?.role === 'Admin' && (
+                    {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                       <button
                         onClick={() => {
                           setShowExternalAppsModal(true);
@@ -1164,7 +1167,7 @@ export default function App() {
                 </div>
               )}
 
-              {currentUser?.role === 'Admin' && (
+              {currentUser?.role === 'Admin Utama' && (
                 <div className="pt-2 pb-2 mt-1">
                   <p className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
                     Konfigurasi Sistem
@@ -1335,9 +1338,9 @@ export default function App() {
                 />
               )}
 
-              {/* VIEW: KIOSK SCANNER (Strictly for Admin Utama and Admin) */}
+              {/* VIEW: KIOSK SCANNER (Strictly for Admin Utama and Admin, plus Guru) */}
               {activeView === 'kiosk-scanner' && (
-                hasFullAccess(currentUser) ? (
+                (hasFullAccess(currentUser) || currentUser?.role === 'Guru') ? (
                   <ScannerKioskView
                     students={allStudents}
                     customization={customization}
@@ -1350,7 +1353,7 @@ export default function App() {
                     </div>
                     <h3 className="text-lg font-bold text-slate-800">Akses Dibatasi</h3>
                     <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-                      Fitur <strong>Kiosk Scanner</strong> hanya dapat diakses dan digunakan oleh <strong>Admin Utama</strong> dan <strong>Admin</strong>.
+                      Fitur <strong>Kiosk Scanner</strong> hanya dapat diakses dan digunakan oleh <strong>Admin Utama</strong>, <strong>Admin</strong>, dan <strong>Guru</strong>.
                     </p>
                     <button
                       type="button"
@@ -1365,7 +1368,7 @@ export default function App() {
 
               {/* VIEW: CETAK BARCODE (Strictly for Admin Utama and Admin) */}
               {activeView === 'cetak-barcode' && (
-                hasFullAccess(currentUser) ? (
+                (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') ? (
                   <CetakBarcodeView students={allStudents} kelasList={kelasList} customization={customization} />
                 ) : (
                   <div className="p-10 text-center bg-white rounded-3xl border border-slate-200 shadow-sm max-w-lg mx-auto mt-8">
@@ -1388,7 +1391,7 @@ export default function App() {
               )}
 
               {/* VIEW 2.5: GURU ATTENDANCE (MANDIRI) */}
-              {activeView === 'absen-guru' && (currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
+              {activeView === 'absen-guru' && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
                 <TeacherAttendanceView
                   currentUser={currentUser}
                   onSubmit={handleSubmitGuruAttendance}
@@ -1397,12 +1400,12 @@ export default function App() {
               )}
 
               {/* VIEW 3: TEACHER PERMIT */}
-              {activeView === 'izin-guru' && (
+              {activeView === 'izin-guru' && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || currentUser?.role === 'Guru') && (
                 <TeacherPermitView currentUser={currentUser} onSubmit={handleSubmitTeacherPermit} />
               )}
 
               {/* VIEW 3.1: TENDIK ATTENDANCE */}
-              {activeView === 'absen-tendik' && (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+              {activeView === 'absen-tendik' && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
                 <TendikAttendanceView
                   currentUser={currentUser}
                   onSubmit={handleSubmitTendikAttendance}
@@ -1411,7 +1414,7 @@ export default function App() {
               )}
 
               {/* VIEW 3.2: TENDIK PERMIT */}
-              {activeView === 'izin-tendik' && (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+              {activeView === 'izin-tendik' && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
                 <TendikPermitView
                   currentUser={currentUser}
                   onSubmit={handleSubmitTendikPermit}
@@ -1451,7 +1454,7 @@ export default function App() {
               )}
 
               {/* VIEW 6: APP CUSTOMIZATION */}
-              {activeView === 'customization' && currentUser?.role === 'Admin' && (
+              {activeView === 'customization' && currentUser?.role === 'Admin Utama' && (
                 <CustomizationView
                   customization={customization}
                   onSave={handleSaveCustomization}
@@ -1465,7 +1468,7 @@ export default function App() {
               )}
 
               {/* VIEW 7: APPS SCRIPT CODE & GUIDE */}
-              {activeView === 'apps-script' && currentUser?.role === 'Admin' && (
+              {activeView === 'apps-script' && currentUser?.role === 'Admin Utama' && (
                 <AppsScriptView customization={customization} />
               )}
             </div>
@@ -1483,7 +1486,7 @@ export default function App() {
       )}
 
       {/* EXTERNAL APPS / LAINNYA MODAL (Khusus Admin Utama) */}
-      {showExternalAppsModal && currentUser?.role === 'Admin' && (
+      {showExternalAppsModal && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
         <ExternalAppsModal
           onClose={() => setShowExternalAppsModal(false)}
           onReturnToMainApp={() => {
@@ -1492,7 +1495,7 @@ export default function App() {
           }}
           customization={customization}
           onSaveCustomization={handleSaveCustomization}
-          isAdmin={currentUser?.role === 'Admin'}
+          isAdmin={currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin'}
         />
       )}
       {/* PWA INSTALL INSTRUCTION MODAL */}

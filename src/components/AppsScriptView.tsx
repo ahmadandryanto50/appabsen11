@@ -648,7 +648,7 @@ function submitStudentAttendance(payload) {
     }
 
     const now = new Date();
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
     const defaultTanggal = Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const defaultWaktu = Utilities.formatDate(now, tz, "HH:mm:ss");
 
@@ -718,7 +718,7 @@ function saveStudentClassRecap(payload) {
     }
 
     const now = new Date();
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
     const defaultTanggal = Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const tanggalRekap = payload.tanggal || defaultTanggal;
     const guru = payload.guru || "";
@@ -772,7 +772,7 @@ function submitKioskScan(payload) {
     }
 
     const now = new Date();
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
     const timestamp = Utilities.formatDate(now, tz, "yyyy-MM-dd HH:mm:ss");
 
     const keterlambatan = payload.keterlambatan || (payload.menitTerlambat ? payload.menitTerlambat + " menit" : "-");
@@ -838,7 +838,7 @@ function getKioskAttendanceHistory(tanggal, kelas) {
     }
 
     const history = [];
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
 
     function normalizeDateForMatch(dVal) {
       if (!dVal) return "";
@@ -970,7 +970,7 @@ function submitTeacherAbsence(payload) {
     }
 
     const now = new Date();
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
     const tanggal = payload.tanggal || Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const waktu = payload.waktu || Utilities.formatDate(now, tz, "HH:mm:ss");
     const rowIndex = now.getTime().toString();
@@ -999,7 +999,7 @@ function getTeacherAbsenceHistory(tanggal) {
 
     const values = sheet.getDataRange().getValues();
     const history = [];
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
 
     for (let i = 1; i < values.length; i++) {
       let rowTanggal = values[i][1];
@@ -1127,7 +1127,7 @@ function getAttendanceHistory(tanggal, kelas) {
 
     const values = sheet.getDataRange().getValues();
     const history = [];
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
 
     for (let i = 1; i < values.length; i++) {
       let rowTanggal = values[i][1];
@@ -1321,7 +1321,7 @@ function submitGuruAttendance(payload) {
     }
 
     const now = new Date();
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
     const tanggalDefault = Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const waktuDefault = Utilities.formatDate(now, tz, "HH:mm:ss");
 
@@ -1371,7 +1371,7 @@ function getGuruAttendanceHistory(tanggal) {
     if (values.length <= 1) return { status: "success", history: [] };
 
     const history = [];
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
 
     for (let i = 1; i < values.length; i++) {
       let rawTgl = values[i][1];
@@ -1443,7 +1443,7 @@ function submitTendikAttendance(payload) {
     }
 
     const now = new Date();
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
     const tanggalDefault = Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const waktuDefault = Utilities.formatDate(now, tz, "HH:mm:ss");
 
@@ -1493,7 +1493,7 @@ function submitTendikPermit(payload) {
     }
 
     const now = new Date();
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
     const tanggalDefault = Utilities.formatDate(now, tz, "yyyy-MM-dd");
     const waktuDefault = Utilities.formatDate(now, tz, "HH:mm:ss");
 
@@ -1530,7 +1530,7 @@ function getTendikAttendanceHistory(tanggal) {
     const numCols = Math.max(sheet.getLastColumn(), 6);
     const values = sheet.getRange(1, 1, lastRow, numCols).getValues();
     const history = [];
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
 
     for (let i = values.length - 1; i >= 1; i--) {
       let rowTanggal = values[i][1];
@@ -1603,7 +1603,7 @@ function getTendikPermitHistory(tanggal) {
 
     const values = sheet.getRange(1, 1, lastRow, 8).getValues();
     const history = [];
-    const tz = "Asia/Jakarta";
+    const tz = "Asia/Makassar";
 
     for (let i = values.length - 1; i >= 1; i--) {
       let rowTanggal = values[i][1];
@@ -2011,7 +2011,7 @@ function deleteTendikPermitRecord(rowIndex) {
               <div className="flex items-center justify-between px-4 py-2.5 bg-slate-950 border-b border-slate-800 text-[10px] text-slate-400 font-mono">
                 <span>appsscript.json (File Manifes Izin Google Drive)</span>
                 <button
-                  onClick={() => navigator.clipboard.writeText(`{\n  "timeZone": "Asia/Jakarta",\n  "dependencies": {},\n  "exceptionLogging": "STACKDRIVER",\n  "runtimeVersion": "V8",\n  "webapp": {\n    "executeAs": "USER_DEPLOYING",\n    "access": "ANYONE"\n  },\n  "oauthScopes": [\n    "https://www.googleapis.com/auth/spreadsheets",\n    "https://www.googleapis.com/auth/drive",\n    "https://www.googleapis.com/auth/script.external_request"\n  ]\n}`)}
+                  onClick={() => navigator.clipboard.writeText(`{\n  "timeZone": "Asia/Makassar",\n  "dependencies": {},\n  "exceptionLogging": "STACKDRIVER",\n  "runtimeVersion": "V8",\n  "webapp": {\n    "executeAs": "USER_DEPLOYING",\n    "access": "ANYONE"\n  },\n  "oauthScopes": [\n    "https://www.googleapis.com/auth/spreadsheets",\n    "https://www.googleapis.com/auth/drive",\n    "https://www.googleapis.com/auth/script.external_request"\n  ]\n}`)}
                   className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white font-sans text-[10px] font-bold rounded-lg transition-colors cursor-pointer flex items-center gap-1"
                 >
                   <Copy className="w-3 h-3" />
@@ -2020,7 +2020,7 @@ function deleteTendikPermitRecord(rowIndex) {
               </div>
               <pre className="p-4 overflow-x-auto text-[11px] text-emerald-400 font-mono leading-relaxed bg-slate-900">
 {`{
-  "timeZone": "Asia/Jakarta",
+  "timeZone": "Asia/Makassar",
   "dependencies": {},
   "exceptionLogging": "STACKDRIVER",
   "runtimeVersion": "V8",

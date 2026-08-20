@@ -408,9 +408,46 @@ export const apiClient = {
 
   // 2. GET STUDENTS BY CLASS
   async getStudents(kelas: string): Promise<{ status: string; students: Student[]; message?: string }> {
+    const normK = (s: any) => String(s || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    const targetNorm = normK(kelas);
+
+    // Immediate check local storage cache first for instant response
+    const cachedRoster = localStorage.getItem(`absensi_students_${kelas}`);
+    let localCacheStudents: Student[] = [];
+    if (cachedRoster) {
+      try {
+        const parsed = JSON.parse(cachedRoster);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          localCacheStudents = parsed;
+        }
+      } catch (e) {}
+    }
+
+    if (localCacheStudents.length === 0) {
+      const rawStudents = localStorage.getItem(STORAGE_KEYS.MASTER_SISWA) || '[]';
+      try {
+        const parsed: any[] = JSON.parse(rawStudents);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const filtered = parsed
+            .filter((s) => s && s.data && normK(s.data[3]) === targetNorm && (normK(s.data[5]) === 'aktif' || !s.data[5]))
+            .map((s) => ({
+              id: s.data[0] ? String(s.data[0]) : '',
+              nisn: s.data[1] ? String(s.data[1]) : '',
+              nama: s.data[2] || '',
+              kelas: s.data[3] || kelas,
+              gender: s.data[4] || 'Laki-laki',
+            }));
+          if (filtered.length > 0) {
+            localCacheStudents = filtered;
+          }
+        }
+      } catch (e) {}
+    }
+
     const url = this.getBackendUrl();
     if (url) {
-      const { ok, result } = await safeCallGAS(url, 'getStudents', { kelas }, true, 600000); // 10 minutes cache
+      // 3 second fast timeout to prevent spinner hanging
+      const { ok, result } = await safeCallGAS(url, 'getStudents', { kelas }, true, 600000, 3000);
       if (ok && result && result.status === 'success' && Array.isArray(result.students) && result.students.length > 0) {
         try {
           localStorage.setItem(`absensi_students_${kelas}`, JSON.stringify(result.students));
@@ -424,9 +461,9 @@ export const apiClient = {
         const filtered = crudRes.rows
           .filter((r: any) => {
             if (!r || !r.data) return false;
-            const rowKelas = r.data[3] ? r.data[3].toString().trim() : '';
+            const rowKelas = r.data[3] ? r.data[3].toString() : '';
             const status = r.data[5] ? r.data[5].toString().trim().toLowerCase() : 'aktif';
-            return rowKelas === kelas && (status === 'aktif' || status === '');
+            return (normK(rowKelas) === targetNorm || normK(rowKelas).includes(targetNorm) || targetNorm.includes(normK(rowKelas))) && (status === 'aktif' || status === '');
           })
           .map((r: any) => ({
             id: r.data[0] ? r.data[0].toString() : '',
@@ -445,37 +482,12 @@ export const apiClient = {
       }
     }
 
-    // Fallback 2: Check per-class local storage cache
-    const cachedRoster = localStorage.getItem(`absensi_students_${kelas}`);
-    if (cachedRoster) {
-      try {
-        const parsed = JSON.parse(cachedRoster);
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return { status: 'success', students: parsed };
-        }
-      } catch (e) {}
+    // Return local cached students if available
+    if (localCacheStudents.length > 0) {
+      return { status: 'success', students: localCacheStudents };
     }
 
-    // Fallback 3: Demo Mode / Local Storage MASTER_SISWA
-    const rawStudents = localStorage.getItem(STORAGE_KEYS.MASTER_SISWA) || '[]';
-    try {
-      const parsed: any[] = JSON.parse(rawStudents);
-      const filtered = parsed
-        .filter((s) => s && s.data && s.data[3] === kelas && (s.data[5] === 'Aktif' || !s.data[5]))
-        .map((s) => ({
-          id: s.data[0],
-          nisn: s.data[1],
-          nama: s.data[2],
-          kelas: s.data[3],
-          gender: s.data[4],
-        }));
-
-      if (filtered.length > 0) {
-        return { status: 'success', students: filtered };
-      }
-    } catch (e) {}
-
-    // Fallback 4: Generate placeholder roster for selected class
+    // Fallback: Generate placeholder roster for selected class
     return {
       status: 'success',
       students: [
@@ -491,8 +503,25 @@ export const apiClient = {
     clearApiCache();
     const url = this.getBackendUrl();
     let serverError = '';
+
+    // Lightweight payload for Google Apps Script to prevent large HTTP POST timeouts
+    const gasPayload = {
+      kelas: payload.kelas || '',
+      mapel: payload.mapel || '',
+      guruPengampu: payload.guruPengampu || '',
+      photoBase64: payload.photoBase64 || '',
+      tanggal: payload.tanggal || getLocalDateString(),
+      waktu: payload.waktu || getLocalTimeString(),
+      countHadir: payload.countHadir || 0,
+      countTerlambat: payload.countTerlambat || 0,
+      countSakit: payload.countSakit || 0,
+      countIzin: payload.countIzin || 0,
+      countAlpa: payload.countAlpa || 0,
+      keterangan: payload.keterangan || '',
+    };
+
     if (url) {
-      const { ok, result, error } = await safeCallGAS(url, 'submitAttendance', { payload }, false, 0, 15000);
+      const { ok, result, error } = await safeCallGAS(url, 'submitAttendance', { payload: gasPayload }, false, 0, 10000);
       if (ok && result && result.status === 'success') return result;
       serverError = error || result?.message || 'Gagal terhubung ke database.';
     }
@@ -520,9 +549,9 @@ export const apiClient = {
     localStorage.setItem(STORAGE_KEYS.HISTORY_SISWA, JSON.stringify(history));
     
     if (serverError) {
-      return { status: 'success', message: `Disimpan secara luring (offline) karena: ${serverError}` };
+      return { status: 'success', message: `Absensi kelas ${payload.kelas} tersimpan luring (offline) karena: ${serverError}` };
     }
-    return { status: 'success' };
+    return { status: 'success', message: `Absensi kelas ${payload.kelas} (${payload.mapel}) berhasil disimpan!` };
   },
 
   // 3.1 SAVE STUDENT CLASS RECAP TO SPREADSHEET (Rekap_Kehadiran_Siswa)
@@ -600,7 +629,7 @@ export const apiClient = {
       payload.alpa,
       payload.totalHari,
       `${payload.persentase}%`,
-      new Date().toISOString().split('T')[0],
+      getLocalDateString(),
       payload.catatan || 'Lengkap'
     ];
 
@@ -683,7 +712,7 @@ export const apiClient = {
       payload.alpa,
       payload.totalHari,
       `${payload.persentase}%`,
-      new Date().toISOString().split('T')[0],
+      getLocalDateString(),
       payload.catatan || 'Lengkap'
     ];
 
@@ -817,6 +846,22 @@ export const apiClient = {
       const str = String(val).trim();
       if (!str) return { dateStr: '', timeStr: '' };
 
+      // 1. Direct database YYYY-MM-DD match (e.g. 2026-08-20 or 2026-08-20T16:57:12) - strictly preserve database date
+      const ymdMatch = str.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (ymdMatch) {
+        const dateStr = ymdMatch[1];
+        let timeStr = '';
+        if (str.includes('T')) {
+          timeStr = str.split('T')[1].split('.')[0] || '';
+        } else if (str.includes(' ')) {
+          const parts = str.split(' ');
+          if (parts.length >= 2 && parts[1].includes(':')) {
+            timeStr = parts[1];
+          }
+        }
+        return { dateStr, timeStr };
+      }
+
       // Handle JS Date string representations e.g. "Sat Aug 15 2026 00:00:00 GM Aug WIB" or "Sat Aug 15 2026 07:15:00 GMT+0700"
       if (str.match(/[a-zA-Z]{3}\s+[a-zA-Z]{3}\s+\d{1,2}\s+\d{4}/) || str.includes('GMT') || str.includes('WIB')) {
         const dObj = new Date(str);
@@ -858,6 +903,12 @@ export const apiClient = {
       }
       const trimmed = String(dateInput).trim();
       if (!trimmed) return '';
+
+      // Direct database YYYY-MM-DD match (e.g. 2026-08-20) - strictly preserve database date string
+      const ymdMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (ymdMatch) {
+        return ymdMatch[1];
+      }
 
       // Handle full JS Date string e.g. "Sat Aug 15 2026 00:00:00 GM Aug WIB" or "Sat Aug 15 2026 07:15:00 GMT+0700"
       if (trimmed.match(/[a-zA-Z]{3}\s+[a-zA-Z]{3}\s+\d{1,2}\s+\d{4}/) || trimmed.includes('GMT') || trimmed.includes('WIB')) {

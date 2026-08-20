@@ -9,7 +9,7 @@ import { Camera, FileImage, Trash2, CheckCircle, Clock, Loader2, Play, UserCheck
 
 interface TendikAttendanceViewProps {
   currentUser: User | null;
-  onSubmit: (payload: any) => Promise<void>;
+  onSubmit: (payload: any) => Promise<boolean>;
   currentTimeString: string;
 }
 

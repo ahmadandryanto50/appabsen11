@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, Upload, X, CheckCircle, FileText, Image as ImageIcon, Video, File, RefreshCcw } from 'lucide-react';
+import { Camera, Upload, X, CheckCircle, FileText, Image as ImageIcon, Video, File, RefreshCcw, FolderOpen } from 'lucide-react';
 import { apiClient } from '../api';
 import { User } from '../types';
 
@@ -251,16 +251,27 @@ export function BerkasView({ currentUser }: BerkasViewProps) {
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 animate-fade-in max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center gap-3 sm:gap-4 mb-2">
-        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center shadow-inner">
-          <File className="w-5 h-5 sm:w-6 sm:h-6" />
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-2">
+        <div className="flex items-center gap-3 sm:gap-4">
+          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center shadow-inner">
+            <File className="w-5 h-5 sm:w-6 sm:h-6" />
+          </div>
+          <div>
+            <h1 className="text-xl sm:text-2xl font-extrabold text-slate-800 tracking-tight">Upload Berkas</h1>
+            <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
+              Foto dokumen fisik atau upload file langsung ke Google Drive
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl sm:text-2xl font-extrabold text-slate-800 tracking-tight">Upload Berkas</h1>
-          <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">
-            Foto dokumen fisik atau upload file langsung ke Google Drive
-          </p>
-        </div>
+        <a 
+          href="https://drive.google.com/drive/folders/1OFVFI1xhsk45_ONTihtuSHeBVvEOr44m"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-700 text-xs font-bold rounded-xl transition-colors shadow-sm flex-shrink-0"
+        >
+          <FolderOpen className="w-4 h-4" />
+          Lihat Folder Drive
+        </a>
       </div>
 
       <div className="bg-white rounded-3xl p-5 sm:p-8 shadow-sm border border-slate-200/60">

@@ -8,7 +8,7 @@ export interface User {
   nip?: string;
   nama: string;
   username: string;
-  role: 'Admin' | 'Guru' | 'Tendik';
+  role: 'Admin Utama' | 'Admin' | 'Guru' | 'Tendik';
   status?: string;
 }
 
@@ -143,15 +143,36 @@ export interface CrudRow {
   data: string[];
 }
 
-export function getLocalDateString(d: Date = new Date()): string {
+export function getLocalDateString(d: Date | string | number = new Date()): string {
+  if (!d) return '';
+
+  if (typeof d === 'string') {
+    const trimmed = d.trim();
+    // If string starts with YYYY-MM-DD (e.g. 2026-08-20 or 2026-08-20T...), extract directly to avoid UTC shift
+    const isoMatch = trimmed.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (isoMatch) {
+      return isoMatch[1];
+    }
+    const dObj = new Date(trimmed);
+    if (isNaN(dObj.getTime())) {
+      return trimmed.split('T')[0] || trimmed;
+    }
+    d = dObj;
+  } else if (typeof d === 'number') {
+    d = new Date(d);
+  }
+
+  const targetDate = d instanceof Date && !isNaN(d.getTime()) ? d : new Date();
+
+  // Explicitly use WITA (Asia/Makassar, UTC+8) for Palu / Central Sulawesi
   try {
     const formatter = new Intl.DateTimeFormat('id-ID', {
-      timeZone: 'Asia/Jakarta',
+      timeZone: 'Asia/Makassar',
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
     });
-    const parts = formatter.formatToParts(d);
+    const parts = formatter.formatToParts(targetDate);
     let day = '', month = '', year = '';
     for (const p of parts) {
       if (p.type === 'day') day = p.value;
@@ -163,25 +184,44 @@ export function getLocalDateString(d: Date = new Date()): string {
     }
   } catch (e) {}
 
-  const tzOffset = 7 * 60; // WIB UTC+7 in minutes
-  const localMs = d.getTime() + (d.getTimezoneOffset() + tzOffset) * 60000;
+  // Fallback with explicit WITA (UTC+8) offset in minutes
+  const tzOffset = 8 * 60;
+  const localMs = targetDate.getTime() + (targetDate.getTimezoneOffset() + tzOffset) * 60000;
   const localDate = new Date(localMs);
-  const year = localDate.getFullYear();
-  const month = String(localDate.getMonth() + 1).padStart(2, '0');
-  const day = String(localDate.getDate()).padStart(2, '0');
+  const year = localDate.getUTCFullYear();
+  const month = String(localDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(localDate.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
-export function getLocalTimeString(d: Date = new Date()): string {
+export function getLocalTimeString(d: Date | string | number = new Date()): string {
+  if (!d) return '';
+
+  if (typeof d === 'string') {
+    const trimmed = d.trim();
+    if (/^\d{2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+      return trimmed;
+    }
+    const dObj = new Date(trimmed);
+    if (isNaN(dObj.getTime())) {
+      return trimmed;
+    }
+    d = dObj;
+  } else if (typeof d === 'number') {
+    d = new Date(d);
+  }
+
+  const targetDate = d instanceof Date && !isNaN(d.getTime()) ? d : new Date();
+
   try {
     const formatter = new Intl.DateTimeFormat('id-ID', {
-      timeZone: 'Asia/Jakarta',
+      timeZone: 'Asia/Makassar',
       hour: '2-digit',
       minute: '2-digit',
       second: '2-digit',
       hour12: false,
     });
-    const parts = formatter.formatToParts(d);
+    const parts = formatter.formatToParts(targetDate);
     let hour = '', minute = '', second = '';
     for (const p of parts) {
       if (p.type === 'hour') hour = p.value;
@@ -193,12 +233,13 @@ export function getLocalTimeString(d: Date = new Date()): string {
     }
   } catch (e) {}
 
-  const tzOffset = 7 * 60;
-  const localMs = d.getTime() + (d.getTimezoneOffset() + tzOffset) * 60000;
+  // Fallback with explicit WITA (UTC+8) offset
+  const tzOffset = 8 * 60;
+  const localMs = targetDate.getTime() + (targetDate.getTimezoneOffset() + tzOffset) * 60000;
   const localDate = new Date(localMs);
-  const hours = String(localDate.getHours()).padStart(2, '0');
-  const minutes = String(localDate.getMinutes()).padStart(2, '0');
-  const seconds = String(localDate.getSeconds()).padStart(2, '0');
+  const hours = String(localDate.getUTCHours()).padStart(2, '0');
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(localDate.getUTCSeconds()).padStart(2, '0');
   return `${hours}:${minutes}:${seconds}`;
 }
 

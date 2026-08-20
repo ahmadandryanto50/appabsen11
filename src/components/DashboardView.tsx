@@ -59,7 +59,7 @@ export function DashboardView({
   const [loadingKioskToday, setLoadingKioskToday] = useState(false);
 
   const isFullAccess =
-    currentUser?.role === 'Admin' ||
+    (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') ||
     (customization?.fullAccessUsernames?.includes(currentUser?.username || '') ?? false) ||
     (currentUser?.nip ? (customization?.fullAccessUsernames?.includes(currentUser.nip) ?? false) : false);
 
@@ -111,7 +111,7 @@ export function DashboardView({
     fetchKioskTodayData(true);
 
     const fetchTeacherTendikHistory = () => {
-      if (currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) {
+      if ((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) {
         apiClient.getGuruAttendanceHistory('')
           .then(res => {
             if (res.status === 'success' && res.history) {
@@ -121,7 +121,7 @@ export function DashboardView({
           .catch(err => console.error(err))
           .finally(() => setLoadingGuruAbsen(false));
       }
-      if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik' || isFullAccess) {
+      if ((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik' || isFullAccess) {
         apiClient.getTendikAttendanceHistory('')
           .then(res => {
             if (res.status === 'success' && res.history) {
@@ -160,7 +160,7 @@ export function DashboardView({
       }
     }, 30000);
 
-    if (currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) {
+    if ((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) {
       const cachedG = localStorage.getItem('absensi_history_guru_absen');
       if (cachedG) {
         try {
@@ -178,7 +178,7 @@ export function DashboardView({
       }
     }
 
-    if (currentUser?.role === 'Admin' || currentUser?.role === 'Tendik' || isFullAccess) {
+    if ((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik' || isFullAccess) {
       const cached = localStorage.getItem('absensi_history_tendik_absen');
       if (cached) {
         try {
@@ -750,7 +750,7 @@ export function DashboardView({
         {/* Bento Grid Top Level Row */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Card 1: Students overall */}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
             <div className="p-5 bg-blue-50/40 rounded-xl border border-blue-100/60 flex items-center justify-between">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total Siswa Keseluruhan</span>
@@ -774,7 +774,7 @@ export function DashboardView({
           )}
 
           {/* Card 2: Teachers overall */}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
             <div className="p-5 bg-emerald-50/40 rounded-xl border border-emerald-100/60 flex items-center justify-between">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Total Guru Keseluruhan</span>
@@ -798,7 +798,7 @@ export function DashboardView({
           )}
 
           {/* Card 3: Tendik overall */}
-          {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik') && (
             <div className="p-5 bg-indigo-50/40 rounded-xl border border-indigo-100/60 flex items-center justify-between">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Total Tendik Keseluruhan</span>
@@ -1175,7 +1175,7 @@ export function DashboardView({
       {/* LIVE FEED REKAP PRESENSI TERBARU */}
       <div className="space-y-6">
         {/* Render Rekap Sesi Absensi Mengajar Terbaru if Guru or Admin */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+        {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
               <div>
@@ -1269,7 +1269,7 @@ export function DashboardView({
         )}
 
         {/* Render Riwayat Presensi Hadir Guru (Mandiri) Terbaru if Guru or Admin */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+        {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
               <div>
@@ -1359,7 +1359,7 @@ export function DashboardView({
         )}
 
         {/* Render Riwayat Presensi Hadir Tendik Terbaru if Tendik or Admin */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+        {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik') && (
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
               <div>
@@ -1452,7 +1452,7 @@ export function DashboardView({
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Absen Siswa Sekarang (Visible for Admin and Guru) */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+        {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
           <div
             onClick={() => onNavigate('absen-siswa')}
             className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-blue-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
@@ -1468,7 +1468,7 @@ export function DashboardView({
         )}
 
         {/* Absen Mandiri Guru (Visible for Admin and Guru) */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+        {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
           <div
             onClick={() => onNavigate('absen-guru')}
             className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-blue-600 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
@@ -1484,7 +1484,7 @@ export function DashboardView({
         )}
 
         {/* Form Izin / Sakit Guru (Visible for Admin and Guru) */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || isFullAccess) && (
+        {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
           <div
             onClick={() => onNavigate('izin-guru')}
             className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-emerald-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
@@ -1500,7 +1500,7 @@ export function DashboardView({
         )}
 
         {/* Absen Mandiri Tendik (Visible for Admin and Tendik) */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+        {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik') && (
           <div
             onClick={() => onNavigate('absen-tendik')}
             className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-indigo-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
@@ -1516,7 +1516,7 @@ export function DashboardView({
         )}
 
         {/* Form Izin Tendik (Visible for Admin and Tendik) */}
-        {(currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+        {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik') && (
           <div
             onClick={() => onNavigate('izin-tendik')}
             className="p-6 bg-white rounded-2xl border border-slate-200 hover:border-rose-500 hover:shadow-md cursor-pointer transition-all flex items-center gap-4 group"
