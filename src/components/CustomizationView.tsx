@@ -13,6 +13,8 @@ interface CustomizationViewProps {
   customization: AppCustomization;
   onSave: (newCust: AppCustomization) => void;
   currentUser: User | null;
+  webAppUrl: string;
+  onSaveWebAppUrl: (url: string) => void;
 }
 
 const PRESET_EMOJIS = ['🎓', '🏫', '🎒', '📚', '💻', '✏️', '✨', '📊', '🔔', '🛡️'];
@@ -25,7 +27,8 @@ const PRESET_COLORS = [
   { name: 'Amber (Alert)', class: 'bg-amber-600', text: 'text-amber-600', ring: 'ring-amber-500/20' },
 ];
 
-export function CustomizationView({ customization, onSave, currentUser }: CustomizationViewProps) {
+export function CustomizationView({ customization, onSave, currentUser, webAppUrl, onSaveWebAppUrl }: CustomizationViewProps) {
+  const [dbUrl, setDbUrl] = useState(webAppUrl);
   const [appName, setAppName] = useState(customization.appName);
   const [appSubtitle, setAppSubtitle] = useState(customization.appSubtitle);
   const [logoEmoji, setLogoEmoji] = useState(customization.logoEmoji);
@@ -37,6 +40,11 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
   const [kepalaSekolahNama, setKepalaSekolahNama] = useState(customization.kepalaSekolahNama || '');
   const [kepalaSekolahNip, setKepalaSekolahNip] = useState(customization.kepalaSekolahNip || '');
   const [batasWaktuMasuk, setBatasWaktuMasuk] = useState(customization.batasWaktuMasuk || '07:00');
+
+  // Keep dbUrl in sync when webAppUrl changes from backend
+  useEffect(() => {
+    setDbUrl(webAppUrl);
+  }, [webAppUrl]);
 
   // Sync status
   const [syncStatus, setSyncStatus] = useState<'demo' | 'checking' | 'synced' | 'sheet_missing' | 'error'>('checking');
@@ -149,6 +157,10 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Save Web App URL first to establish connection
+    onSaveWebAppUrl(dbUrl.trim());
+
     const normalizedLogo = normalizeImageUrl(logoUrl.trim()) || '/logo_smpn11.jpg';
     const normalizedPhotos: Record<string, string> = {};
     Object.entries(userPhotos).forEach(([k, v]) => {
@@ -295,6 +307,23 @@ export function CustomizationView({ customization, onSave, currentUser }: Custom
               <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-100">
                 Identitas Aplikasi
               </h4>
+
+              <div className="bg-blue-50/40 p-4 rounded-xl border border-blue-150 space-y-2.5 shadow-inner">
+                <label className="block text-xs font-extrabold text-blue-900 uppercase flex items-center gap-1.5">
+                  <Database className="w-4.5 h-4.5 text-blue-600 flex-shrink-0 animate-pulse" />
+                  <span>Koneksi Database (Web App URL)</span>
+                </label>
+                <input
+                  type="url"
+                  value={dbUrl}
+                  onChange={(e) => setDbUrl(e.target.value)}
+                  placeholder="Masukkan link script google.com/macros/s/.../exec"
+                  className="w-full p-2.5 rounded-xl border border-blue-250 text-xs font-mono font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white text-slate-700"
+                />
+                <p className="text-[10px] text-blue-700 font-bold leading-relaxed">
+                  INFO: Paste link Web App Google Apps Script Anda di sini. Link ini otomatis tersimpan di cloud server, menjaga aplikasi tetap terhubung di semua HP dan laptop tanpa perlu input ulang!
+                </p>
+              </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1.5">

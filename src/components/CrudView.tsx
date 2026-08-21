@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { CrudRow } from '../types';
-import { Plus, Pencil, Trash2, FolderEdit, Save, X, Loader2, Database, Search, AlertCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, FolderEdit, Save, X, Loader2, Database, Search, AlertCircle, ExternalLink } from 'lucide-react';
 import { apiClient } from '../api';
 
 interface CrudViewProps {
@@ -264,11 +264,56 @@ export function CrudView({
                   displayedRows.map((row, idx) => (
                     <tr key={`row-${row._rowIndex || idx}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
                       <td className="p-3.5 pl-4 text-center text-slate-400 font-bold">{idx + 1}</td>
-                      {row.data.map((val, cIdx) => (
-                        <td key={cIdx} className="p-3.5 font-semibold text-slate-700 text-sm">
-                          {val}
-                        </td>
-                      ))}
+                      {row.data.map((val, cIdx) => {
+                        const headerName = headers[cIdx] || '';
+                        const isPhotoField = headerName.toLowerCase().includes('foto') || headerName.toLowerCase().includes('photo');
+                        const isLink = typeof val === 'string' && (val.startsWith('http://') || val.startsWith('https://'));
+                        
+                        if (isPhotoField && isLink) {
+                          // Clean Google Drive photo URL for small file size / quick loading
+                          let optimizedUrl = val;
+                          if (val.includes('lh3.googleusercontent.com/d/')) {
+                            const withoutParams = val.split('=')[0];
+                            optimizedUrl = `${withoutParams}=s60`; // Small thumbnail for grid
+                          }
+                          return (
+                            <td key={cIdx} className="p-3.5">
+                              <a href={val} target="_blank" rel="noopener noreferrer" className="inline-block relative group" title="Klik untuk membuka file asli">
+                                <img
+                                  src={optimizedUrl}
+                                  alt="Foto Profil"
+                                  className="w-8 h-8 rounded-full object-cover border border-slate-200 shadow-sm group-hover:scale-110 transition-transform"
+                                  referrerPolicy="no-referrer"
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect fill="%23e2e8f0" width="100" height="100"/><circle fill="%2394a3b8" cx="50" cy="40" r="20"/><path fill="%2394a3b8" d="M20,100 Q50,70 80,100 Z"/></svg>';
+                                  }}
+                                />
+                              </a>
+                            </td>
+                          );
+                        } else if (isPhotoField) {
+                          return (
+                            <td key={cIdx} className="p-3.5 text-slate-400 text-xs italic font-medium">
+                              Belum ada foto
+                            </td>
+                          );
+                        } else if (isLink) {
+                          return (
+                            <td key={cIdx} className="p-3.5 font-semibold text-sm max-w-xs truncate">
+                              <a href={val} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline inline-flex items-center gap-1">
+                                <span className="truncate max-w-[150px]">{val}</span>
+                                <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                              </a>
+                            </td>
+                          );
+                        }
+
+                        return (
+                          <td key={cIdx} className="p-3.5 font-semibold text-slate-700 text-sm">
+                            {val}
+                          </td>
+                        );
+                      })}
                       <td className="p-3.5 pr-4 text-center space-x-1.5 whitespace-nowrap">
                         <button
                           type="button"
@@ -397,14 +442,21 @@ export function CrudView({
                       ))}
                     </select>
                   ) : (
-                    <input
-                      type="text"
-                      value={formRowValues[i] || ''}
-                      onChange={(e) => handleInputChange(i, e.target.value)}
-                      required
-                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold"
-                      placeholder={`Masukkan ${head}...`}
-                    />
+                    <div>
+                      <input
+                        type="text"
+                        value={formRowValues[i] || ''}
+                        onChange={(e) => handleInputChange(i, e.target.value)}
+                        required={!head.toLowerCase().includes('foto') && !head.toLowerCase().includes('photo') && !head.toLowerCase().includes('deskripsi') && !head.toLowerCase().includes('keterangan')}
+                        className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold"
+                        placeholder={`Masukkan ${head}...`}
+                      />
+                      {(head.toLowerCase().includes('foto') || head.toLowerCase().includes('photo')) && (
+                        <p className="text-[10px] text-slate-400 font-bold mt-1.5 leading-relaxed">
+                          Saran: Masukkan link Google Drive (Contoh: Drive Shared Link). Sistem otomatis mengompres gambar agar sangat ringan dibuka di HP.
+                        </p>
+                      )}
+                    </div>
                   )}
                 </div>
               ))}

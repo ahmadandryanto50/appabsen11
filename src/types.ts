@@ -10,6 +10,7 @@ export interface User {
   username: string;
   role: 'Admin Utama' | 'Admin' | 'Guru' | 'Tendik';
   status?: string;
+  photo?: string;
 }
 
 export interface Student {

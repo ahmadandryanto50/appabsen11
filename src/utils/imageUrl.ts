@@ -102,51 +102,58 @@ export function normalizeImageUrl(rawUrl?: string | null): string {
  */
 export function getUserPhotoUrl(
   customization?: AppCustomization | null,
-  user?: { username?: string; nip?: string; nama?: string; id?: string; role?: string } | null
+  user?: { username?: string; nip?: string; nama?: string; id?: string; role?: string; photo?: string } | null
 ): string {
-  if (!customization?.userPhotos || !user) return '';
-  const photos = customization.userPhotos;
+  if (!user) return '';
+  const photos = customization?.userPhotos;
 
-  // 1. Direct candidates to check in priority order
-  const candidates = [
-    user.username,
-    user.username?.toLowerCase(),
-    user.username?.trim(),
-    user.nip,
-    user.nip?.trim(),
-    user.nama,
-    user.nama?.trim(),
-    user.id,
-    user.id?.trim(),
-    user.role === 'Admin' ? 'admin' : '',
-  ].filter((c): c is string => Boolean(c && typeof c === 'string' && c.length > 0));
+  if (photos) {
+    // 1. Direct candidates to check in priority order
+    const candidates = [
+      user.username,
+      user.username?.toLowerCase(),
+      user.username?.trim(),
+      user.nip,
+      user.nip?.trim(),
+      user.nama,
+      user.nama?.trim(),
+      user.id,
+      user.id?.trim(),
+      (user.role === 'Admin' || user.role === 'Admin Utama' || user.role?.includes('Admin')) ? 'admin' : '',
+    ].filter((c): c is string => Boolean(c && typeof c === 'string' && c.length > 0));
 
-  for (const candidate of candidates) {
-    if (photos[candidate] && typeof photos[candidate] === 'string' && photos[candidate].trim()) {
-      return normalizeImageUrl(photos[candidate].trim());
+    for (const candidate of candidates) {
+      if (photos[candidate] && typeof photos[candidate] === 'string' && photos[candidate].trim()) {
+        return normalizeImageUrl(photos[candidate].trim());
+      }
+    }
+
+    // 2. Case-insensitive lookup across all keys
+    const keys = Object.keys(photos);
+    for (const candidate of candidates) {
+      const candLower = candidate.toLowerCase().trim();
+      const matchedKey = keys.find((k) => k.toLowerCase().trim() === candLower);
+      if (matchedKey && photos[matchedKey] && typeof photos[matchedKey] === 'string' && photos[matchedKey].trim()) {
+        return normalizeImageUrl(photos[matchedKey].trim());
+      }
+    }
+
+    // 3. Email username prefix matching (e.g. "mohammad.rizaldy168@admin.smp.belajar.id" -> "mohammad.rizaldy168")
+    if (user.username && user.username.includes('@')) {
+      const userPrefix = user.username.split('@')[0].toLowerCase().trim();
+      const matchedKey = keys.find((k) => {
+        const kLow = k.toLowerCase().trim();
+        return kLow === userPrefix || userPrefix.includes(kLow) || kLow.includes(userPrefix);
+      });
+      if (matchedKey && photos[matchedKey]?.trim()) {
+        return normalizeImageUrl(photos[matchedKey].trim());
+      }
     }
   }
 
-  // 2. Case-insensitive lookup across all keys
-  const keys = Object.keys(photos);
-  for (const candidate of candidates) {
-    const candLower = candidate.toLowerCase().trim();
-    const matchedKey = keys.find((k) => k.toLowerCase().trim() === candLower);
-    if (matchedKey && photos[matchedKey] && typeof photos[matchedKey] === 'string' && photos[matchedKey].trim()) {
-      return normalizeImageUrl(photos[matchedKey].trim());
-    }
-  }
-
-  // 3. Email username prefix matching (e.g. "mohammad.rizaldy168@admin.smp.belajar.id" -> "mohammad.rizaldy168")
-  if (user.username && user.username.includes('@')) {
-    const userPrefix = user.username.split('@')[0].toLowerCase().trim();
-    const matchedKey = keys.find((k) => {
-      const kLow = k.toLowerCase().trim();
-      return kLow === userPrefix || userPrefix.includes(kLow) || kLow.includes(userPrefix);
-    });
-    if (matchedKey && photos[matchedKey]?.trim()) {
-      return normalizeImageUrl(photos[matchedKey].trim());
-    }
+  // 4. Robust fallback: Check if user session itself contains a direct photo link from the Master_Guru sheet
+  if (user.photo && typeof user.photo === 'string' && user.photo.trim()) {
+    return normalizeImageUrl(user.photo.trim());
   }
 
   return '';

@@ -1167,7 +1167,7 @@ export default function App() {
                 </div>
               )}
 
-              {currentUser?.role === 'Admin Utama' && (
+              {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                 <div className="pt-2 pb-2 mt-1">
                   <p className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
                     Konfigurasi Sistem
@@ -1454,11 +1454,13 @@ export default function App() {
               )}
 
               {/* VIEW 6: APP CUSTOMIZATION */}
-              {activeView === 'customization' && currentUser?.role === 'Admin Utama' && (
+              {activeView === 'customization' && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                 <CustomizationView
                   customization={customization}
                   onSave={handleSaveCustomization}
                   currentUser={currentUser}
+                  webAppUrl={webAppUrl}
+                  onSaveWebAppUrl={handleSaveSettings}
                 />
               )}
 
@@ -1468,7 +1470,7 @@ export default function App() {
               )}
 
               {/* VIEW 7: APPS SCRIPT CODE & GUIDE */}
-              {activeView === 'apps-script' && currentUser?.role === 'Admin Utama' && (
+              {activeView === 'apps-script' && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                 <AppsScriptView customization={customization} />
               )}
             </div>

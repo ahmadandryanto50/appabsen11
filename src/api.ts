@@ -84,12 +84,12 @@ export function initializeStorage() {
 
   if (!localStorage.getItem(STORAGE_KEYS.MASTER_GURU)) {
     const defaultGuru = [
-      { _rowIndex: 2, data: ['G01', '19850101201001', 'Administrator Utama', 'Laki-laki', 'admin', 'Admin', 'Aktif'] },
-      { _rowIndex: 3, data: ['G02', '19900202201502', 'Budi Santoso, S.Pd.', 'Laki-laki', 'guru', 'Guru', 'Aktif'] },
-      { _rowIndex: 4, data: ['G03', '19920815201803', 'Siti Rahma, M.Pd.', 'Perempuan', 'sitirahma', 'Guru', 'Aktif'] },
-      { _rowIndex: 5, data: ['G04', '19881112201201', 'Hendra Wijaya, S.Si.', 'Laki-laki', 'hendra', 'Guru', 'Aktif'] },
-      { _rowIndex: 6, data: ['G05', '19950505202005', 'Rina Herawati, S.Pd.I.', 'Perempuan', 'rina', 'Tendik', 'Aktif'] },
-      { _rowIndex: 7, data: ['G06', '19970606202206', 'Doni Setiawan', 'Laki-laki', 'doni', 'Tendik', 'Aktif'] },
+      { _rowIndex: 2, data: ['G01', '19850101201001', 'Administrator Utama', 'Laki-laki', 'admin', 'Admin', 'Aktif', ''] },
+      { _rowIndex: 3, data: ['G02', '19900202201502', 'Budi Santoso, S.Pd.', 'Laki-laki', 'guru', 'Guru', 'Aktif', ''] },
+      { _rowIndex: 4, data: ['G03', '19920815201803', 'Siti Rahma, M.Pd.', 'Perempuan', 'sitirahma', 'Guru', 'Aktif', ''] },
+      { _rowIndex: 5, data: ['G04', '19881112201201', 'Hendra Wijaya, S.Si.', 'Laki-laki', 'hendra', 'Guru', 'Aktif', ''] },
+      { _rowIndex: 6, data: ['G05', '19950505202005', 'Rina Herawati, S.Pd.I.', 'Perempuan', 'rina', 'Tendik', 'Aktif', ''] },
+      { _rowIndex: 7, data: ['G06', '19970606202206', 'Doni Setiawan', 'Laki-laki', 'doni', 'Tendik', 'Aktif', ''] },
     ];
     localStorage.setItem(STORAGE_KEYS.MASTER_GURU, JSON.stringify(defaultGuru));
   }
@@ -399,6 +399,7 @@ export const apiClient = {
           nama: matched.data[2],
           username: matched.data[4],
           role: matched.data[5],
+          photo: matched.data[7] || '',
         },
       };
     }
@@ -2036,7 +2037,7 @@ export const apiClient = {
     let headers: string[] = [];
     if (sheetName === 'Master_Guru') {
       key = STORAGE_KEYS.MASTER_GURU;
-      headers = ['ID', 'NIP', 'Nama Lengkap', 'Jenis Kelamin', 'Username', 'Role', 'Status'];
+      headers = ['ID', 'NIP', 'Nama Lengkap', 'Jenis Kelamin', 'Username', 'Role', 'Status', 'Foto Profil'];
     } else if (sheetName === 'Master_Siswa') {
       key = STORAGE_KEYS.MASTER_SISWA;
       headers = ['ID', 'NISN', 'Nama Siswa', 'Kelas', 'Jenis Kelamin', 'Status'];
@@ -2259,6 +2260,45 @@ export const apiClient = {
     clearApiCache();
     // Always keep local storage updated
     localStorage.setItem('absensi_app_customization', JSON.stringify(customization));
+
+    // Sync to local fallback Master_Guru data for profile photo consistency in offline/demo mode
+    const rawGuru = localStorage.getItem(STORAGE_KEYS.MASTER_GURU);
+    if (rawGuru && customization.userPhotos) {
+      try {
+        const gurus = JSON.parse(rawGuru);
+        let changed = false;
+        const keys = Object.keys(customization.userPhotos);
+        gurus.forEach((g: any) => {
+          const id = (g.data[0] || '').toString().trim();
+          const nip = (g.data[1] || '').toString().trim();
+          const u = (g.data[4] || '').toString().trim();
+          
+          let matchedPhotoUrl = '';
+          for (const key of keys) {
+            const keyLower = key.toLowerCase().trim();
+            if (
+              (u && keyLower === u.toLowerCase().trim()) ||
+              (nip && keyLower === nip.toLowerCase().trim()) ||
+              (id && keyLower === id.toLowerCase().trim()) ||
+              (u && u.toLowerCase().includes('@') && u.toLowerCase().split('@')[0] === keyLower)
+            ) {
+              matchedPhotoUrl = customization.userPhotos[key];
+              break;
+            }
+          }
+          if (matchedPhotoUrl) {
+            while (g.data.length < 8) {
+              g.data.push('');
+            }
+            g.data[7] = matchedPhotoUrl;
+            changed = true;
+          }
+        });
+        if (changed) {
+          localStorage.setItem(STORAGE_KEYS.MASTER_GURU, JSON.stringify(gurus));
+        }
+      } catch (e) {}
+    }
 
     // Also persist customization to Express server /api/config for multi-device & multi-browser sync
     try {

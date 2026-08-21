@@ -310,10 +310,24 @@ function setupDatabase() {
     let sheetGuru = ss.getSheetByName("Master_Guru");
     if (!sheetGuru) {
       sheetGuru = ss.insertSheet("Master_Guru");
-      sheetGuru.appendRow(["ID", "NIP", "Nama Lengkap", "Jenis Kelamin", "Username", "Password", "Role", "Status"]);
-      sheetGuru.appendRow(["G01", "19850101201001", "Administrator Utama", "Laki-laki", "admin", "admin123", "Admin", "Aktif"]);
-      sheetGuru.appendRow(["G02", "19900202201502", "Budi Santoso, S.Pd.", "Laki-laki", "guru", "guru123", "Guru", "Aktif"]);
-      sheetGuru.appendRow(["G03", "19920303201803", "Siti Rahma, M.Pd.", "Perempuan", "siti", "siti123", "Guru", "Aktif"]);
+      sheetGuru.appendRow(["ID", "NIP", "Nama Lengkap", "Jenis Kelamin", "Username", "Password", "Role", "Status", "Foto Profil"]);
+      sheetGuru.appendRow(["G01", "19850101201001", "Administrator Utama", "Laki-laki", "admin", "admin123", "Admin", "Aktif", ""]);
+      sheetGuru.appendRow(["G02", "19900202201502", "Budi Santoso, S.Pd.", "Laki-laki", "guru", "guru123", "Guru", "Aktif", ""]);
+      sheetGuru.appendRow(["G03", "19920303201803", "Siti Rahma, M.Pd.", "Perempuan", "siti", "siti123", "Guru", "Aktif", ""]);
+    } else {
+      var numCols = sheetGuru.getLastColumn();
+      var headersGuru = sheetGuru.getRange(1, 1, 1, numCols).getValues()[0];
+      var hasPhotoCol = false;
+      for (var col = 0; col < headersGuru.length; col++) {
+        var hName = headersGuru[col].toString().toLowerCase();
+        if (hName.indexOf("foto") >= 0 || hName.indexOf("photo") >= 0) {
+          hasPhotoCol = true;
+          break;
+        }
+      }
+      if (!hasPhotoCol) {
+        sheetGuru.getRange(1, numCols + 1).setValue("Foto Profil");
+      }
     }
 
     // 2. Tabel Master_Siswa
@@ -586,6 +600,7 @@ function loginUser(username, password) {
         if (status.toLowerCase() !== "aktif") {
           return { status: "error", message: "Akun Anda sedang dinonaktifkan." };
         }
+        var photoUrlVal = values[i].length >= 9 ? (values[i][8] || "").toString().trim() : "";
         return {
           status: "success",
           user: {
@@ -593,7 +608,8 @@ function loginUser(username, password) {
             nip: values[i][1],
             nama: values[i][2],
             username: u,
-            role: values[i][6]
+            role: values[i][6],
+            photo: photoUrlVal
           }
         };
       }
@@ -1084,6 +1100,14 @@ function saveMasterDataRow(sheetName, rowData, rowIndex) {
       }
     }
 
+    // Convert photo URLs to HYPERLINK formulas so they are active/clickable in Google Sheets!
+    if (sheetName === "Master_Guru" && rowData.length >= 9) {
+      var photoUrl = rowData[8];
+      if (photoUrl && typeof photoUrl === "string" && photoUrl.indexOf("http") === 0) {
+        rowData[8] = '=HYPERLINK("' + photoUrl + '", "' + photoUrl + '")';
+      }
+    }
+
     const rowNum = Number(rowIndex);
     if (rowNum && rowNum > 1) {
       const range = sheet.getRange(rowNum, 1, 1, rowData.length);
@@ -1299,6 +1323,107 @@ function saveCustomization(customizationObj) {
       sheet.getRange(foundIndex, 2).setValue(jsonString);
     } else {
       sheet.appendRow(["customization", jsonString]);
+    }
+
+    // Sync any userPhotos in the customization object to the corresponding rows in Master_Guru sheet!
+    var custParsed = null;
+    try {
+      custParsed = typeof customizationObj === "string" ? JSON.parse(customizationObj) : customizationObj;
+    } catch (e) {}
+
+    if (custParsed && typeof custParsed === "object") {
+      // 1. Sync individual keys to Pengaturan sheet so the spreadsheet database is human-readable and clean
+      var settingsKeys = Object.keys(custParsed);
+      for (var k = 0; k < settingsKeys.length; k++) {
+        var key = settingsKeys[k];
+        var val = custParsed[key];
+        
+        // Skip userPhotos and externalApps from raw flat rows to keep sheet clean, but write all branding/dashboard primitives
+        if (key !== "userPhotos" && key !== "externalApps" && (typeof val === "string" || typeof val === "number" || typeof val === "boolean")) {
+          var valStr = String(val);
+          // Find if key exists in Pengaturan
+          var foundKeyIdx = -1;
+          var currentValues = sheet.getDataRange().getValues();
+          for (var r = 1; r < currentValues.length; r++) {
+            if (currentValues[r][0] && currentValues[r][0].toString() === key) {
+              foundKeyIdx = r + 1;
+              break;
+            }
+          }
+          if (foundKeyIdx !== -1) {
+            sheet.getRange(foundKeyIdx, 2).setValue(valStr);
+          } else {
+            sheet.appendRow([key, valStr]);
+          }
+        }
+      }
+
+      // 2. Sync teacher and staff photos into Master_Guru sheet!
+      if (custParsed.userPhotos && typeof custParsed.userPhotos === "object") {
+        var sheetGuru = ss.getSheetByName("Master_Guru");
+        if (sheetGuru) {
+          var guruValues = sheetGuru.getDataRange().getValues();
+          var numCols = sheetGuru.getLastColumn();
+          
+          // Find or create "Foto Profil" header
+          var headersGuru = guruValues[0];
+          var photoColIdx = -1;
+          for (var col = 0; col < headersGuru.length; col++) {
+            var hName = headersGuru[col].toString().toLowerCase();
+            if (hName.indexOf("foto") >= 0 || hName.indexOf("photo") >= 0) {
+              photoColIdx = col + 1;
+              break;
+            }
+          }
+          if (photoColIdx === -1) {
+            photoColIdx = numCols + 1;
+            sheetGuru.getRange(1, photoColIdx).setValue("Foto Profil");
+          }
+
+          // Loop through each row in Master_Guru and sync photo using robust case/space-insensitive matcher
+          for (var i = 1; i < guruValues.length; i++) {
+            var id = (guruValues[i][0] || "").toString().trim();
+            var nip = (guruValues[i][1] || "").toString().trim();
+            var nama = (guruValues[i][2] || "").toString().trim();
+            var username = (guruValues[i].length >= 5 ? guruValues[i][4] : "").toString().trim();
+            var role = (guruValues[i].length >= 6 ? guruValues[i][5] : "").toString().trim();
+            
+            var matchedPhotoUrl = "";
+            var keys = Object.keys(custParsed.userPhotos);
+            for (var j = 0; j < keys.length; j++) {
+              var key = keys[j];
+              var keyLower = key.toLowerCase().trim();
+              
+              // Super-robust match check (ID, NIP, Name, Username, Email prefix, or Admin identity keys)
+              var isMatch = false;
+              if (keyLower === "admin" && (role.toLowerCase() === "admin" || role.toLowerCase() === "admin utama" || username.toLowerCase() === "admin")) {
+                isMatch = true;
+              } else if (username && keyLower === username.toLowerCase()) {
+                isMatch = true;
+              } else if (nip && keyLower === nip.toLowerCase()) {
+                isMatch = true;
+              } else if (id && keyLower === id.toLowerCase()) {
+                isMatch = true;
+              } else if (nama && keyLower === nama.toLowerCase()) {
+                isMatch = true;
+              } else if (username && username.indexOf("@") !== -1 && username.split("@")[0].toLowerCase() === keyLower) {
+                isMatch = true;
+              } else if (keyLower.indexOf("@") !== -1 && keyLower.split("@")[0].toLowerCase() === username.toLowerCase()) {
+                isMatch = true;
+              }
+              
+              if (isMatch) {
+                matchedPhotoUrl = custParsed.userPhotos[key];
+                break;
+              }
+            }
+
+            if (matchedPhotoUrl) {
+              sheetGuru.getRange(i + 1, photoColIdx).setValue(matchedPhotoUrl);
+            }
+          }
+        }
+      }
     }
 
     return { status: "success", message: "Pengaturan berhasil disinkronkan ke Spreadsheet!" };
