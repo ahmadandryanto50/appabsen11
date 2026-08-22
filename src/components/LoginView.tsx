@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { GraduationCap, User, Lock, Loader2, ShieldCheck, UserCheck, Eye, EyeOff } from 'lucide-react';
+import { GraduationCap, User, Lock, Loader2, ShieldCheck, UserCheck, Eye, EyeOff, Sun, Moon } from 'lucide-react';
 import { AppCustomization } from '../types';
 import { normalizeImageUrl } from '../utils/imageUrl';
 
@@ -20,6 +20,16 @@ export function LoginView({ onLogin, isLoading, customization, isDemoMode, onLog
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Light & Dark theme state for login screen
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('absensi_login_theme');
+    return saved ? saved === 'dark' : true; // Default to dark mode as it was
+  });
+
+  useEffect(() => {
+    localStorage.setItem('absensi_login_theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
 
   // Slideshow state for admin profile photos and school logo
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -122,130 +132,228 @@ export function LoginView({ onLogin, isLoading, customization, isDemoMode, onLog
   };
 
   return (
-    <div className="max-w-sm w-full mx-auto my-4 bg-slate-900/95 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-4 text-slate-200 backdrop-blur-md">
-      <div className="text-center space-y-3">
-        {/* Animated Circular Logo Container */}
-        <div 
-          className="relative w-20 h-20 mx-auto cursor-pointer active:scale-95 transition-transform" 
-          onClick={onLogoClick}
-          title="Ketuk 5 kali untuk membuka API Settings rahasia"
-        >
-          {/* Outer rotating color ring */}
-          <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 opacity-80 animate-spin [animation-duration:8s] blur-[1px]" />
-          {/* Pulsing overlay shadow */}
-          <div className="absolute inset-0 rounded-full bg-blue-500/10 animate-pulse [animation-duration:3s]" />
-          {/* Inner crisp logo container with smooth cross-fade */}
-          <div className="absolute inset-[3px] rounded-full bg-slate-950 flex items-center justify-center overflow-hidden border border-slate-800">
-            {adminPhotos.map((src, idx) => (
-              <img
-                key={src + '-' + idx}
-                src={src}
-                alt="Logo Sekolah / Profil Admin"
-                className={`absolute inset-0 w-full h-full rounded-full transition-all duration-1000 ease-in-out ${
-                  idx === 0 ? 'p-1.5 object-contain' : 'object-cover'
-                } ${idx === photoIndex ? 'opacity-100 scale-100 z-10' : 'opacity-0 scale-90 z-0 pointer-events-none'}`}
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  (e.currentTarget as HTMLImageElement).src = '/logo_smpn11.jpg';
-                }}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <h2 className="text-xl font-black text-white tracking-tight uppercase bg-gradient-to-r from-blue-400 via-indigo-300 to-cyan-300 bg-clip-text text-transparent">
-            {customization?.appName || 'E-Absensi'}
-          </h2>
-          <p className="text-[10px] font-bold text-blue-400 tracking-wider uppercase mt-0.5">
-            {customization?.appSubtitle || 'Sekolah Digital'}
-          </p>
-        </div>
-      </div>
-
-      {/* Quick Login Simulator - only visible if isDemoMode is true */}
-      {isDemoMode !== false && (
-        <div className="p-3 bg-slate-800/40 border border-slate-800/80 rounded-2xl space-y-2">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">
-            Uji Coba Cepat (Mode Demo)
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('admin', 'admin123')}
-              className="flex items-center justify-center gap-1 p-2 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-semibold text-slate-200 hover:bg-slate-700 hover:text-white hover:border-slate-600 active:scale-98 transition-all cursor-pointer shadow-md"
-            >
-              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-              <span>Login Admin</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin('guru', 'guru123')}
-              className="flex items-center justify-center gap-1 p-2 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-semibold text-slate-200 hover:bg-slate-700 hover:text-white hover:border-slate-600 active:scale-98 transition-all cursor-pointer shadow-md"
-            >
-              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Login Guru</span>
-            </button>
-          </div>
-        </div>
+    <>
+      {/* Light Mode Full-Screen Background Overlay matching image perfectly */}
+      {!isDarkMode && (
+        <div className="fixed inset-0 bg-[#e6ebf4] z-[-1] transition-all duration-300 pointer-events-none" />
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-3.5">
-        <div>
-          <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-            Username
-          </label>
-          <div className="relative">
-            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
-              <User className="w-3.5 h-3.5" />
-            </span>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              required
-              placeholder="Masukkan username"
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-xs text-slate-100 placeholder-slate-500 transition-all"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-[11px] font-bold text-slate-300 uppercase tracking-wider mb-1">
-            Password
-          </label>
-          <div className="relative">
-            <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-slate-400 pointer-events-none">
-              <Lock className="w-3.5 h-3.5" />
-            </span>
-            <input
-              type={showPassword ? 'text' : 'password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              placeholder="Masukkan password"
-              className="w-full pl-9 pr-9 py-2.5 rounded-xl bg-slate-950 border border-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-xs text-slate-100 placeholder-slate-500 transition-all"
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-              title={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
-            >
-              {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </div>
-
+      {/* Slightly smaller max-w-[330px] wrapper for neatness and perfect screen balance */}
+      <div className={`max-w-[330px] w-full mx-auto my-4 rounded-[36px] p-6 space-y-4 backdrop-blur-md transition-all duration-300 relative border ${
+        isDarkMode 
+          ? 'bg-[#111e32] border-white/[0.03] text-slate-200 shadow-[20px_20px_40px_rgba(3,8,17,0.7),_-10px_-10px_30px_rgba(255,255,255,0.02)]' 
+          : 'bg-[#e6ebf4] border-white/40 text-slate-700 shadow-[15px_15px_30px_#c8d0e0,_-15px_-15px_30px_#ffffff]'
+      }`}>
+        
+        {/* Absolute Theme Toggle Switch on Card Header */}
         <button
-          type="submit"
-          disabled={isLoading}
-          className="w-full py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-blue-900/40 text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.99] mt-2"
+          type="button"
+          onClick={() => setIsDarkMode(!isDarkMode)}
+          className={`absolute top-5 right-5 p-2 rounded-xl transition-all cursor-pointer flex items-center justify-center ${
+            isDarkMode
+              ? 'bg-[#111e32] text-amber-400 shadow-[2px_2px_5px_rgba(0,0,0,0.4),_-2px_-2px_5px_rgba(255,255,255,0.02)] active:shadow-[inset_1px_1px_3px_rgba(0,0,0,0.5)] hover:text-amber-300'
+              : 'bg-[#e6ebf4] text-indigo-600 shadow-[3px_3px_6px_#c8d0e0,_-3px_-3px_6px_#ffffff] active:shadow-[inset_1px_1px_3px_#c8d0e0] hover:text-indigo-800'
+          }`}
+          title={isDarkMode ? 'Ubah ke Mode Terang' : 'Ubah ke Mode Gelap'}
         >
-          {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-          <span>Masuk Sekarang</span>
+          {isDarkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
         </button>
-      </form>
-    </div>
+
+        <div className="text-center space-y-3">
+          {/* Embossed Circular Logo Container matching the image */}
+          <div 
+            className={`relative w-20 h-20 mx-auto rounded-full flex items-center justify-center p-2 transition-transform active:scale-95 cursor-pointer ${
+              isDarkMode
+                ? 'bg-[#111e32] shadow-[6px_6px_12px_rgba(3,8,17,0.6),_-6px_-6px_12px_rgba(255,255,255,0.03)]'
+                : 'bg-[#e6ebf4] shadow-[5px_5px_10px_#c8d0e0,_-5px_-5px_10px_#ffffff]'
+            }`}
+            onClick={onLogoClick}
+            title="Ketuk 5 kali untuk membuka API Settings rahasia"
+          >
+            {/* Inner crisp logo container with smooth cross-fade */}
+            <div className={`w-full h-full rounded-full flex items-center justify-center overflow-hidden ${
+              isDarkMode
+                ? 'bg-[#0a121e] shadow-[inset_2px_2px_5px_rgba(0,0,0,0.5)]'
+                : 'bg-[#e6ebf4] shadow-[inset_2px_2px_4px_#c8d0e0,_inset_-2px_-2px_4px_#ffffff]'
+            }`}>
+              {adminPhotos.map((src, idx) => (
+                <img
+                  key={src + '-' + idx}
+                  src={src}
+                  alt="Logo Sekolah"
+                  className={`absolute inset-0 w-full h-full rounded-full transition-all duration-1000 ease-in-out ${
+                    idx === 0 ? 'p-2.5 object-contain' : 'object-cover'
+                  } ${idx === photoIndex ? 'opacity-100 scale-100 z-10' : 'opacity-0 scale-90 z-0 pointer-events-none'}`}
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = '/logo_smpn11.jpg';
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <h1 className={`text-xl font-black tracking-tight ${
+              isDarkMode ? 'text-white' : 'text-[#1e293b]'
+            }`}>
+              Welcome back
+            </h1>
+            <p className={`text-[11px] font-medium ${
+              isDarkMode ? 'text-slate-400' : 'text-slate-500'
+            }`}>
+              Please sign in to continue
+            </p>
+          </div>
+
+          {/* Dynamic customized organization title */}
+          <div className={`pt-2 border-t ${
+            isDarkMode ? 'border-white/[0.04]' : 'border-black/[0.04]'
+          }`}>
+            <h2 className={`text-xs font-bold tracking-wider uppercase ${
+              isDarkMode ? 'text-blue-400' : 'text-blue-600'
+            }`}>
+              {customization?.appName || 'E-Absensi'}
+            </h2>
+            <p className={`text-[10px] font-medium uppercase tracking-wider mt-0.5 ${
+              isDarkMode ? 'text-slate-500' : 'text-slate-400'
+            }`}>
+              {customization?.appSubtitle || 'Sekolah Digital'}
+            </p>
+          </div>
+        </div>
+
+        {/* Quick Login Simulator for Demo Mode - beautifully styled with neumorphic buttons */}
+        {isDemoMode !== false && (
+          <div className={`p-3 rounded-2xl border space-y-2 ${
+            isDarkMode
+              ? 'bg-[#0a121e]/40 border-white/[0.01] shadow-[inset_1px_1px_3px_rgba(0,0,0,0.4)]'
+              : 'bg-[#dce3f0]/60 border-white/30 shadow-[inset_1px_1px_3px_#c8d0e0]'
+          }`}>
+            <p className={`text-[9px] font-bold uppercase tracking-wider text-center ${
+              isDarkMode ? 'text-slate-400' : 'text-slate-500'
+            }`}>
+              Uji Coba Cepat (Mode Demo)
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => handleQuickLogin('admin', 'admin123')}
+                className={`flex items-center justify-center gap-1 p-2 rounded-xl border transition-all cursor-pointer text-[10px] font-semibold ${
+                  isDarkMode
+                    ? 'bg-[#111e32] border-white/[0.02] text-slate-300 hover:text-white shadow-[3px_3px_6px_rgba(0,0,0,0.5),_-2px_-2px_6px_rgba(255,255,255,0.02)] active:shadow-[inset_1px_1px_3px_rgba(0,0,0,0.5)]'
+                    : 'bg-[#e6ebf4] border-white/60 text-[#1e293b] hover:text-[#1e293b] shadow-[2px_2px_5px_#c8d0e0,_-2px_-2px_5px_#ffffff] active:shadow-[inset_1px_1px_3px_#c8d0e0]'
+                }`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
+                <span>Admin</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickLogin('guru', 'guru123')}
+                className={`flex items-center justify-center gap-1 p-2 rounded-xl border transition-all cursor-pointer text-[10px] font-semibold ${
+                  isDarkMode
+                    ? 'bg-[#111e32] border-white/[0.02] text-slate-300 hover:text-white shadow-[3px_3px_6px_rgba(0,0,0,0.5),_-2px_-2px_6px_rgba(255,255,255,0.02)] active:shadow-[inset_1px_1px_3px_rgba(0,0,0,0.5)]'
+                    : 'bg-[#e6ebf4] border-white/60 text-[#1e293b] hover:text-[#1e293b] shadow-[2px_2px_5px_#c8d0e0,_-2px_-2px_5px_#ffffff] active:shadow-[inset_1px_1px_3px_#c8d0e0]'
+                }`}
+              >
+                <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Guru</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-3.5">
+          {/* Username/Email address field - debossed inner shadow container matching the image */}
+          <div className="space-y-1">
+            <label className={`block text-[9px] font-bold uppercase tracking-wider pl-1 ${
+              isDarkMode ? 'text-slate-400' : 'text-[#8a9bb4]'
+            }`}>
+              Username / Email
+            </label>
+            <div className={`relative flex items-center rounded-[22px] px-3.5 py-3 transition-all border ${
+              isDarkMode
+                ? 'bg-[#0a121e] border-white/[0.01] shadow-[inset_3px_3px_6px_rgba(0,0,0,0.6),_inset_-2px_-2px_5px_rgba(255,255,255,0.03)] focus-within:shadow-[inset_3px_3px_6px_rgba(0,0,0,0.6),_inset_-2px_-2px_5px_rgba(255,255,255,0.03),_0_0_0_1px_rgba(59,130,246,0.3)]'
+                : 'bg-[#e6ebf4] border-white/20 shadow-[inset_3px_3px_6px_#c8d0e0,_inset_-3px_-3px_6px_#ffffff] focus-within:shadow-[inset_3px_3px_6px_#c8d0e0,_inset_-3px_-3px_6px_#ffffff,_0_0_0_1px_rgba(59,130,246,0.25)]'
+            }`}>
+              <span className={`mr-2.5 pointer-events-none ${
+                isDarkMode ? 'text-slate-500' : 'text-[#8a9bb4]'
+              }`}>
+                <User className="w-3.5 h-3.5" />
+              </span>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                required
+                placeholder="Email address"
+                className={`w-full bg-transparent border-none outline-none focus:ring-0 focus:outline-none text-[11px] ${
+                  isDarkMode ? 'text-slate-100 placeholder-slate-500' : 'text-[#1e293b] placeholder-[#8a9bb4]'
+                }`}
+              />
+            </div>
+          </div>
+
+          {/* Password field - debossed inner shadow container matching the image */}
+          <div className="space-y-1">
+            <label className={`block text-[9px] font-bold uppercase tracking-wider pl-1 ${
+              isDarkMode ? 'text-slate-400' : 'text-[#8a9bb4]'
+            }`}>
+              Password
+            </label>
+            <div className={`relative flex items-center rounded-[22px] px-3.5 py-3 transition-all border ${
+              isDarkMode
+                ? 'bg-[#0a121e] border-white/[0.01] shadow-[inset_3px_3px_6px_rgba(0,0,0,0.6),_inset_-2px_-2px_5px_rgba(255,255,255,0.03)] focus-within:shadow-[inset_3px_3px_6px_rgba(0,0,0,0.6),_inset_-2px_-2px_5px_rgba(255,255,255,0.03),_0_0_0_1px_rgba(59,130,246,0.3)]'
+                : 'bg-[#e6ebf4] border-white/20 shadow-[inset_3px_3px_6px_#c8d0e0,_inset_-3px_-3px_6px_#ffffff] focus-within:shadow-[inset_3px_3px_6px_#c8d0e0,_inset_-3px_-3px_6px_#ffffff,_0_0_0_1px_rgba(59,130,246,0.25)]'
+            }`}>
+              <span className={`mr-2.5 pointer-events-none ${
+                isDarkMode ? 'text-slate-500' : 'text-[#8a9bb4]'
+              }`}>
+                <Lock className="w-3.5 h-3.5" />
+              </span>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                placeholder="Password"
+                className={`w-full bg-transparent border-none outline-none focus:ring-0 focus:outline-none text-[11px] pr-8 ${
+                  isDarkMode ? 'text-slate-100 placeholder-slate-500' : 'text-[#1e293b] placeholder-[#8a9bb4]'
+                }`}
+              />
+              {/* Embossed soft action button for eye icon as seen in the image */}
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className={`absolute right-3 p-1.5 rounded-lg border transition-all flex items-center justify-center cursor-pointer ${
+                  isDarkMode
+                    ? 'bg-[#111e32] border-white/[0.02] shadow-[2px_2px_5px_rgba(0,0,0,0.4),_-2px_-2px_5px_rgba(255,255,255,0.03)] active:shadow-[inset_1px_1px_3px_rgba(0,0,0,0.5)] text-slate-400 hover:text-slate-200'
+                    : 'bg-[#e6ebf4] border-white/60 shadow-[2px_2px_5px_#c8d0e0,_-2px_-2px_5px_#ffffff] active:shadow-[inset_1px_1px_3px_#c8d0e0] text-[#8a9bb4] hover:text-[#1e293b]'
+                }`}
+                title={showPassword ? 'Sembunyikan password' : 'Tampilkan password'}
+              >
+                {showPassword ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Submit Button - Gradient for Dark, elegant raised neumorphic for Light matching the image */}
+          <button
+            type="submit"
+            disabled={isLoading}
+            className={`w-full py-3 px-4 font-bold rounded-[20px] text-xs transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-[0.98] mt-4 ${
+              isDarkMode
+                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-[4px_4px_10px_rgba(3,8,17,0.5)]'
+                : 'bg-[#e6ebf4] text-[#1e293b] shadow-[4px_4px_8px_#c8d0e0,_-4px_-4px_8px_#ffffff] hover:bg-[#e0e8f6] hover:shadow-[2px_2px_4px_#c8d0e0,_-2px_-2px_4px_#ffffff] active:shadow-[inset_2px_2px_4px_#c8d0e0,_inset_-2px_-2px_4px_#ffffff]'
+            }`}
+          >
+            {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+            <span>Sign In</span>
+          </button>
+        </form>
+      </div>
+    </>
   );
 }
+
