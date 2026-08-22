@@ -23,7 +23,8 @@ const STORAGE_KEYS = {
 
 /// Seed realistic default data if not already present ONLY in Demo Mode (when no Web App URL is set)
 export function initializeStorage() {
-  const hasAppUrl = !!localStorage.getItem(STORAGE_KEYS.APP_URL);
+  const appUrl = localStorage.getItem(STORAGE_KEYS.APP_URL);
+  const hasAppUrl = appUrl && appUrl !== 'demo';
 
   // If connected to Web App URL or in normal state, do NOT populate demo mock data for kiosk
   try {
@@ -305,9 +306,16 @@ async function safeCallGAS(
 // MAIN API CLIENT
 export const apiClient = {
   getBackendUrl(): string {
-    let url = localStorage.getItem(STORAGE_KEYS.APP_URL) || (import.meta as any).env?.VITE_GAS_URL || '';
-    if (!url) return '';
+    let url = localStorage.getItem(STORAGE_KEYS.APP_URL);
+    if (url === 'demo') return '';
+    
+    if (!url) {
+      url = (import.meta as any).env?.VITE_GAS_URL || 
+            'https://script.google.com/macros/s/AKfycbxm8xUg47SJqredqBB1koPt5lSgJqlFF3rjsKbjG-9tBQ2GLuOOJYD_iq92dsPZB5jQ/exec';
+    }
+    
     url = url.trim();
+    if (url === 'demo' || !url) return '';
     if (url.includes('/dev')) {
       url = url.replace(/\/dev(\?|$)/, '/exec$1');
     } else if (url.includes('/edit')) {
@@ -322,8 +330,8 @@ export const apiClient = {
       if (res.ok) {
         const data = await res.json();
         if (data.status === 'success') {
-          if (data.webAppUrl && data.webAppUrl.trim()) {
-            localStorage.setItem(STORAGE_KEYS.APP_URL, data.webAppUrl.trim());
+          if (data.webAppUrl !== undefined) {
+            localStorage.setItem(STORAGE_KEYS.APP_URL, data.webAppUrl.trim() || 'demo');
           }
           return data;
         }
@@ -339,14 +347,43 @@ export const apiClient = {
     if (cleanUrl) {
       localStorage.setItem(STORAGE_KEYS.APP_URL, cleanUrl);
     } else {
-      localStorage.removeItem(STORAGE_KEYS.APP_URL);
+      localStorage.setItem(STORAGE_KEYS.APP_URL, 'demo');
+      // Completely clear database caches and master table values to return to pristine demo/mock data
+      try {
+        localStorage.removeItem('absensi_app_customization');
+        localStorage.removeItem('absensi_crud_cache_Master_Guru');
+        localStorage.removeItem('absensi_crud_cache_Master_Siswa');
+        localStorage.removeItem('absensi_crud_cache_Master_Kelas');
+        localStorage.removeItem('absensi_crud_cache_Master_Mapel');
+        localStorage.removeItem('absensi_crud_cache_Pengaturan');
+        localStorage.removeItem(STORAGE_KEYS.MASTER_GURU);
+        localStorage.removeItem(STORAGE_KEYS.MASTER_SISWA);
+        localStorage.removeItem(STORAGE_KEYS.MASTER_KELAS);
+        localStorage.removeItem(STORAGE_KEYS.MASTER_MAPEL);
+        localStorage.removeItem(STORAGE_KEYS.HISTORY_SISWA);
+        localStorage.removeItem(STORAGE_KEYS.HISTORY_GURU);
+        localStorage.removeItem(STORAGE_KEYS.HISTORY_GURU_ABSEN);
+        localStorage.removeItem(STORAGE_KEYS.HISTORY_TENDIK_ABSEN);
+        localStorage.removeItem(STORAGE_KEYS.HISTORY_TENDIK_IZIN);
+        localStorage.removeItem('absensi_kiosk_all_scans');
+        localStorage.removeItem('absensi_kiosk_today_list');
+        // Clear all cached student roster too
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith('absensi_students_')) {
+            localStorage.removeItem(k);
+          }
+        }
+      } catch (e) {}
+      // Re-seed initial pristine demo data
+      initializeStorage();
     }
     // Broadcast & persist to server so all other preview windows / devices connect automatically
     try {
       await fetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ webAppUrl: cleanUrl }),
+        body: JSON.stringify({ webAppUrl: cleanUrl || 'demo' }),
       });
     } catch (e) {}
   },

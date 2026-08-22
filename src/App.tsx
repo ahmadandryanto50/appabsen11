@@ -472,36 +472,67 @@ export default function App() {
 
   // SAVE BACKEND SETTINGS
   const handleSaveSettings = async (url: string) => {
-    apiClient.setBackendUrl(url);
-    setWebAppUrl(url);
-    setIsDemoMode(!url.trim());
+    const cleanUrl = url.trim();
+    
+    if (!cleanUrl) {
+      await apiClient.setBackendUrl('');
+      setWebAppUrl('');
+      setIsDemoMode(true);
+      setShowConfigModal(false);
+      
+      // Reset customization back to pristine default values
+      setCustomization({
+        appName: 'E-ABSENSI',
+        appSubtitle: 'SMP NEGERI 11 PALU',
+        logoUrl: '/logo_smpn11.jpg',
+        logoEmoji: '🎓',
+        logoColor: 'bg-blue-600',
+        fullAccessUsernames: [],
+        userPhotos: {},
+        batasWaktuMasuk: '07:00',
+        externalApps: DEFAULT_APPS,
+        holidays: [],
+      });
+
+      addToast('Beralih ke mode offline (Demo) sesuai permintaan Anda.', 'success');
+      
+      // Reload local data for pristine Demo Mode immediately
+      fetchKelasList();
+      fetchMapelList();
+      fetchMasterData();
+      loadHistoryData();
+      loadCustomization();
+      return;
+    }
+
+    await apiClient.setBackendUrl(cleanUrl);
+    setWebAppUrl(cleanUrl);
+    setIsDemoMode(false);
     setShowConfigModal(false);
-    addToast(url.trim() ? 'Berhasil menghubungkan database Cloud!' : 'Beralih ke mode offline (Demo)', 'success');
+    addToast('Berhasil menghubungkan database Cloud!', 'success');
     
     // Fetch customization from the new URL immediately!
-    if (url.trim()) {
-      try {
-        const res = await apiClient.getCustomization();
-        if (res.status === 'success' && res.customization) {
-          const c = res.customization;
-          setCustomization((prev) => {
-            const externalAppsList = Array.isArray(c.externalApps) && c.externalApps.length > 0
-              ? c.externalApps
-              : (Array.isArray(prev.externalApps) && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS);
+    try {
+      const res = await apiClient.getCustomization();
+      if (res.status === 'success' && res.customization) {
+        const c = res.customization;
+        setCustomization((prev) => {
+          const externalAppsList = Array.isArray(c.externalApps) && c.externalApps.length > 0
+            ? c.externalApps
+            : (Array.isArray(prev.externalApps) && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS);
 
-            const merged: AppCustomization = {
-              ...prev,
-              ...c,
-              externalApps: externalAppsList,
-            };
-            localStorage.setItem('absensi_app_customization', JSON.stringify(merged));
-            return merged;
-          });
-          addToast('Pengaturan identitas berhasil disinkronkan dari database!', 'success');
-        }
-      } catch (err) {
-        console.error('Failed to sync customization on save:', err);
+          const merged: AppCustomization = {
+            ...prev,
+            ...c,
+            externalApps: externalAppsList,
+          };
+          localStorage.setItem('absensi_app_customization', JSON.stringify(merged));
+          return merged;
+        });
+        addToast('Pengaturan identitas berhasil disinkronkan dari database!', 'success');
       }
+    } catch (err) {
+      console.error('Failed to sync customization on save:', err);
     }
     
     // Reload data
@@ -1105,6 +1136,10 @@ export default function App() {
 
               <button
                 onClick={() => {
+                  if (isDemoMode) {
+                    addToast('Fitur Upload Berkas tidak tersedia dalam Mode Demo. Silakan hubungkan database terlebih dahulu!', 'warning');
+                    return;
+                  }
                   setActiveView('berkas');
                   setMobileMenuOpen(false);
                 }}
