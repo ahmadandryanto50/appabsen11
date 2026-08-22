@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Calendar, Trash2, Plus, Info, CheckCircle, ShieldAlert, Sparkles, Smile, Sunset } from 'lucide-react';
-import { getLocalDateString } from '../types';
+import { getLocalDateString, AppCustomization } from '../types';
 
 export interface Holiday {
   id: string;
@@ -16,37 +16,56 @@ export interface Holiday {
 
 interface HariLiburViewProps {
   onAddToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
+  customization?: AppCustomization;
+  onSaveCustomization?: (newCust: AppCustomization) => Promise<void>;
 }
 
-export function HariLiburView({ onAddToast }: HariLiburViewProps) {
+export function HariLiburView({ onAddToast, customization, onSaveCustomization }: HariLiburViewProps) {
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [newTanggal, setNewTanggal] = useState(getLocalDateString());
   const [newNama, setNewNama] = useState('');
   const [newKategori, setNewKategori] = useState<'Nasional' | 'Sekolah' | 'Khusus'>('Nasional');
 
-  // Load holidays from LocalStorage on mount
+  // Load holidays on mount and when customization changes
   useEffect(() => {
-    const stored = localStorage.getItem('absensi_hari_libur');
-    if (stored) {
-      try {
-        setHolidays(JSON.parse(stored));
-      } catch (e) {
-        console.error('Failed to parse holidays:', e);
-      }
+    if (customization?.holidays && Array.isArray(customization.holidays)) {
+      setHolidays(customization.holidays);
     } else {
-      // Seed some default holidays if empty
-      const defaults: Holiday[] = [
-        { id: '1', tanggal: '2026-08-17', nama: 'Hari Kemerdekaan RI', kategori: 'Nasional' },
-        { id: '2', tanggal: '2026-12-25', nama: 'Hari Raya Natal', kategori: 'Nasional' },
-      ];
-      setHolidays(defaults);
-      localStorage.setItem('absensi_hari_libur', JSON.stringify(defaults));
+      const stored = localStorage.getItem('absensi_hari_libur');
+      if (stored) {
+        try {
+          setHolidays(JSON.parse(stored));
+        } catch (e) {
+          console.error('Failed to parse holidays:', e);
+        }
+      } else {
+        // Seed some default holidays if empty
+        const defaults: Holiday[] = [
+          { id: '1', tanggal: '2026-08-17', nama: 'Hari Kemerdekaan RI', kategori: 'Nasional' },
+          { id: '2', tanggal: '2026-12-25', nama: 'Hari Raya Natal', kategori: 'Nasional' },
+        ];
+        setHolidays(defaults);
+        localStorage.setItem('absensi_hari_libur', JSON.stringify(defaults));
+      }
     }
-  }, []);
+  }, [customization?.holidays]);
 
   const saveHolidays = (list: Holiday[]) => {
     setHolidays(list);
     localStorage.setItem('absensi_hari_libur', JSON.stringify(list));
+    if (onSaveCustomization) {
+      const updatedCust: AppCustomization = {
+        ...(customization || {
+          appName: 'E-ABSENSI',
+          appSubtitle: 'SMP NEGERI 11 PALU',
+          logoEmoji: '🎓',
+          logoColor: 'bg-blue-600',
+          fullAccessUsernames: [],
+        }),
+        holidays: list,
+      };
+      onSaveCustomization(updatedCust);
+    }
   };
 
   const handleAddHoliday = (e: React.FormEvent) => {

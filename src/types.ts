@@ -138,6 +138,7 @@ export interface AppCustomization {
   kepalaSekolahNip?: string;
   batasWaktuMasuk?: string;
   externalApps?: ExternalAppItem[];
+  holidays?: any[];
 }
 
 export interface CrudRow {

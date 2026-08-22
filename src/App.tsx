@@ -137,11 +137,21 @@ export default function App() {
     userPhotos: {},
     batasWaktuMasuk: '07:00',
     externalApps: DEFAULT_APPS,
+    holidays: (() => {
+      const stored = localStorage.getItem('absensi_hari_libur');
+      if (stored) {
+        try { return JSON.parse(stored); } catch (e) {}
+      }
+      return [];
+    })(),
   });
 
   // Automatically sync document title, favicon, apple touch icon, and web manifest whenever customization changes
   useEffect(() => {
     updateAppMetadataAndIcon(customization);
+    if (customization.holidays && Array.isArray(customization.holidays)) {
+      localStorage.setItem('absensi_hari_libur', JSON.stringify(customization.holidays));
+    }
   }, [customization]);
 
   const [failedUserPhotos, setFailedUserPhotos] = useState<Record<string, boolean>>({});
@@ -327,9 +337,13 @@ export default function App() {
             kepalaSekolahNip: c.kepalaSekolahNip?.trim() ?? prev.kepalaSekolahNip ?? '',
             batasWaktuMasuk: c.batasWaktuMasuk?.trim() ?? prev.batasWaktuMasuk ?? '07:00',
             externalApps: externalAppsList,
+            holidays: Array.isArray(c.holidays) ? c.holidays : (prev.holidays || []),
           };
 
           localStorage.setItem('absensi_app_customization', JSON.stringify(merged));
+          if (Array.isArray(c.holidays)) {
+            localStorage.setItem('absensi_hari_libur', JSON.stringify(c.holidays));
+          }
           return merged;
         });
       }
@@ -1503,7 +1517,11 @@ export default function App() {
 
               {/* VIEW: HARI LIBUR / TANGGAL MERAH */}
               {activeView === 'hari-libur' && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
-                <HariLiburView onAddToast={addToast} />
+                <HariLiburView 
+                  onAddToast={addToast} 
+                  customization={customization}
+                  onSaveCustomization={handleSaveCustomization}
+                />
               )}
             </div>
           </div>
