@@ -712,26 +712,32 @@ export function DashboardView({
         {/* Animated User Profile Avatar on the right of banner */}
         <div className="relative z-10 flex-shrink-0 self-start sm:self-center">
           <motion.div
-            animate={{ y: [0, -10, 0] }}
-            transition={{ repeat: Infinity, duration: 2.5, ease: "easeInOut" }}
-            className="w-16 h-16 sm:w-20 sm:h-20 rounded-full border-4 border-white/30 overflow-hidden shadow-2xl flex-shrink-0 bg-white/20 backdrop-blur-md flex items-center justify-center cursor-pointer hover:scale-105 transition-transform"
+            animate={{ y: [0, -6, 0] }}
+            transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
+            className="relative w-16 h-16 sm:w-20 sm:h-20 cursor-pointer active:scale-95 transition-transform"
             title={`Profil: ${currentUser?.nama || ''}`}
           >
-            {userPhoto?.trim() && !photoError ? (
-              <img
-                src={userPhoto.trim()}
-                alt={currentUser?.nama}
-                className="w-full h-full object-cover"
-                referrerPolicy="no-referrer"
-                onError={(e) => {
-                  handleImageFallbackError(e, () => setPhotoError(true));
-                }}
-              />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-2xl uppercase">
-                {currentUser?.nama?.charAt(0) || '👤'}
-              </div>
-            )}
+            {/* Outer rotating color ring */}
+            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-white/30 via-blue-400/80 to-cyan-300 opacity-90 animate-spin [animation-duration:8s] blur-[1px]" />
+            {/* Pulsing overlay shadow */}
+            <div className="absolute inset-0.5 rounded-full bg-indigo-950/40 shadow-inner" />
+            <div className="absolute inset-1.5 rounded-full overflow-hidden bg-white/10 backdrop-blur-md p-0.5 flex items-center justify-center shadow-lg border border-white/30">
+              {userPhoto?.trim() && !photoError ? (
+                <img
+                  src={userPhoto.trim()}
+                  alt={currentUser?.nama}
+                  className="w-full h-full object-cover rounded-full"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    handleImageFallbackError(e, () => setPhotoError(true));
+                  }}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-xl uppercase rounded-full">
+                  {currentUser?.nama?.charAt(0) || '👤'}
+                </div>
+              )}
+            </div>
           </motion.div>
         </div>
         <School className="w-48 h-48 text-white/5 absolute -right-6 -bottom-10 pointer-events-none transform rotate-12" />

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { GraduationCap, User, Lock, Loader2, ShieldCheck, UserCheck, Eye, EyeOff } from 'lucide-react';
 import { AppCustomization } from '../types';
 import { normalizeImageUrl } from '../utils/imageUrl';
@@ -12,12 +12,103 @@ interface LoginViewProps {
   onLogin: (username: string, passwordInput: string) => Promise<void>;
   isLoading: boolean;
   customization?: AppCustomization;
+  isDemoMode?: boolean;
+  onLogoClick?: () => void;
 }
 
-export function LoginView({ onLogin, isLoading, customization }: LoginViewProps) {
+export function LoginView({ onLogin, isLoading, customization, isDemoMode, onLogoClick }: LoginViewProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+
+  // Slideshow state for admin profile photos and school logo
+  const [photoIndex, setPhotoIndex] = useState(0);
+
+  const adminPhotos = useMemo(() => {
+    const list: string[] = [];
+    
+    // 1. School Logo (always index 0)
+    if (customization?.logoUrl?.trim()) {
+      list.push(normalizeImageUrl(customization.logoUrl.trim()));
+    } else {
+      list.push('/logo_smpn11.jpg');
+    }
+
+    // 2. Scan customization?.userPhotos for keys related to admin/utama/rizaldy
+    if (customization?.userPhotos) {
+      Object.entries(customization.userPhotos).forEach(([key, value]) => {
+        if (value && typeof value === 'string' && value.trim()) {
+          const lowerKey = key.toLowerCase();
+          if (
+            lowerKey.includes('admin') || 
+            lowerKey.includes('utama') || 
+            lowerKey.includes('rizaldy') || 
+            lowerKey.includes('mohammad') ||
+            lowerKey.includes('pengelola') ||
+            lowerKey.includes('kepala') ||
+            lowerKey.includes('1984')
+          ) {
+            const norm = normalizeImageUrl(value.trim());
+            if (norm && !list.includes(norm)) {
+              list.push(norm);
+            }
+          }
+        }
+      });
+    }
+
+    // 3. Scan local storage for master guru photos of Admin
+    try {
+      const masterGuruStr = localStorage.getItem('absensi_master_guru') || localStorage.getItem('Master_Guru_data');
+      if (masterGuruStr) {
+        const parsed = JSON.parse(masterGuruStr);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((g: any) => {
+            let role = '';
+            let photo = '';
+            if (Array.isArray(g.data)) {
+              role = String(g.data[3] || g.data[4] || '').trim();
+              photo = String(g.data[7] || g.data[6] || g.data[5] || '').trim();
+            } else if (typeof g === 'object' && g) {
+              role = String(g.role || g.Role || g['Role / Jabatan'] || '').trim();
+              photo = String(g.photo || g.Photo || g.foto || g.Foto || '').trim();
+            }
+            if (role.toLowerCase().includes('admin') || role.toLowerCase().includes('utama') || role.toLowerCase().includes('kepala')) {
+              if (photo && photo.startsWith('http')) {
+                const norm = normalizeImageUrl(photo);
+                if (norm && !list.includes(norm)) {
+                  list.push(norm);
+                }
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {}
+
+    // 4. Fallback: if we only have the logo, cycle with other key profiles if available
+    if (list.length < 2 && customization?.userPhotos) {
+      Object.values(customization.userPhotos).forEach((val) => {
+        if (val && typeof val === 'string' && val.trim()) {
+          const norm = normalizeImageUrl(val.trim());
+          if (norm && !list.includes(norm) && list.length < 4) {
+            list.push(norm);
+          }
+        }
+      });
+    }
+
+    return list;
+  }, [customization]);
+
+  // Rotate every 10 seconds smoothly
+  useEffect(() => {
+    if (adminPhotos.length <= 1) return;
+    const interval = setInterval(() => {
+      setPhotoIndex((prev) => (prev + 1) % adminPhotos.length);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [adminPhotos]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,22 +125,31 @@ export function LoginView({ onLogin, isLoading, customization }: LoginViewProps)
     <div className="max-w-sm w-full mx-auto my-4 bg-slate-900/95 border border-slate-800 rounded-2xl shadow-2xl p-6 space-y-4 text-slate-200 backdrop-blur-md">
       <div className="text-center space-y-3">
         {/* Animated Circular Logo Container */}
-        <div className="relative w-20 h-20 mx-auto">
+        <div 
+          className="relative w-20 h-20 mx-auto cursor-pointer active:scale-95 transition-transform" 
+          onClick={onLogoClick}
+          title="Ketuk 5 kali untuk membuka API Settings rahasia"
+        >
           {/* Outer rotating color ring */}
           <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 opacity-80 animate-spin [animation-duration:8s] blur-[1px]" />
           {/* Pulsing overlay shadow */}
           <div className="absolute inset-0 rounded-full bg-blue-500/10 animate-pulse [animation-duration:3s]" />
-          {/* Inner crisp logo container */}
+          {/* Inner crisp logo container with smooth cross-fade */}
           <div className="absolute inset-[3px] rounded-full bg-slate-950 flex items-center justify-center overflow-hidden border border-slate-800">
-            <img
-              src={normalizeImageUrl(customization?.logoUrl?.trim() || '/logo_smpn11.jpg')}
-              alt="Logo Sekolah SMPN 11 Palu"
-              className="w-[85%] h-[85%] object-contain rounded-full transition-transform hover:scale-110 duration-500"
-              referrerPolicy="no-referrer"
-              onError={(e) => {
-                (e.currentTarget as HTMLImageElement).src = '/logo_smpn11.jpg';
-              }}
-            />
+            {adminPhotos.map((src, idx) => (
+              <img
+                key={src + '-' + idx}
+                src={src}
+                alt="Logo Sekolah / Profil Admin"
+                className={`absolute inset-0 w-full h-full rounded-full transition-all duration-1000 ease-in-out ${
+                  idx === 0 ? 'p-1.5 object-contain' : 'object-cover'
+                } ${idx === photoIndex ? 'opacity-100 scale-100 z-10' : 'opacity-0 scale-90 z-0 pointer-events-none'}`}
+                referrerPolicy="no-referrer"
+                onError={(e) => {
+                  (e.currentTarget as HTMLImageElement).src = '/logo_smpn11.jpg';
+                }}
+              />
+            ))}
           </div>
         </div>
 
@@ -61,35 +161,34 @@ export function LoginView({ onLogin, isLoading, customization }: LoginViewProps)
             {customization?.appSubtitle || 'Sekolah Digital'}
           </p>
         </div>
-        <p className="text-[11px] text-slate-400 max-w-xs mx-auto font-medium">
-          Masuk dengan akun Anda untuk mencatat kehadiran siswa & guru secara presisi.
-        </p>
       </div>
 
-      {/* Quick Login Simulator */}
-      <div className="p-3 bg-slate-800/40 border border-slate-800/80 rounded-2xl space-y-2">
-        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">
-          Uji Coba Cepat (Mode Demo)
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => handleQuickLogin('admin', 'admin123')}
-            className="flex items-center justify-center gap-1 p-2 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-semibold text-slate-200 hover:bg-slate-700 hover:text-white hover:border-slate-600 active:scale-98 transition-all cursor-pointer shadow-md"
-          >
-            <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-            <span>Login Admin</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => handleQuickLogin('guru', 'guru123')}
-            className="flex items-center justify-center gap-1 p-2 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-semibold text-slate-200 hover:bg-slate-700 hover:text-white hover:border-slate-600 active:scale-98 transition-all cursor-pointer shadow-md"
-          >
-            <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Login Guru</span>
-          </button>
+      {/* Quick Login Simulator - only visible if isDemoMode is true */}
+      {isDemoMode !== false && (
+        <div className="p-3 bg-slate-800/40 border border-slate-800/80 rounded-2xl space-y-2">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center">
+            Uji Coba Cepat (Mode Demo)
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => handleQuickLogin('admin', 'admin123')}
+              className="flex items-center justify-center gap-1 p-2 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-semibold text-slate-200 hover:bg-slate-700 hover:text-white hover:border-slate-600 active:scale-98 transition-all cursor-pointer shadow-md"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
+              <span>Login Admin</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => handleQuickLogin('guru', 'guru123')}
+              className="flex items-center justify-center gap-1 p-2 rounded-xl bg-slate-800/80 border border-slate-700 text-[11px] font-semibold text-slate-200 hover:bg-slate-700 hover:text-white hover:border-slate-600 active:scale-98 transition-all cursor-pointer shadow-md"
+            >
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Login Guru</span>
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-3.5">
         <div>

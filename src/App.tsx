@@ -66,6 +66,20 @@ export default function App() {
   const [isDemoMode, setIsDemoMode] = useState(apiClient.isDemoMode());
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [showExternalAppsModal, setShowExternalAppsModal] = useState(false);
+  const [logoClicks, setLogoClicks] = useState(0);
+  const [showHiddenSettings, setShowHiddenSettings] = useState(false);
+
+  const handleLogoClickSecret = () => {
+    setLogoClicks((prev) => {
+      const next = prev + 1;
+      if (next >= 5) {
+        setShowHiddenSettings(true);
+        addToast('Menu Konfigurasi API Terbuka! Silakan klik tombol API Settings di bawah.', 'success');
+        return 0;
+      }
+      return next;
+    });
+  };
 
   // Global Lists
   const [kelasList, setKelasList] = useState<string[]>(['X-A', 'X-B', 'XI-A', 'XI-B', 'XII-A', 'XII-B']);
@@ -835,16 +849,22 @@ export default function App() {
                 className="flex items-center gap-3 text-left hover:opacity-90 transition-opacity cursor-pointer group"
                 title="Kembali ke Halaman Utama Dashboard"
               >
-                <div className={`w-10 h-10 rounded-xl bg-white p-0.5 flex items-center justify-center text-white font-bold text-xl shadow-md shadow-blue-600/10 overflow-hidden group-hover:scale-105 transition-transform border border-slate-700/50`}>
-                  <img
-                    src={normalizeImageUrl(customization.logoUrl?.trim() || '/logo_smpn11.jpg')}
-                    alt="Logo Sekolah"
-                    className="w-full h-full object-contain"
-                    referrerPolicy="no-referrer"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = '/logo_smpn11.jpg';
-                    }}
-                  />
+                <div className="relative w-11 h-11 flex-shrink-0 cursor-pointer active:scale-95 transition-transform">
+                  {/* Outer rotating color ring */}
+                  <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-500 to-cyan-400 opacity-80 animate-spin [animation-duration:8s] blur-[1px]" />
+                  {/* Pulsing overlay shadow */}
+                  <div className="absolute inset-0.5 rounded-full bg-slate-950/90 shadow-inner" />
+                  <div className="absolute inset-1.5 rounded-full overflow-hidden bg-white p-0.5 flex items-center justify-center shadow-md border border-slate-800">
+                    <img
+                      src={normalizeImageUrl(customization.logoUrl?.trim() || '/logo_smpn11.jpg')}
+                      alt="Logo Sekolah"
+                      className="w-full h-full object-contain rounded-full"
+                      referrerPolicy="no-referrer"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = '/logo_smpn11.jpg';
+                      }}
+                    />
+                  </div>
                 </div>
                 <div className="overflow-hidden">
                   <h1 className="font-extrabold text-white text-sm leading-tight tracking-tight uppercase truncate max-w-[130px]" title={customization.appName || 'E-ABSENSI'}>
@@ -1472,19 +1492,27 @@ export default function App() {
           <div className="absolute bottom-1/4 right-1/4 w-72 h-72 sm:w-96 sm:h-96 bg-indigo-500/10 rounded-full blur-[80px] sm:blur-[120px] pointer-events-none animate-pulse" style={{ animationDuration: '8s' }} />
 
           <div className="w-full max-w-md z-10 relative my-auto">
-            <LoginView onLogin={handleLogin} isLoading={isLoading} customization={customization} />
+            <LoginView 
+              onLogin={handleLogin} 
+              isLoading={isLoading} 
+              customization={customization} 
+              isDemoMode={isDemoMode}
+              onLogoClick={handleLogoClickSecret}
+            />
 
             {/* Config Button below the login box */}
-            <div className="text-center mt-5">
-              <button
-                type="button"
-                onClick={() => setShowConfigModal(true)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-slate-900/40 hover:bg-slate-900/80 border border-slate-800/80 text-slate-400 hover:text-white text-xs font-semibold cursor-pointer transition-all shadow-md backdrop-blur-sm"
-              >
-                <Settings className="w-3.5 h-3.5 text-slate-500" />
-                <span>API Settings</span>
-              </button>
-            </div>
+            {(isDemoMode || showHiddenSettings) && (
+              <div className="text-center mt-5">
+                <button
+                  type="button"
+                  onClick={() => setShowConfigModal(true)}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-slate-900/40 hover:bg-slate-900/80 border border-slate-800/80 text-slate-400 hover:text-white text-xs font-semibold cursor-pointer transition-all shadow-md backdrop-blur-sm"
+                >
+                  <Settings className="w-3.5 h-3.5 text-slate-500" />
+                  <span>API Settings</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
