@@ -53,6 +53,7 @@ import { BerkasView } from './components/BerkasView';
 import { ScannerKioskView } from './components/ScannerKioskView';
 import { CetakBarcodeView } from './components/CetakBarcodeView';
 import { ExternalAppsModal, DEFAULT_APPS } from './components/ExternalAppsModal';
+import { HariLiburView } from './components/HariLiburView';
 
 export default function App() {
   // Authentication & Navigation
@@ -821,6 +822,7 @@ export default function App() {
       'izin-tendik': 'Formulir Permohonan Izin Tendik',
       'kiosk-scanner': 'Kiosk Scanner Otomatis',
       'cetak-barcode': 'Cetak Kartu QR Code Siswa',
+      'hari-libur': 'Manajemen Hari Libur & Tanggal Merah',
     };
     return titles[activeView] || `${customization.appName} ${customization.appSubtitle}`;
   };
@@ -1209,6 +1211,22 @@ export default function App() {
                       <span>Pengaturan Aplikasi</span>
                     </button>
 
+                    {/* Hari Libur View */}
+                    <button
+                      onClick={() => {
+                        setActiveView('hari-libur');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeView === 'hari-libur'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <CalendarRange className="w-4 h-4 flex-shrink-0 text-slate-500" />
+                      <span>Atur Hari Libur</span>
+                    </button>
+
                     {/* Apps Script Code View */}
                     <button
                       onClick={() => {
@@ -1481,6 +1499,11 @@ export default function App() {
               {/* VIEW 7: APPS SCRIPT CODE & GUIDE */}
               {activeView === 'apps-script' && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                 <AppsScriptView customization={customization} />
+              )}
+
+              {/* VIEW: HARI LIBUR / TANGGAL MERAH */}
+              {activeView === 'hari-libur' && (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                <HariLiburView onAddToast={addToast} />
               )}
             </div>
           </div>

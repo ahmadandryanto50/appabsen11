@@ -114,7 +114,8 @@ export type ViewType =
   | 'absen-tendik'
   | 'izin-tendik'
   | 'kiosk-scanner'
-  | 'cetak-barcode';
+  | 'cetak-barcode'
+  | 'hari-libur';
 
 export interface ExternalAppItem {
   id: string;

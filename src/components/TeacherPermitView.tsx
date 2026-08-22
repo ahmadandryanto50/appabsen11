@@ -17,7 +17,9 @@ import {
   Calendar, 
   CheckSquare, 
   Users,
-  AlertCircle
+  AlertCircle,
+  AlertTriangle,
+  Sparkles
 } from 'lucide-react';
 import { apiClient } from '../api';
 
@@ -31,6 +33,32 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
   const [absenceReason, setAbsenceReason] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMasters, setIsLoadingMasters] = useState(false);
+  const [activeHoliday, setActiveHoliday] = useState<any>(null);
+  const [isWeekend, setIsWeekend] = useState(false);
+
+  useEffect(() => {
+    // Determine if today is weekend in WITA
+    const tzOffset = 8 * 60; // WITA
+    const now = new Date();
+    const localMs = now.getTime() + (now.getTimezoneOffset() + tzOffset) * 60000;
+    const localDate = new Date(localMs);
+    const dayOfWeek = localDate.getUTCDay(); // 0 is Sunday, 6 is Saturday
+    setIsWeekend(dayOfWeek === 0 || dayOfWeek === 6);
+
+    const todayStr = getLocalDateString(now);
+    const stored = localStorage.getItem('absensi_hari_libur');
+    if (stored) {
+      try {
+        const list = JSON.parse(stored);
+        const match = list.find((item: any) => item.tanggal === todayStr);
+        if (match) {
+          setActiveHoliday(match);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  }, []);
 
   // States for Admin features
   const [teachers, setTeachers] = useState<{ nip: string; nama: string; role: string }[]>([]);
@@ -307,8 +335,45 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
     }
   };
 
+  const isBlocked = (activeHoliday || isWeekend) && currentUser?.role !== 'Admin Utama';
+
+  if (isBlocked) {
+    return (
+      <div className="bg-red-50 border border-red-200/80 rounded-3xl p-8 text-center max-w-xl mx-auto my-8 space-y-4 shadow-sm animate-scale-up">
+        <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 mx-auto flex items-center justify-center shadow-inner">
+          <AlertTriangle className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-base font-black text-red-900 uppercase tracking-wide">
+            {isWeekend ? 'Libur Akhir Pekan' : 'Hari Libur Terdeteksi'}
+          </h3>
+          <p className="text-xs font-extrabold text-red-700 bg-red-100/60 px-3 py-1.5 rounded-full inline-block">
+            {isWeekend 
+              ? 'Hari ini: Sabtu / Minggu (Weekend)' 
+              : `Hari ini: "${activeHoliday?.nama}" (${activeHoliday?.kategori})`
+            }
+          </p>
+          <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+            Formulir permohonan izin/sakit guru otomatis ditangguhkan selama hari libur atau akhir pekan. Selamat menikmati waktu istirahat bersama keluarga!
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
+      {/* MODE OVERRIDE ADMIN UTAMA BANNER */}
+      {(activeHoliday || isWeekend) && currentUser?.role === 'Admin Utama' && (
+        <div className="bg-gradient-to-r from-amber-500 to-amber-600 border border-amber-300 rounded-2xl p-4 text-white shadow-sm flex items-center gap-3 animate-pulse max-w-2xl mx-auto">
+          <AlertTriangle className="w-5 h-5 text-amber-100 flex-shrink-0" />
+          <div className="text-xs text-left">
+            <span className="font-extrabold block">Mode Override Admin Utama Aktif!</span>
+            <span className="font-medium opacity-90">Hari ini libur/akhir pekan, tetapi sebagai Admin Utama Anda tetap dapat menginput/mengajukan surat izin guru.</span>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto space-y-6">
         <div>
           <h3 className="text-lg font-bold text-slate-800 tracking-tight flex items-center gap-2">

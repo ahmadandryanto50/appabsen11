@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, getLocalDateString, getLocalTimeString } from '../types';
-import { Camera, FileImage, Trash2, CheckCircle, Clock, Loader2, Play, UserCheck, RotateCw } from 'lucide-react';
+import { Camera, FileImage, Trash2, CheckCircle, Clock, Loader2, Play, UserCheck, RotateCw, AlertTriangle } from 'lucide-react';
 
 interface TendikAttendanceViewProps {
   currentUser: User | null;
@@ -23,6 +23,30 @@ export function TendikAttendanceView({
   
   const [alreadyDatang, setAlreadyDatang] = useState(false);
   const [alreadyPulang, setAlreadyPulang] = useState(false);
+  const [activeHoliday, setActiveHoliday] = useState<any>(null);
+  const [isWeekend, setIsWeekend] = useState(false);
+
+  useEffect(() => {
+    // Determine if today is weekend in WITA
+    const tzOffset = 8 * 60; // WITA
+    const now = new Date();
+    const localMs = now.getTime() + (now.getTimezoneOffset() + tzOffset) * 60000;
+    const localDate = new Date(localMs);
+    const dayOfWeek = localDate.getUTCDay(); // 0 is Sunday, 6 is Saturday
+    setIsWeekend(dayOfWeek === 0 || dayOfWeek === 6);
+
+    const todayStr = getLocalDateString(now);
+    const stored = localStorage.getItem('absensi_hari_libur');
+    if (stored) {
+      try {
+        const list = JSON.parse(stored);
+        const match = list.find((h: any) => h.tanggal === todayStr);
+        if (match) {
+          setActiveHoliday(match);
+        }
+      } catch (e) {}
+    }
+  }, []);
 
   useEffect(() => {
     try {
@@ -216,8 +240,45 @@ export function TendikAttendanceView({
 
   const isSubmitDisabled = isSubmitting || !cameraPhoto || (tipeAbsen === 'Datang' && alreadyDatang) || (tipeAbsen === 'Pulang' && alreadyPulang);
 
+  const isBlocked = (activeHoliday || isWeekend) && currentUser?.role !== 'Admin Utama';
+
+  if (isBlocked) {
+    return (
+      <div className="bg-red-50 border border-red-200/80 rounded-3xl p-8 text-center max-w-xl mx-auto my-8 space-y-4 shadow-sm animate-scale-up">
+        <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 mx-auto flex items-center justify-center shadow-inner">
+          <AlertTriangle className="w-8 h-8 animate-pulse" />
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-base font-black text-red-900 uppercase tracking-wide">
+            {isWeekend ? 'Libur Akhir Pekan' : 'Hari Libur Terdeteksi'}
+          </h3>
+          <p className="text-xs font-extrabold text-red-700 bg-red-100/60 px-3 py-1.5 rounded-full inline-block">
+            {isWeekend 
+              ? 'Hari ini: Sabtu / Minggu (Weekend)' 
+              : `Hari ini: "${activeHoliday?.nama}" (${activeHoliday?.kategori})`
+            }
+          </p>
+          <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+            Sistem absensi tendik harian otomatis ditangguhkan selama hari libur atau akhir pekan. Selamat menikmati waktu istirahat bersama keluarga!
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in max-w-2xl mx-auto">
+      {/* MODE OVERRIDE ADMIN UTAMA BANNER */}
+      {(activeHoliday || isWeekend) && currentUser?.role === 'Admin Utama' && (
+        <div className="bg-gradient-to-r from-amber-500 to-amber-600 border border-amber-300 rounded-2xl p-4 text-white shadow-sm flex items-center gap-3 animate-pulse">
+          <AlertTriangle className="w-5 h-5 text-amber-100 flex-shrink-0" />
+          <div className="text-xs text-left">
+            <span className="font-extrabold block">Mode Override Admin Utama Aktif!</span>
+            <span className="font-medium opacity-90">Hari ini libur/akhir pekan, tetapi sebagai Admin Utama Anda tetap dapat menguji & menginput presensi tendik.</span>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
         <div className="pb-4 border-b border-slate-100 flex items-center justify-between">
           <div>

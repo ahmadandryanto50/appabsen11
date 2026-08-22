@@ -53,6 +53,21 @@ export function ScannerKioskView({ students, customization, onUpdateCustomizatio
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
   const [isEditingBatas, setIsEditingBatas] = useState(false);
   const [tempBatasInput, setTempBatasInput] = useState(() => parseBatasWaktu(customization.batasWaktuMasuk).formatted);
+  const [activeHoliday, setActiveHoliday] = useState<any>(null);
+
+  useEffect(() => {
+    const todayStr = getLocalDateString(new Date());
+    const stored = localStorage.getItem('absensi_hari_libur');
+    if (stored) {
+      try {
+        const list = JSON.parse(stored);
+        const match = list.find((h: any) => h.tanggal === todayStr);
+        if (match) {
+          setActiveHoliday(match);
+        }
+      } catch (e) {}
+    }
+  }, []);
 
   const [recentScans, setRecentScans] = useState<RecentScan[]>(() => {
     try {
@@ -454,6 +469,25 @@ export function ScannerKioskView({ students, customization, onUpdateCustomizatio
   // Summary counts for recent scans
   const totalHadirCount = recentScans.filter((s) => s.status === 'Hadir').length;
   const totalTerlambatCount = recentScans.filter((s) => s.status === 'Terlambat').length;
+
+  if (activeHoliday) {
+    return (
+      <div className="bg-red-50 border border-red-200/80 rounded-3xl p-8 text-center max-w-xl mx-auto my-8 space-y-4 shadow-sm animate-scale-up">
+        <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 mx-auto flex items-center justify-center shadow-inner">
+          <AlertCircle className="w-8 h-8 animate-pulse" />
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-base font-black text-red-900 uppercase tracking-wide">Hari Libur Terdeteksi</h3>
+          <p className="text-xs font-extrabold text-red-700 bg-red-100/60 px-3 py-1.5 rounded-full inline-block">
+            Hari ini: "{activeHoliday.nama}" ({activeHoliday.kategori})
+          </p>
+          <p className="text-xs text-slate-500 leading-relaxed max-w-sm mx-auto">
+            Administrator Utama telah menetapkan tanggal ini sebagai Hari Libur. Seluruh proses absensi kelas, guru, dan tendik diliburkan secara serentak. Selamat berlibur!
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
