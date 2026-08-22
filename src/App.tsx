@@ -289,18 +289,22 @@ export default function App() {
     if (savedCustomization) {
       try {
         const parsed = JSON.parse(savedCustomization);
-        setCustomization((prev) => ({
-          ...parsed,
-          ...prev,
-          logoUrl: prev.logoUrl || parsed.logoUrl || '/logo_smpn11.jpg',
-          userPhotos: { ...(parsed.userPhotos || {}), ...(prev.userPhotos || {}) },
-          fullAccessUsernames: Array.isArray(prev.fullAccessUsernames) && prev.fullAccessUsernames.length > 0
-            ? prev.fullAccessUsernames
-            : parsed.fullAccessUsernames,
-          externalApps: Array.isArray(prev.externalApps) && prev.externalApps.length > 0
-            ? prev.externalApps
-            : (parsed.externalApps && parsed.externalApps.length > 0 ? parsed.externalApps : DEFAULT_APPS),
-        }));
+        setCustomization((prev) => {
+          const merged: AppCustomization = {
+            ...prev,
+            ...parsed,
+            logoUrl: parsed.logoUrl || prev.logoUrl || '/logo_smpn11.jpg',
+            userPhotos: { ...(prev.userPhotos || {}), ...(parsed.userPhotos || {}) },
+            fullAccessUsernames: Array.isArray(parsed.fullAccessUsernames) && parsed.fullAccessUsernames.length > 0
+              ? parsed.fullAccessUsernames
+              : (Array.isArray(prev.fullAccessUsernames) && prev.fullAccessUsernames.length > 0 ? prev.fullAccessUsernames : []),
+            externalApps: Array.isArray(parsed.externalApps) && parsed.externalApps.length > 0
+              ? parsed.externalApps
+              : (Array.isArray(prev.externalApps) && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS),
+            holidays: Array.isArray(parsed.holidays) ? parsed.holidays : (prev.holidays || []),
+          };
+          return merged;
+        });
       } catch (e) {
         console.error('Error loading customization cache:', e);
       }

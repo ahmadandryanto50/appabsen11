@@ -25,6 +25,7 @@ export function HariLiburView({ onAddToast, customization, onSaveCustomization }
   const [newTanggal, setNewTanggal] = useState(getLocalDateString());
   const [newNama, setNewNama] = useState('');
   const [newKategori, setNewKategori] = useState<'Nasional' | 'Sekolah' | 'Khusus'>('Nasional');
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Load holidays on mount and when customization changes
   useEffect(() => {
@@ -256,14 +257,38 @@ export function HariLiburView({ onAddToast, customization, onSaveCustomization }
                       </p>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteHoliday(h.id, h.nama)}
-                      className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
-                      title="Hapus Hari Libur"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {confirmDeleteId === h.id ? (
+                      <div className="flex items-center gap-1.5 animate-scale-up">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const filtered = holidays.filter((item) => item.id !== h.id);
+                            saveHolidays(filtered);
+                            onAddToast(`Hari libur "${h.nama}" telah dihapus.`, 'info');
+                            setConfirmDeleteId(null);
+                          }}
+                          className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-[10px] font-black rounded-lg shadow-sm cursor-pointer transition-all active:scale-[0.98]"
+                        >
+                          Hapus
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-2.5 py-1 bg-slate-200 hover:bg-slate-300 text-slate-700 text-[10px] font-bold rounded-lg cursor-pointer transition-all"
+                        >
+                          Batal
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteId(h.id)}
+                        className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all cursor-pointer opacity-100 lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100"
+                        title="Hapus Hari Libur"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 );
               })}

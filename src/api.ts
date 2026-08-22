@@ -2225,29 +2225,90 @@ export const apiClient = {
       return { status: 'success' };
     }
 
-    const direct = await safeCallGAS(url, 'getCustomization', {}, true, 6000, 50000);
-    if (direct.ok && direct.result && direct.result.status === 'success') {
-      return direct.result;
-    }
-
-    const fallback = await safeCallGAS(url, 'getCrud', { sheetName: 'Pengaturan' }, true, 6000, 50000);
+    // Always fetch fallback row from 'Pengaturan' to get holidays and other JSON-only fields
+    let holidaysFromRow: any[] = [];
+    let fallbackCustomization: any = null;
+    const fallback = await safeCallGAS(url, 'getCrud', { sheetName: 'Pengaturan' }, false, 0, 50000);
     if (fallback.ok && fallback.result && fallback.result.status === 'success' && fallback.result.rows) {
       const customRow = fallback.result.rows.find((row: any) => row.data && row.data[0] === 'customization');
       if (customRow && customRow.data[1]) {
         try {
-          const parsed = JSON.parse(customRow.data[1]);
-          return { status: 'success', customization: parsed };
+          fallbackCustomization = JSON.parse(customRow.data[1]);
         } catch (e) {
           console.error('Failed to parse JSON customization:', e);
         }
       }
+
+      // Read downwards holidays rows (starting with "libur_")
+      const liburRows = fallback.result.rows.filter((row: any) => row.data && row.data[0] && row.data[0].startsWith('libur_'));
+      if (liburRows.length > 0) {
+        const parsedHolidays: any[] = [];
+        for (const rRow of liburRows) {
+          const key = rRow.data[0];
+          const val = rRow.data[1];
+          if (val) {
+            const parts = val.split(' | ');
+            if (parts.length >= 3) {
+              const id = key.replace('libur_', '');
+              parsedHolidays.push({
+                id,
+                tanggal: parts[0].trim(),
+                nama: parts[1].trim(),
+                kategori: parts[2].trim()
+              });
+            }
+          }
+        }
+        if (parsedHolidays.length > 0) {
+          holidaysFromRow = parsedHolidays;
+        }
+      }
+
+      // Fallback: Read holidays legacy horizontal row if downwards rows don't exist yet
+      if (holidaysFromRow.length === 0) {
+        const holidaysRow = fallback.result.rows.find((row: any) => row.data && row.data[0] === 'holidays');
+        if (holidaysRow && holidaysRow.data[1]) {
+          try {
+            holidaysFromRow = JSON.parse(holidaysRow.data[1]);
+          } catch (e) {
+            console.error('Failed to parse holidays row:', e);
+          }
+        }
+      }
+    }
+
+    const direct = await safeCallGAS(url, 'getCustomization', {}, false, 0, 50000);
+    if (direct.ok && direct.result && direct.result.status === 'success') {
+      if (direct.result.customization) {
+        // Merge holidays and other fields from the fallback JSON customization
+        direct.result.customization.holidays = holidaysFromRow.length > 0 
+          ? holidaysFromRow 
+          : (fallbackCustomization?.holidays || direct.result.customization.holidays || []);
+        if (fallbackCustomization) {
+          direct.result.customization = {
+            ...fallbackCustomization,
+            ...direct.result.customization,
+            holidays: direct.result.customization.holidays
+          };
+        }
+      }
+      return direct.result;
+    }
+
+    if (fallbackCustomization) {
+      fallbackCustomization.holidays = holidaysFromRow.length > 0 ? holidaysFromRow : (fallbackCustomization.holidays || []);
+      return { status: 'success', customization: fallbackCustomization };
     }
 
     // Fallback to local storage if Cloud URL fails
     const saved = localStorage.getItem('absensi_app_customization');
     if (saved) {
       try {
-        return { status: 'success', customization: JSON.parse(saved) };
+        const parsed = JSON.parse(saved);
+        if (holidaysFromRow.length > 0) {
+          parsed.holidays = holidaysFromRow;
+        }
+        return { status: 'success', customization: parsed };
       } catch (e) {
         // Ignore
       }
@@ -2314,12 +2375,9 @@ export const apiClient = {
       return { status: 'success' };
     }
 
-    const direct = await safeCallGAS(url, 'saveCustomization', { customization });
-    if (direct.ok && direct.result && direct.result.status === 'success') {
-      clearApiCache();
-      return direct.result;
-    }
-
+    // To ensure ALL fields (especially custom ones like holidays) are fully persisted as complete JSON,
+    // we should always write directly to the 'Pengaturan' sheet's 'customization' row.
+    let saveResult = null;
     const getRes = await safeCallGAS(url, 'getCrud', { sheetName: 'Pengaturan' });
     if (getRes.ok && getRes.result && getRes.result.status === 'success' && getRes.result.rows) {
       const customRow = getRes.result.rows.find((row: any) => row.data && row.data[0] === 'customization');
@@ -2332,10 +2390,64 @@ export const apiClient = {
         rowData,
         rowIndex: targetRowIndex
       });
-      if (saveRes.ok && saveRes.result) {
-        clearApiCache();
-        return saveRes.result;
+      if (saveRes.ok && saveRes.result && saveRes.result.status === 'success') {
+        saveResult = saveRes.result;
       }
+
+      // 1. Clean up legacy horizontal holidays row if exists to keep spreadsheet clean
+      const legacyHolidaysRow = getRes.result.rows.find((row: any) => row.data && row.data[0] === 'holidays');
+      if (legacyHolidaysRow) {
+        const legacyIndex = Number(legacyHolidaysRow._rowIndex);
+        if (!isNaN(legacyIndex) && legacyIndex > 0) {
+          try {
+            await safeCallGAS(url, 'deleteCrud', { sheetName: 'Pengaturan', rowIndex: legacyIndex });
+          } catch (e) {}
+        }
+      }
+
+      // 2. Identify and clear all existing "libur_" rows to replace them with updated downward list
+      const existingLiburRows = getRes.result.rows.filter((row: any) => row.data && row.data[0] && row.data[0].startsWith('libur_'));
+      const sortedIndicesToDelete = existingLiburRows
+        .map((row: any) => Number(row._rowIndex))
+        .filter((idx: number) => !isNaN(idx) && idx > 0)
+        .sort((a: number, b: number) => b - a); // descending to avoid shifting issues
+
+      for (const idx of sortedIndicesToDelete) {
+        try {
+          await safeCallGAS(url, 'deleteCrud', { sheetName: 'Pengaturan', rowIndex: idx });
+        } catch (e) {
+          console.error('Failed to delete old holiday row at index', idx, e);
+        }
+      }
+
+      // 3. Save new holidays downwards, one row per holiday, in a highly clean and readable text format
+      if (customization && Array.isArray(customization.holidays)) {
+        for (const h of customization.holidays) {
+          const hKey = `libur_${h.id}`;
+          const hValue = `${h.tanggal} | ${h.nama} | ${h.kategori}`;
+          const hRowData = [hKey, hValue];
+          try {
+            await safeCallGAS(url, 'saveCrud', {
+              sheetName: 'Pengaturan',
+              rowData: hRowData,
+              rowIndex: null
+            });
+          } catch (e) {
+            console.error('Failed to append holiday row', hKey, e);
+          }
+        }
+      }
+    }
+
+    // Call the direct endpoint as well to trigger any native events or metadata syncing in GAS
+    const direct = await safeCallGAS(url, 'saveCustomization', { customization });
+    
+    clearApiCache();
+    if (saveResult) {
+      return saveResult;
+    }
+    if (direct.ok && direct.result && direct.result.status === 'success') {
+      return direct.result;
     }
 
     return { status: 'success' };
