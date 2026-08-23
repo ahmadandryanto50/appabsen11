@@ -754,75 +754,96 @@ export function DashboardView({
         </div>
 
         {/* Bento Grid Top Level Row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
           {/* Card 1: Students overall */}
           {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
-            <div className="p-5 bg-blue-50/40 rounded-xl border border-blue-100/60 flex items-center justify-between">
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Total Siswa Keseluruhan</span>
-                <h3 className="text-2xl font-extrabold text-slate-800">{totalStudents} <span className="text-xs font-semibold text-slate-400">Orang</span></h3>
-                <div className="flex items-center gap-3 text-xs text-slate-600 font-semibold mt-1">
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+            <div className="relative overflow-hidden p-6 bg-white rounded-2xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex items-center justify-between group hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all">
+              <div className="absolute top-0 right-0 p-8 bg-gradient-to-br from-blue-50 to-blue-100/50 rounded-bl-full opacity-60 w-32 h-32 -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
+              <div className="space-y-2 relative z-10">
+                <span className="text-[11px] font-extrabold text-blue-600 uppercase tracking-widest flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse"></div>
+                  Total Siswa Keseluruhan
+                </span>
+                <div className="flex items-baseline gap-2">
+                  <h3 className="text-4xl font-black text-slate-800 tracking-tight">{totalStudents}</h3>
+                  <span className="text-sm font-bold text-slate-400">Orang</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-slate-500 font-semibold mt-2 bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100">
+                  <span className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-blue-500 shadow-sm shadow-blue-200"></div>
                     Laki-laki: <strong className="text-slate-800">{totalStudentsMale}</strong>
                   </span>
-                  <span className="text-slate-300">|</span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                  <span className="text-slate-200">|</span>
+                  <span className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-rose-400 shadow-sm shadow-rose-200"></div>
                     Perempuan: <strong className="text-slate-800">{totalStudentsFemale}</strong>
                   </span>
                 </div>
               </div>
-              <div className="w-12 h-12 bg-blue-100/60 rounded-xl flex items-center justify-center text-blue-600 flex-shrink-0">
-                <GraduationCap className="w-6 h-6" />
+              <div className="relative z-10 w-14 h-14 bg-gradient-to-br from-blue-100 to-blue-50 rounded-2xl flex items-center justify-center text-blue-600 shadow-inner border border-blue-200/50 group-hover:-rotate-6 transition-transform">
+                <GraduationCap className="w-7 h-7" />
               </div>
             </div>
           )}
 
           {/* Card 2: Teachers overall */}
           {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
-            <div className="p-5 bg-emerald-50/40 rounded-xl border border-emerald-100/60 flex items-center justify-between">
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Total Guru Keseluruhan</span>
-                <h3 className="text-2xl font-extrabold text-slate-800">{totalTeachers} <span className="text-xs font-semibold text-slate-400">Orang</span></h3>
-                <div className="flex items-center gap-3 text-xs text-slate-600 font-semibold mt-1">
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+            <div className="relative overflow-hidden p-6 bg-white rounded-2xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex items-center justify-between group hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all">
+              <div className="absolute top-0 right-0 p-8 bg-gradient-to-br from-emerald-50 to-emerald-100/50 rounded-bl-full opacity-60 w-32 h-32 -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
+              <div className="space-y-2 relative z-10">
+                <span className="text-[11px] font-extrabold text-emerald-600 uppercase tracking-widest flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></div>
+                  Total Guru Keseluruhan
+                </span>
+                <div className="flex items-baseline gap-2">
+                  <h3 className="text-4xl font-black text-slate-800 tracking-tight">{totalTeachers}</h3>
+                  <span className="text-sm font-bold text-slate-400">Orang</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-slate-500 font-semibold mt-2 bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100">
+                  <span className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-200"></div>
                     Laki-laki: <strong className="text-slate-800">{totalTeachersMale}</strong>
                   </span>
-                  <span className="text-slate-300">|</span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-teal-400"></span>
+                  <span className="text-slate-200">|</span>
+                  <span className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-teal-400 shadow-sm shadow-teal-200"></div>
                     Perempuan: <strong className="text-slate-800">{totalTeachersFemale}</strong>
                   </span>
                 </div>
               </div>
-              <div className="w-12 h-12 bg-emerald-100/60 rounded-xl flex items-center justify-center text-emerald-600 flex-shrink-0">
-                <Users className="w-6 h-6" />
+              <div className="relative z-10 w-14 h-14 bg-gradient-to-br from-emerald-100 to-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 shadow-inner border border-emerald-200/50 group-hover:-rotate-6 transition-transform">
+                <Users className="w-7 h-7" />
               </div>
             </div>
           )}
 
           {/* Card 3: Tendik overall */}
           {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik') && (
-            <div className="p-5 bg-indigo-50/40 rounded-xl border border-indigo-100/60 flex items-center justify-between">
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Total Tendik Keseluruhan</span>
-                <h3 className="text-2xl font-extrabold text-slate-800">{totalTendik} <span className="text-xs font-semibold text-slate-400">Orang</span></h3>
-                <div className="flex items-center gap-3 text-xs text-slate-600 font-semibold mt-1">
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+            <div className="relative overflow-hidden p-6 bg-white rounded-2xl border border-slate-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)] flex items-center justify-between group hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all">
+              <div className="absolute top-0 right-0 p-8 bg-gradient-to-br from-indigo-50 to-indigo-100/50 rounded-bl-full opacity-60 w-32 h-32 -mr-8 -mt-8 transition-transform group-hover:scale-110"></div>
+              <div className="space-y-2 relative z-10">
+                <span className="text-[11px] font-extrabold text-indigo-600 uppercase tracking-widest flex items-center gap-1.5">
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse"></div>
+                  Total Tendik Keseluruhan
+                </span>
+                <div className="flex items-baseline gap-2">
+                  <h3 className="text-4xl font-black text-slate-800 tracking-tight">{totalTendik}</h3>
+                  <span className="text-sm font-bold text-slate-400">Orang</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs text-slate-500 font-semibold mt-2 bg-slate-50 w-fit px-3 py-1.5 rounded-lg border border-slate-100">
+                  <span className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-indigo-500 shadow-sm shadow-indigo-200"></div>
                     Laki-laki: <strong className="text-slate-800">{totalTendikMale}</strong>
                   </span>
-                  <span className="text-slate-300">|</span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400"></span>
+                  <span className="text-slate-200">|</span>
+                  <span className="flex items-center gap-1.5">
+                    <div className="w-2 h-2 rounded-full bg-purple-400 shadow-sm shadow-purple-200"></div>
                     Perempuan: <strong className="text-slate-800">{totalTendikFemale}</strong>
                   </span>
                 </div>
               </div>
-              <div className="w-12 h-12 bg-indigo-100/60 rounded-xl flex items-center justify-center text-indigo-600 flex-shrink-0">
-                <Award className="w-6 h-6" />
+              <div className="relative z-10 w-14 h-14 bg-gradient-to-br from-indigo-100 to-indigo-50 rounded-2xl flex items-center justify-center text-indigo-600 shadow-inner border border-indigo-200/50 group-hover:-rotate-6 transition-transform">
+                <Award className="w-7 h-7" />
               </div>
             </div>
           )}
@@ -830,54 +851,62 @@ export function DashboardView({
 
         {/* Breakdown detail rows */}
         {(currentUser?.role !== 'Tendik' || isFullAccess) && (
-          <div className="space-y-4 pt-2">
-            <div>
-              <h5 className="text-xs font-bold text-slate-600 uppercase tracking-wider">Rincian Siswa per Jenjang Kelas & Rincian per Kelas</h5>
-              <p className="text-[11px] text-slate-400 font-medium">Rincian gender (Laki-laki & Perempuan) serta nama pahlawan/ruang masing-masing rombel aktif.</p>
+          <div className="space-y-5 pt-4">
+            <div className="flex flex-col gap-1">
+              <h5 className="text-sm font-black text-slate-800 tracking-tight uppercase flex items-center gap-2">
+                <School className="w-4.5 h-4.5 text-blue-600" />
+                Rincian Siswa per Jenjang Kelas & Rincian per Kelas
+              </h5>
+              <p className="text-xs text-slate-500 font-medium">Rincian gender (Laki-laki & Perempuan) serta nama pahlawan/ruang masing-masing rombel aktif.</p>
             </div>
           
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             {/* Grade VII */}
-            <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/50 flex flex-col justify-between space-y-3">
-              <div>
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200/40">
-                  <span className="font-extrabold text-slate-700 text-xs">Kelas VII (Tujuh)</span>
-                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[9px] font-extrabold border border-blue-100">SMP</span>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_2px_20px_rgb(0,0,0,0.02)] flex flex-col justify-between overflow-hidden relative">
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-blue-400 to-indigo-400"></div>
+              <div className="p-6">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                  <span className="font-black text-slate-800 text-sm">Kelas VII <span className="text-slate-400 font-semibold">(Tujuh)</span></span>
+                  <span className="px-2.5 py-1 bg-blue-50/80 text-blue-700 rounded-lg text-[10px] font-black tracking-widest border border-blue-100/50">SMP</span>
                 </div>
-                <div className="py-2.5 flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-800">
-                    {gradeCounts['VII'].total} <span className="text-[10px] text-slate-400 font-medium">Siswa</span>
-                  </span>
-                  <div className="flex gap-2 text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200/30 shadow-2xs">
-                    <span>L: {gradeCounts['VII'].L}</span>
-                    <span className="text-slate-300">|</span>
-                    <span>P: {gradeCounts['VII'].P}</span>
+                <div className="py-5 flex items-center justify-between">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl font-black text-slate-800 tracking-tighter">
+                      {gradeCounts['VII'].total}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Siswa</span>
+                  </div>
+                  <div className="flex gap-2.5 text-xs font-bold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+                    <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div>L: {gradeCounts['VII'].L}</span>
+                    <span className="text-slate-200">|</span>
+                    <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-400"></div>P: {gradeCounts['VII'].P}</span>
                   </div>
                 </div>
 
                 {/* Class list under VII */}
-                <div className="space-y-2 mt-2 pt-2 border-t border-slate-200/40">
-                  <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Rincian Kelas:</span>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                <div className="space-y-3 mt-2">
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Rincian Kelas:</span>
+                  <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
                     {classesForGrade('VII').length > 0 ? (
                       classesForGrade('VII').map((cls, idx) => (
-                        <div key={`class-vii-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-slate-200/40 shadow-3xs space-y-1">
-                          <div className="flex justify-between items-start gap-1">
-                            <span className="font-bold text-slate-800 text-[11px] leading-tight">
-                              {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
+                        <div key={`class-vii-${cls.className}-${idx}`} className="group p-3.5 bg-slate-50/50 hover:bg-white rounded-xl border border-slate-100 hover:border-blue-100 transition-all shadow-sm hover:shadow-md hover:shadow-blue-500/5 space-y-2 relative overflow-hidden">
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-400 rounded-l-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="font-extrabold text-slate-800 text-xs">
+                              {cls.className} {cls.description && <span className="text-slate-400 font-semibold ml-1">({cls.description})</span>}
                             </span>
-                            <span className="text-[9px] font-extrabold text-indigo-650 bg-indigo-50/85 px-1.5 py-0.2 rounded flex-shrink-0">
+                            <span className="text-[10px] font-black text-slate-700 bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-sm whitespace-nowrap">
                               {cls.total} Siswa
                             </span>
                           </div>
-                          <div className="flex justify-between text-[10px] text-slate-500 font-medium">
-                            <span>Laki-laki: <strong className="text-slate-700 font-bold">{cls.L}</strong></span>
-                            <span>Perempuan: <strong className="text-slate-700 font-bold">{cls.P}</strong></span>
+                          <div className="flex items-center gap-4 text-[10px] text-slate-500 font-semibold bg-white/80 p-2 rounded-lg">
+                            <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>Laki-laki: <strong className="text-slate-700">{cls.L}</strong></span>
+                            <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-400"></div>Perempuan: <strong className="text-slate-700">{cls.P}</strong></span>
                           </div>
                         </div>
                       ))
                     ) : (
-                      <div className="text-[10px] text-slate-400 italic text-center py-1">Tidak ada data kelas</div>
+                      <div className="text-xs text-slate-400 italic text-center py-4 bg-slate-50/50 rounded-xl border border-slate-100 border-dashed">Tidak ada data kelas</div>
                     )}
                   </div>
                 </div>
@@ -885,46 +914,51 @@ export function DashboardView({
             </div>
 
             {/* Grade VIII */}
-            <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/50 flex flex-col justify-between space-y-3">
-              <div>
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200/40">
-                  <span className="font-extrabold text-slate-700 text-xs">Kelas VIII (Delapan)</span>
-                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[9px] font-extrabold border border-blue-100">SMP</span>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_2px_20px_rgb(0,0,0,0.02)] flex flex-col justify-between overflow-hidden relative">
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-400 to-teal-400"></div>
+              <div className="p-6">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                  <span className="font-black text-slate-800 text-sm">Kelas VIII <span className="text-slate-400 font-semibold">(Delapan)</span></span>
+                  <span className="px-2.5 py-1 bg-blue-50/80 text-blue-700 rounded-lg text-[10px] font-black tracking-widest border border-blue-100/50">SMP</span>
                 </div>
-                <div className="py-2.5 flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-800">
-                    {gradeCounts['VIII'].total} <span className="text-[10px] text-slate-400 font-medium">Siswa</span>
-                  </span>
-                  <div className="flex gap-2 text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200/30 shadow-2xs">
-                    <span>L: {gradeCounts['VIII'].L}</span>
-                    <span className="text-slate-300">|</span>
-                    <span>P: {gradeCounts['VIII'].P}</span>
+                <div className="py-5 flex items-center justify-between">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl font-black text-slate-800 tracking-tighter">
+                      {gradeCounts['VIII'].total}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Siswa</span>
+                  </div>
+                  <div className="flex gap-2.5 text-xs font-bold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+                    <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div>L: {gradeCounts['VIII'].L}</span>
+                    <span className="text-slate-200">|</span>
+                    <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-400"></div>P: {gradeCounts['VIII'].P}</span>
                   </div>
                 </div>
 
                 {/* Class list under VIII */}
-                <div className="space-y-2 mt-2 pt-2 border-t border-slate-200/40">
-                  <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Rincian Kelas:</span>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                <div className="space-y-3 mt-2">
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Rincian Kelas:</span>
+                  <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
                     {classesForGrade('VIII').length > 0 ? (
                       classesForGrade('VIII').map((cls, idx) => (
-                        <div key={`class-viii-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-slate-200/40 shadow-3xs space-y-1">
-                          <div className="flex justify-between items-start gap-1">
-                            <span className="font-bold text-slate-800 text-[11px] leading-tight">
-                              {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
+                        <div key={`class-viii-${cls.className}-${idx}`} className="group p-3.5 bg-slate-50/50 hover:bg-white rounded-xl border border-slate-100 hover:border-emerald-100 transition-all shadow-sm hover:shadow-md hover:shadow-emerald-500/5 space-y-2 relative overflow-hidden">
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-400 rounded-l-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="font-extrabold text-slate-800 text-xs">
+                              {cls.className} {cls.description && <span className="text-slate-400 font-semibold ml-1">({cls.description})</span>}
                             </span>
-                            <span className="text-[9px] font-extrabold text-indigo-650 bg-indigo-50/85 px-1.5 py-0.2 rounded flex-shrink-0">
+                            <span className="text-[10px] font-black text-slate-700 bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-sm whitespace-nowrap">
                               {cls.total} Siswa
                             </span>
                           </div>
-                          <div className="flex justify-between text-[10px] text-slate-500 font-medium">
-                            <span>Laki-laki: <strong className="text-slate-700 font-bold">{cls.L}</strong></span>
-                            <span>Perempuan: <strong className="text-slate-700 font-bold">{cls.P}</strong></span>
+                          <div className="flex items-center gap-4 text-[10px] text-slate-500 font-semibold bg-white/80 p-2 rounded-lg">
+                            <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>Laki-laki: <strong className="text-slate-700">{cls.L}</strong></span>
+                            <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-400"></div>Perempuan: <strong className="text-slate-700">{cls.P}</strong></span>
                           </div>
                         </div>
                       ))
                     ) : (
-                      <div className="text-[10px] text-slate-400 italic text-center py-1">Tidak ada data kelas</div>
+                      <div className="text-xs text-slate-400 italic text-center py-4 bg-slate-50/50 rounded-xl border border-slate-100 border-dashed">Tidak ada data kelas</div>
                     )}
                   </div>
                 </div>
@@ -932,46 +966,51 @@ export function DashboardView({
             </div>
 
             {/* Grade IX */}
-            <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200/50 flex flex-col justify-between space-y-3">
-              <div>
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200/40">
-                  <span className="font-extrabold text-slate-700 text-xs">Kelas IX (Sembilan)</span>
-                  <span className="px-2 py-0.5 bg-blue-50 text-blue-700 rounded text-[9px] font-extrabold border border-blue-100">SMP</span>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-[0_2px_20px_rgb(0,0,0,0.02)] flex flex-col justify-between overflow-hidden relative">
+              <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-purple-400 to-pink-400"></div>
+              <div className="p-6">
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100">
+                  <span className="font-black text-slate-800 text-sm">Kelas IX <span className="text-slate-400 font-semibold">(Sembilan)</span></span>
+                  <span className="px-2.5 py-1 bg-blue-50/80 text-blue-700 rounded-lg text-[10px] font-black tracking-widest border border-blue-100/50">SMP</span>
                 </div>
-                <div className="py-2.5 flex items-baseline justify-between">
-                  <span className="text-2xl font-extrabold text-slate-800">
-                    {gradeCounts['IX'].total} <span className="text-[10px] text-slate-400 font-medium">Siswa</span>
-                  </span>
-                  <div className="flex gap-2 text-[10px] font-bold text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200/30 shadow-2xs">
-                    <span>L: {gradeCounts['IX'].L}</span>
-                    <span className="text-slate-300">|</span>
-                    <span>P: {gradeCounts['IX'].P}</span>
+                <div className="py-5 flex items-center justify-between">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-4xl font-black text-slate-800 tracking-tighter">
+                      {gradeCounts['IX'].total}
+                    </span>
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">Siswa</span>
+                  </div>
+                  <div className="flex gap-2.5 text-xs font-bold text-slate-600 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
+                    <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div>L: {gradeCounts['IX'].L}</span>
+                    <span className="text-slate-200">|</span>
+                    <span className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-400"></div>P: {gradeCounts['IX'].P}</span>
                   </div>
                 </div>
 
                 {/* Class list under IX */}
-                <div className="space-y-2 mt-2 pt-2 border-t border-slate-200/40">
-                  <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Rincian Kelas:</span>
-                  <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                <div className="space-y-3 mt-2">
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest block">Rincian Kelas:</span>
+                  <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-2 custom-scrollbar">
                     {classesForGrade('IX').length > 0 ? (
                       classesForGrade('IX').map((cls, idx) => (
-                        <div key={`class-ix-${cls.className}-${idx}`} className="p-2 bg-white rounded-lg border border-slate-200/40 shadow-3xs space-y-1">
-                          <div className="flex justify-between items-start gap-1">
-                            <span className="font-bold text-slate-800 text-[11px] leading-tight">
-                              {cls.className} {cls.description && <span className="text-slate-400 font-medium text-[10px]">({cls.description})</span>}
+                        <div key={`class-ix-${cls.className}-${idx}`} className="group p-3.5 bg-slate-50/50 hover:bg-white rounded-xl border border-slate-100 hover:border-purple-100 transition-all shadow-sm hover:shadow-md hover:shadow-purple-500/5 space-y-2 relative overflow-hidden">
+                          <div className="absolute left-0 top-0 bottom-0 w-1 bg-purple-400 rounded-l-xl opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                          <div className="flex justify-between items-center gap-2">
+                            <span className="font-extrabold text-slate-800 text-xs">
+                              {cls.className} {cls.description && <span className="text-slate-400 font-semibold ml-1">({cls.description})</span>}
                             </span>
-                            <span className="text-[9px] font-extrabold text-indigo-650 bg-indigo-50/85 px-1.5 py-0.2 rounded flex-shrink-0">
+                            <span className="text-[10px] font-black text-slate-700 bg-white px-2.5 py-1 rounded-md border border-slate-200 shadow-sm whitespace-nowrap">
                               {cls.total} Siswa
                             </span>
                           </div>
-                          <div className="flex justify-between text-[10px] text-slate-500 font-medium">
-                            <span>Laki-laki: <strong className="text-slate-700 font-bold">{cls.L}</strong></span>
-                            <span>Perempuan: <strong className="text-slate-700 font-bold">{cls.P}</strong></span>
+                          <div className="flex items-center gap-4 text-[10px] text-slate-500 font-semibold bg-white/80 p-2 rounded-lg">
+                            <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div>Laki-laki: <strong className="text-slate-700">{cls.L}</strong></span>
+                            <span className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-rose-400"></div>Perempuan: <strong className="text-slate-700">{cls.P}</strong></span>
                           </div>
                         </div>
                       ))
                     ) : (
-                      <div className="text-[10px] text-slate-400 italic text-center py-1">Tidak ada data kelas</div>
+                      <div className="text-xs text-slate-400 italic text-center py-4 bg-slate-50/50 rounded-xl border border-slate-100 border-dashed">Tidak ada data kelas</div>
                     )}
                   </div>
                 </div>

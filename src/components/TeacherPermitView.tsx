@@ -22,6 +22,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { apiClient } from '../api';
+import { StudentNameBadge } from '../utils/studentColor';
 
 interface TeacherPermitViewProps {
   currentUser: User | null;
@@ -606,8 +607,11 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
                                 <tr key={`st-${student.id || student.nisn || 'st'}-${index}`} className="hover:bg-slate-50/50 transition-colors">
                                   <td className="p-3 pl-4 text-center text-slate-400 font-bold">{index + 1}</td>
                                   <td className="p-3 font-semibold text-slate-700 text-xs">
-                                    <div className="truncate max-w-[150px] sm:max-w-xs" title={student.nama}>{student.nama}</div>
-                                    <div className="text-[10px] text-slate-400 font-mono font-normal">NISN: {student.nisn || '-'}</div>
+                                    <StudentNameBadge 
+                                      student={student} 
+                                      nameClassName="text-xs" 
+                                      subText={<div className="text-[10px] text-slate-400 font-mono font-normal">NISN: {student.nisn || '-'}</div>} 
+                                    />
                                   </td>
                                   <td className="p-3">
                                     <div className="flex items-center justify-center gap-1">

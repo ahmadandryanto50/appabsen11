@@ -7,6 +7,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { CrudRow } from '../types';
 import { Plus, Pencil, Trash2, FolderEdit, Save, X, Loader2, Database, Search, AlertCircle, ExternalLink } from 'lucide-react';
 import { apiClient } from '../api';
+import { StudentNameBadge, getStudentColorInfo } from '../utils/studentColor';
 
 interface CrudViewProps {
   currentCrudSheet: string;
@@ -308,6 +309,30 @@ export function CrudView({
                           );
                         }
 
+                        if (currentCrudSheet === 'Master_Siswa' && (headerName.toLowerCase().includes('nama') || cIdx === 2)) {
+                          return (
+                            <td key={cIdx} className="p-3.5 font-semibold text-slate-700 text-sm">
+                              <StudentNameBadge student={row} name={val} />
+                            </td>
+                          );
+                        }
+
+                        if (currentCrudSheet === 'Master_Siswa' && headerName.toLowerCase().includes('tipe')) {
+                          const isPondok = (val || '').toLowerCase().includes('pondok') || (val || '').toLowerCase().includes('santri');
+                          return (
+                            <td key={cIdx} className="p-3.5">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black ${
+                                isPondok 
+                                  ? 'bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-sm' 
+                                  : 'bg-slate-100 text-slate-700 border border-slate-200'
+                              }`}>
+                                <span>{isPondok ? '🕌' : '🎒'}</span>
+                                <span>{val || 'Reguler'}</span>
+                              </span>
+                            </td>
+                          );
+                        }
+
                         return (
                           <td key={cIdx} className="p-3.5 font-semibold text-slate-700 text-sm">
                             {val}
@@ -426,6 +451,15 @@ export function CrudView({
                       <option value="">-- Pilih Jenis Kelamin --</option>
                       <option value="Laki-laki">Laki-laki</option>
                       <option value="Perempuan">Perempuan</option>
+                    </select>
+                  ) : head.toLowerCase().includes('tipe') ? (
+                    <select
+                      value={formRowValues[i] || 'Reguler'}
+                      onChange={(e) => handleInputChange(i, e.target.value)}
+                      className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold bg-white cursor-pointer"
+                    >
+                      <option value="Reguler">Reguler (Siswa Umum)</option>
+                      <option value="Pondok">Pondok (Santri / Warna Hijau)</option>
                     </select>
                   ) : head.toLowerCase().includes('wali kelas') ? (
                     <select

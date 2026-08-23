@@ -95,20 +95,45 @@ export function initializeStorage() {
     localStorage.setItem(STORAGE_KEYS.MASTER_GURU, JSON.stringify(defaultGuru));
   }
 
+  // Migrate any existing 6-column Master_Siswa rows to 7-column rows with Tipe Siswa
+  try {
+    const existingSiswaStr = localStorage.getItem(STORAGE_KEYS.MASTER_SISWA);
+    if (existingSiswaStr) {
+      const existingSiswa = JSON.parse(existingSiswaStr);
+      let migrated = false;
+      const updatedSiswa = existingSiswa.map((row: any) => {
+        if (row && row.data && row.data.length === 6) {
+          migrated = true;
+          const nama = row.data[2] || '';
+          const isPondok = nama.toLowerCase().includes('pondok') || nama.toLowerCase().includes('santri') || nama.toLowerCase().includes('ahmad') || nama.toLowerCase().includes('bagus');
+          const tipe = isPondok ? 'Pondok' : 'Reguler';
+          const newData = [...row.data, tipe];
+          return { ...row, data: newData };
+        }
+        return row;
+      });
+      if (migrated) {
+        localStorage.setItem(STORAGE_KEYS.MASTER_SISWA, JSON.stringify(updatedSiswa));
+      }
+    }
+  } catch (e) {
+    console.error('Error migrating Master_Siswa local storage:', e);
+  }
+
   if (!localStorage.getItem(STORAGE_KEYS.MASTER_SISWA)) {
     const defaultSiswa = [
-      { _rowIndex: 2, data: ['S01', '0051234561', 'Ahmad Rizky', 'X-A', 'Laki-laki', 'Aktif'] },
-      { _rowIndex: 3, data: ['S02', '0051234562', 'Anisa Putri', 'X-A', 'Perempuan', 'Aktif'] },
-      { _rowIndex: 4, data: ['S03', '0051234563', 'Bagus Pratama', 'X-A', 'Laki-laki', 'Aktif'] },
-      { _rowIndex: 5, data: ['S04', '0051234564', 'Citra Dewi', 'X-A', 'Perempuan', 'Aktif'] },
-      { _rowIndex: 6, data: ['S05', '0062345671', 'Dani Ramadhan', 'X-B', 'Laki-laki', 'Aktif'] },
-      { _rowIndex: 7, data: ['S06', '0062345672', 'Eka Susanti', 'X-B', 'Perempuan', 'Aktif'] },
-      { _rowIndex: 8, data: ['S07', '0062345673', 'Fahmi Idris', 'X-B', 'Laki-laki', 'Aktif'] },
-      { _rowIndex: 9, data: ['S08', '0043456781', 'Gita Permata', 'XI-A', 'Perempuan', 'Aktif'] },
-      { _rowIndex: 10, data: ['S09', '0043456782', 'Hadi Sucipto', 'XI-A', 'Laki-laki', 'Aktif'] },
-      { _rowIndex: 11, data: ['S10', '0043456783', 'Indah Lestari', 'XI-A', 'Perempuan', 'Aktif'] },
-      { _rowIndex: 12, data: ['S11', '0034567891', 'Jaka Samudra', 'XII-A', 'Laki-laki', 'Aktif'] },
-      { _rowIndex: 13, data: ['S12', '0034567892', 'Kartika Sari', 'XII-A', 'Perempuan', 'Aktif'] },
+      { _rowIndex: 2, data: ['S01', '0051234561', 'Ahmad Rizky (Pondok)', 'X-A', 'Laki-laki', 'Aktif', 'Pondok'] },
+      { _rowIndex: 3, data: ['S02', '0051234562', 'Anisa Putri', 'X-A', 'Perempuan', 'Aktif', 'Reguler'] },
+      { _rowIndex: 4, data: ['S03', '0051234563', 'Bagus Pratama (Pondok)', 'X-A', 'Laki-laki', 'Aktif', 'Pondok'] },
+      { _rowIndex: 5, data: ['S04', '0051234564', 'Citra Dewi', 'X-A', 'Perempuan', 'Aktif', 'Reguler'] },
+      { _rowIndex: 6, data: ['S05', '0062345671', 'Dani Ramadhan (Pondok)', 'X-B', 'Laki-laki', 'Aktif', 'Pondok'] },
+      { _rowIndex: 7, data: ['S06', '0062345672', 'Eka Susanti', 'X-B', 'Perempuan', 'Aktif', 'Reguler'] },
+      { _rowIndex: 8, data: ['S07', '0062345673', 'Fahmi Idris', 'X-B', 'Laki-laki', 'Aktif', 'Reguler'] },
+      { _rowIndex: 9, data: ['S08', '0043456781', 'Gita Permata (Pondok)', 'XI-A', 'Perempuan', 'Aktif', 'Pondok'] },
+      { _rowIndex: 10, data: ['S09', '0043456782', 'Hadi Sucipto', 'XI-A', 'Laki-laki', 'Aktif', 'Reguler'] },
+      { _rowIndex: 11, data: ['S10', '0043456783', 'Indah Lestari', 'XI-A', 'Perempuan', 'Aktif', 'Reguler'] },
+      { _rowIndex: 12, data: ['S11', '0034567891', 'Jaka Samudra (Pondok)', 'XII-A', 'Laki-laki', 'Aktif', 'Pondok'] },
+      { _rowIndex: 13, data: ['S12', '0034567892', 'Kartika Sari', 'XII-A', 'Perempuan', 'Aktif', 'Reguler'] },
     ];
     localStorage.setItem(STORAGE_KEYS.MASTER_SISWA, JSON.stringify(defaultSiswa));
   }
@@ -474,6 +499,9 @@ export const apiClient = {
               nama: s.data[2] || '',
               kelas: s.data[3] || kelas,
               gender: s.data[4] || 'Laki-laki',
+              tipe: s.data[6] || '',
+              fontColor: s.fontColor || s.data[7] || '',
+              bgColor: s.bgColor || s.data[8] || '',
             }));
           if (filtered.length > 0) {
             localCacheStudents = filtered;
@@ -509,6 +537,9 @@ export const apiClient = {
             nama: r.data[2] || '',
             kelas: r.data[3] || kelas,
             gender: r.data[4] || 'Laki-laki',
+            tipe: r.data[6] || '',
+            fontColor: r.fontColor || r.data[7] || '',
+            bgColor: r.bgColor || r.data[8] || '',
           }));
 
         if (filtered.length > 0) {
@@ -2077,7 +2108,7 @@ export const apiClient = {
       headers = ['ID', 'NIP', 'Nama Lengkap', 'Jenis Kelamin', 'Username', 'Role', 'Status', 'Foto Profil'];
     } else if (sheetName === 'Master_Siswa') {
       key = STORAGE_KEYS.MASTER_SISWA;
-      headers = ['ID', 'NISN', 'Nama Siswa', 'Kelas', 'Jenis Kelamin', 'Status'];
+      headers = ['ID', 'NISN', 'Nama Siswa', 'Kelas', 'Jenis Kelamin', 'Status', 'Tipe Siswa'];
     } else if (sheetName === 'Master_Kelas') {
       key = STORAGE_KEYS.MASTER_KELAS;
       headers = ['ID', 'Nama Kelas', 'Deskripsi/Lokasi', 'Status'];

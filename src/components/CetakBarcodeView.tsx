@@ -3,6 +3,7 @@ import { CrudRow, AppCustomization } from '../types';
 import QRCode from 'qrcode';
 import { Printer, Filter, Users } from 'lucide-react';
 import { normalizeImageUrl } from '../utils/imageUrl';
+import { getStudentColorInfo } from '../utils/studentColor';
 
 interface CetakBarcodeViewProps {
   students: CrudRow[];
@@ -123,12 +124,20 @@ export function CetakBarcodeView({ students, kelasList, customization }: CetakBa
               const nisn = student.data[1]; // NISN
               const nama = student.data[2]; // Nama
               const kelas = student.data[3]; // Kelas
+              const colorInfo = getStudentColorInfo(student);
               
               if (!nisn) return null; // Skip if no NISN
 
               return (
-                <div key={idx} className="border-2 border-slate-800 rounded-2xl overflow-hidden flex flex-col print:border-slate-800 print:break-inside-avoid">
-                  <div className="bg-slate-800 text-white text-center py-3 px-4 flex items-center justify-center gap-2">
+                <div 
+                  key={idx} 
+                  className={`border-2 rounded-2xl overflow-hidden flex flex-col print:break-inside-avoid relative ${
+                    colorInfo.isPondok ? 'border-emerald-800 shadow-sm' : 'border-slate-800'
+                  }`}
+                >
+                  <div className={`text-white text-center py-3 px-4 flex items-center justify-center gap-2 ${
+                    colorInfo.isPondok ? 'bg-emerald-800' : 'bg-slate-800'
+                  }`}>
                     <img
                       src={normalizeImageUrl(customization?.logoUrl?.trim() || '/logo_smpn11.jpg')}
                       alt="Logo Sekolah"
@@ -152,10 +161,23 @@ export function CetakBarcodeView({ students, kelasList, customization }: CetakBa
                       <QRCodeCard value={nisn} size={120} />
                     </div>
                     <div className="text-center w-full">
-                      <p className="font-black text-slate-800 text-sm truncate uppercase" title={nama}>{nama}</p>
-                      <div className="flex items-center justify-center gap-2 mt-1">
+                      <p 
+                        className={`font-black text-sm truncate uppercase ${
+                          colorInfo.isPondok ? 'text-emerald-900 font-extrabold' : 'text-slate-800'
+                        }`} 
+                        title={nama}
+                        style={colorInfo.fontColor ? { color: colorInfo.fontColor } : undefined}
+                      >
+                        {colorInfo.cleanName}
+                      </p>
+                      <div className="flex flex-wrap items-center justify-center gap-1.5 mt-1">
                         <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">{nisn}</span>
                         <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">{kelas}</span>
+                        {colorInfo.isPondok && (
+                          <span className="text-[10px] font-extrabold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-md">
+                            🕌 PONDOK
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>

@@ -22,6 +22,10 @@ export interface Student {
   status?: 'Hadir' | 'Terlambat' | 'Sakit' | 'Izin' | 'Alpa';
   keterangan?: string;
   menitTerlambat?: number;
+  tipe?: string;
+  warna?: string;
+  fontColor?: string;
+  bgColor?: string;
 }
 
 export interface AttendanceRecord {

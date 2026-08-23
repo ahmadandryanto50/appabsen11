@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { AttendanceRecord, TeacherAbsenceRecord, User, AppCustomization, getLocalDateString, getLocalTimeString, KioskScanRecord } from '../types';
+import { StudentNameBadge } from '../utils/studentColor';
 import {
   Calendar,
   Users,
@@ -3379,7 +3380,9 @@ export function HistoryView({
                             </div>
                           </td>
                           <td className="p-3.5 font-mono text-slate-500 font-semibold whitespace-nowrap">{item.nisn}</td>
-                          <td className="p-3.5 font-semibold text-slate-800 text-sm whitespace-nowrap">{item.nama}</td>
+                          <td className="p-3.5 font-semibold text-slate-800 text-sm whitespace-nowrap">
+                            <StudentNameBadge student={item} name={item.nama} nisn={item.nisn} />
+                          </td>
                           <td className="p-3.5 text-center">
                             <span className="inline-block px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold text-[11px]">
                               {item.kelas}
@@ -4492,7 +4495,9 @@ export function HistoryView({
                           <tr key={`matrix-${row.id || idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
                             <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
                             <td className="py-3 px-4 font-mono text-slate-500 text-[11px]">{row.nisn}</td>
-                            <td className="py-3 px-4 font-bold text-slate-800">{row.nama}</td>
+                            <td className="py-3 px-4 font-bold text-slate-800">
+                              <StudentNameBadge student={row} name={row.nama} nisn={row.nisn} />
+                            </td>
                             <td className="py-3 px-4 text-center text-slate-500 text-[11px]">{row.gender}</td>
                             <td className="py-3 px-4 text-center font-bold text-slate-700">{row.totalSessions}</td>
                             <td className="py-3 px-4 text-center font-black text-emerald-600">{row.hadir}</td>

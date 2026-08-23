@@ -334,12 +334,12 @@ function setupDatabase() {
     let sheetSiswa = ss.getSheetByName("Master_Siswa");
     if (!sheetSiswa) {
       sheetSiswa = ss.insertSheet("Master_Siswa");
-      sheetSiswa.appendRow(["ID", "NISN", "Nama Siswa", "Kelas", "Jenis Kelamin", "Status"]);
-      sheetSiswa.appendRow(["S01", "0051234561", "Ahmad Rizky", "X-A", "Laki-laki", "Aktif"]);
-      sheetSiswa.appendRow(["S02", "0051234562", "Anisa Putri", "X-A", "Perempuan", "Aktif"]);
-      sheetSiswa.appendRow(["S03", "0051234563", "Bagus Pratama", "X-A", "Laki-laki", "Aktif"]);
-      sheetSiswa.appendRow(["S04", "0051234564", "Citra Dewi", "X-B", "Perempuan", "Aktif"]);
-      sheetSiswa.appendRow(["S05", "0051234565", "Dedi Kurniawan", "X-B", "Laki-laki", "Aktif"]);
+      sheetSiswa.appendRow(["ID", "NISN", "Nama Siswa", "Kelas", "Jenis Kelamin", "Status", "Tipe Siswa"]);
+      sheetSiswa.appendRow(["S01", "0051234561", "Ahmad Rizky (Pondok)", "X-A", "Laki-laki", "Aktif", "Pondok"]);
+      sheetSiswa.appendRow(["S02", "0051234562", "Anisa Putri", "X-A", "Perempuan", "Aktif", "Reguler"]);
+      sheetSiswa.appendRow(["S03", "0051234563", "Bagus Pratama (Pondok)", "X-A", "Laki-laki", "Aktif", "Pondok"]);
+      sheetSiswa.appendRow(["S04", "0051234564", "Citra Dewi", "X-B", "Perempuan", "Aktif", "Reguler"]);
+      sheetSiswa.appendRow(["S05", "0051234565", "Dedi Kurniawan", "X-B", "Laki-laki", "Aktif", "Reguler"]);
     }
 
     // 3. Tabel Master_Kelas
@@ -626,7 +626,15 @@ function getStudentsByClass(kelas) {
     const sheet = ss.getSheetByName("Master_Siswa");
     if (!sheet) return { status: "error", message: "Tabel Master_Siswa tidak ditemukan." };
 
-    const values = sheet.getDataRange().getValues();
+    const range = sheet.getDataRange();
+    const values = range.getValues();
+    let fontColors = [];
+    let bgColors = [];
+    try {
+      fontColors = range.getFontColors();
+      bgColors = range.getBackgroundColors();
+    } catch(e) {}
+
     const students = [];
 
     for (let i = 1; i < values.length; i++) {
@@ -635,12 +643,17 @@ function getStudentsByClass(kelas) {
       const status = values[i][5] ? values[i][5].toString().trim() : "Aktif";
 
       if (k === kelas && (status.toLowerCase() === "aktif" || status === "")) {
+        const rowFontColor = (fontColors[i] && fontColors[i][2] && fontColors[i][2] !== '#000000') ? fontColors[i][2] : "";
+        const rowBgColor = (bgColors[i] && bgColors[i][2] && bgColors[i][2] !== '#ffffff') ? bgColors[i][2] : "";
         students.push({
           id: values[i][0] ? values[i][0].toString() : (i + 1).toString(),
           nisn: values[i][1] ? values[i][1].toString() : "",
           nama: values[i][2] ? values[i][2].toString() : "Siswa " + (i + 1),
           kelas: k,
-          gender: values[i][4] ? values[i][4].toString() : "Laki-laki"
+          gender: values[i][4] ? values[i][4].toString() : "Laki-laki",
+          tipe: values[i][6] ? values[i][6].toString() : "",
+          fontColor: rowFontColor,
+          bgColor: rowBgColor
         });
       }
     }
@@ -1069,15 +1082,35 @@ function getMasterData(sheetName) {
       }
     }
 
-    const values = sheet.getDataRange().getValues();
+    const range = sheet.getDataRange();
+    const values = range.getValues();
     if (values.length === 0) return { status: "success", headers: [], rows: [] };
+
+    let fontColors = [];
+    let bgColors = [];
+    if (sheetName === "Master_Siswa" || sheetName === "Master_Guru") {
+      try {
+        fontColors = range.getFontColors();
+        bgColors = range.getBackgroundColors();
+      } catch(e) {}
+    }
 
     const headers = values[0];
     const rows = [];
     for (let i = 1; i < values.length; i++) {
+      let fontColor = "";
+      let bgColor = "";
+      if ((sheetName === "Master_Siswa" || sheetName === "Master_Guru") && fontColors.length > i && bgColors.length > i) {
+        // Name column is index 2 for both
+        fontColor = (fontColors[i][2] && fontColors[i][2] !== '#000000') ? fontColors[i][2] : "";
+        bgColor = (bgColors[i][2] && bgColors[i][2] !== '#ffffff') ? bgColors[i][2] : "";
+      }
+
       rows.push({
         _rowIndex: i + 1,
-        data: values[i].map(function(val) { return val.toString(); })
+        data: values[i].map(function(val) { return val.toString(); }),
+        fontColor: fontColor,
+        bgColor: bgColor
       });
     }
 

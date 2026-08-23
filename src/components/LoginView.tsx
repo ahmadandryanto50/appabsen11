@@ -287,7 +287,15 @@ export function LoginView({ onLogin, isLoading, customization, isDemoMode, onLog
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 required
+                autoComplete="username"
                 placeholder="Email address"
+                style={{
+                  WebkitBoxShadow: '0 0 0px 1000px transparent inset',
+                  WebkitTextFillColor: isDarkMode ? '#f1f5f9' : '#1e293b',
+                  backgroundColor: 'transparent',
+                  color: isDarkMode ? '#f1f5f9' : '#1e293b',
+                  caretColor: isDarkMode ? '#60a5fa' : '#2563eb',
+                }}
                 className={`w-full bg-transparent border-none outline-none focus:ring-0 focus:outline-none text-[11px] ${
                   isDarkMode ? 'text-slate-100 placeholder-slate-500' : 'text-[#1e293b] placeholder-[#8a9bb4]'
                 }`}
@@ -317,7 +325,15 @@ export function LoginView({ onLogin, isLoading, customization, isDemoMode, onLog
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                autoComplete="current-password"
                 placeholder="Password"
+                style={{
+                  WebkitBoxShadow: '0 0 0px 1000px transparent inset',
+                  WebkitTextFillColor: isDarkMode ? '#f1f5f9' : '#1e293b',
+                  backgroundColor: 'transparent',
+                  color: isDarkMode ? '#f1f5f9' : '#1e293b',
+                  caretColor: isDarkMode ? '#60a5fa' : '#2563eb',
+                }}
                 className={`w-full bg-transparent border-none outline-none focus:ring-0 focus:outline-none text-[11px] pr-8 ${
                   isDarkMode ? 'text-slate-100 placeholder-slate-500' : 'text-[#1e293b] placeholder-[#8a9bb4]'
                 }`}

@@ -4,6 +4,7 @@ import { CrudRow, AppCustomization, getLocalDateString } from '../types';
 import { Camera, CheckCircle, AlertCircle, Maximize, Clock, UserCheck, RotateCcw, Edit3, Check, Sparkles } from 'lucide-react';
 import { apiClient } from '../api';
 import { formatKeterlambatan } from '../utils/timeUtils';
+import { StudentNameBadge, getStudentColorInfo } from '../utils/studentColor';
 
 interface ScannerKioskViewProps {
   students: CrudRow[];
@@ -706,8 +707,14 @@ export function ScannerKioskView({ students, customization, onUpdateCustomizatio
                             : 'text-rose-800'
                         }`}
                       >
-                        {scanResult.studentName}
+                        {getStudentColorInfo(scanResult.studentName).cleanName}
                       </h3>
+                      {getStudentColorInfo(scanResult.studentName).isPondok && (
+                        <span className="px-2.5 py-1 bg-emerald-700 text-white text-xs font-black rounded-lg shadow-sm flex items-center gap-1">
+                          <span>🕌</span>
+                          <span>SANTRI PONDOK</span>
+                        </span>
+                      )}
                       {scanResult.isLate && scanResult.menitTerlambat && (
                         <span className="px-2.5 py-1 bg-amber-500 text-white text-xs font-black rounded-lg shadow-sm">
                           TERLAMBAT {scanResult.menitTerlambat} MENIT
@@ -810,9 +817,12 @@ export function ScannerKioskView({ students, customization, onUpdateCustomizatio
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex flex-col">
-                          <span className="font-black text-slate-800 text-xs sm:text-sm uppercase leading-tight">
-                            {scan.nama}
-                          </span>
+                          <StudentNameBadge 
+                            student={scan} 
+                            name={scan.nama} 
+                            nisn={scan.nisn} 
+                            nameClassName="text-xs sm:text-sm uppercase font-black" 
+                          />
                           <div className="flex items-center gap-1.5 mt-1">
                             <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
                               {scan.nisn}

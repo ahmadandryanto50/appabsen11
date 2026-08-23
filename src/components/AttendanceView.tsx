@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Student, User, AppCustomization, getLocalDateString, getLocalTimeString } from '../types';
 import { Camera, FileImage, Trash2, CheckCircle, Clock, CheckSquare, Sparkles, Loader2, Play, RotateCw, AlertTriangle } from 'lucide-react';
+import { StudentNameBadge, getStudentColorInfo } from '../utils/studentColor';
 
 interface AttendanceViewProps {
   currentUser: User | null;
@@ -566,6 +567,11 @@ export function AttendanceView({
                       <span className="px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 font-bold">S: Sakit</span>
                       <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-bold">I: Izin</span>
                       <span className="px-1.5 py-0.5 rounded bg-rose-100 text-rose-800 font-bold">A: Alpa</span>
+                      <span className="ml-1 text-slate-300">|</span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200 text-[10px] font-extrabold">
+                        <span>🕌</span>
+                        <span>{studentList.filter(s => getStudentColorInfo(s).isPondok).length} Santri Pondok</span>
+                      </span>
                     </div>
                   </div>
                   <button
@@ -594,7 +600,9 @@ export function AttendanceView({
                         <tr key={`st-${student.id || student.nisn || 'st'}-${index}`} className="hover:bg-slate-50/60 transition-colors">
                           <td className="p-3.5 pl-4 text-center text-slate-400 font-bold">{index + 1}</td>
                           <td className="p-3.5 font-mono text-slate-500 font-semibold">{student.nisn}</td>
-                          <td className="p-3.5 font-semibold text-slate-800 text-sm">{student.nama}</td>
+                          <td className="p-3.5 font-semibold text-slate-800 text-sm">
+                            <StudentNameBadge student={student} />
+                          </td>
                           <td className="p-3.5">
                             <div className="flex items-center justify-center gap-1">
                               {(['Hadir', 'Terlambat', 'Sakit', 'Izin', 'Alpa'] as const).map((st) => {
