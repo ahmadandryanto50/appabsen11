@@ -2307,6 +2307,32 @@ export const apiClient = {
         }
       }
 
+      // Explicitly read dual-redundant 'dapodik_links' row if exists
+      const dapodikRow = fallback.result.rows.find((row: any) => row.data && row.data[0] === 'dapodik_links');
+      if (dapodikRow && dapodikRow.data[1]) {
+        try {
+          if (!fallbackCustomization) fallbackCustomization = {};
+          fallbackCustomization.dapodikLinks = JSON.parse(dapodikRow.data[1]);
+        } catch (e) {
+          console.error('Failed to parse JSON dapodik_links:', e);
+        }
+      }
+
+      // Read downwards dapodikLinks rows (starting with "dapolink_") for clean row-by-row visibility in Spreadsheet
+      const dapolinkRows = fallback.result.rows.filter((row: any) => row.data && row.data[0] && row.data[0].startsWith('dapolink_'));
+      if (dapolinkRows.length > 0) {
+        if (!fallbackCustomization) fallbackCustomization = {};
+        if (!fallbackCustomization.dapodikLinks) fallbackCustomization.dapodikLinks = {};
+        for (const rRow of dapolinkRows) {
+          const key = rRow.data[0];
+          const title = key.substring('dapolink_'.length);
+          const val = rRow.data[1];
+          if (val) {
+            fallbackCustomization.dapodikLinks[title] = val;
+          }
+        }
+      }
+
       // Read downwards holidays rows (starting with "libur_")
       const liburRows = fallback.result.rows.filter((row: any) => row.data && row.data[0] && row.data[0].startsWith('libur_'));
       if (liburRows.length > 0) {
@@ -2356,6 +2382,7 @@ export const apiClient = {
           direct.result.customization = {
             ...fallbackCustomization,
             ...direct.result.customization,
+            dapodikLinks: fallbackCustomization.dapodikLinks || direct.result.customization.dapodikLinks,
             holidays: direct.result.customization.holidays
           };
         }
@@ -2443,27 +2470,54 @@ export const apiClient = {
       return { status: 'success' };
     }
 
-    // To ensure ALL fields (especially custom ones like holidays) are fully persisted as complete JSON,
+    // To ensure ALL fields (especially custom ones like holidays and dapodikLinks) are fully persisted as complete JSON,
     // we should always write directly to the 'Pengaturan' sheet's 'customization' row.
     let saveResult = null;
+    let customRow = null;
+    let targetRowIndex = null;
+    let getResRows = null;
+    let dapodikRow = null;
+    let targetDapodikRowIndex = null;
+
     const getRes = await safeCallGAS(url, 'getCrud', { sheetName: 'Pengaturan' });
     if (getRes.ok && getRes.result && getRes.result.status === 'success' && getRes.result.rows) {
-      const customRow = getRes.result.rows.find((row: any) => row.data && row.data[0] === 'customization');
-      const jsonString = JSON.stringify(customization);
-      const rowData = ['customization', jsonString];
-      const targetRowIndex = customRow ? customRow._rowIndex : null;
+      getResRows = getRes.result.rows;
+      customRow = getRes.result.rows.find((row: any) => row.data && row.data[0] === 'customization');
+      targetRowIndex = customRow ? customRow._rowIndex : null;
 
-      const saveRes = await safeCallGAS(url, 'saveCrud', {
-        sheetName: 'Pengaturan',
-        rowData,
-        rowIndex: targetRowIndex
-      });
-      if (saveRes.ok && saveRes.result && saveRes.result.status === 'success') {
-        saveResult = saveRes.result;
+      dapodikRow = getRes.result.rows.find((row: any) => row.data && row.data[0] === 'dapodik_links');
+      targetDapodikRowIndex = dapodikRow ? dapodikRow._rowIndex : null;
+    }
+
+    const jsonString = JSON.stringify(customization);
+    const rowData = ['customization', jsonString];
+
+    const saveRes = await safeCallGAS(url, 'saveCrud', {
+      sheetName: 'Pengaturan',
+      rowData,
+      rowIndex: targetRowIndex !== null ? Number(targetRowIndex) : null
+    });
+    if (saveRes.ok && saveRes.result && saveRes.result.status === 'success') {
+      saveResult = saveRes.result;
+    }
+
+    // Save dapodikLinks separately under the "dapodik_links" row for robust backup and multi-device consistency
+    if (customization && customization.dapodikLinks) {
+      const dapodikRowData = ['dapodik_links', JSON.stringify(customization.dapodikLinks)];
+      try {
+        await safeCallGAS(url, 'saveCrud', {
+          sheetName: 'Pengaturan',
+          rowData: dapodikRowData,
+          rowIndex: targetDapodikRowIndex !== null ? Number(targetDapodikRowIndex) : null
+        });
+      } catch (e) {
+        console.error('Failed to save redundant dapodik_links row:', e);
       }
+    }
 
+    if (getResRows) {
       // 1. Clean up legacy horizontal holidays row if exists to keep spreadsheet clean
-      const legacyHolidaysRow = getRes.result.rows.find((row: any) => row.data && row.data[0] === 'holidays');
+      const legacyHolidaysRow = getResRows.find((row: any) => row.data && row.data[0] === 'holidays');
       if (legacyHolidaysRow) {
         const legacyIndex = Number(legacyHolidaysRow._rowIndex);
         if (!isNaN(legacyIndex) && legacyIndex > 0) {
@@ -2474,7 +2528,7 @@ export const apiClient = {
       }
 
       // 2. Identify and clear all existing "libur_" rows to replace them with updated downward list
-      const existingLiburRows = getRes.result.rows.filter((row: any) => row.data && row.data[0] && row.data[0].startsWith('libur_'));
+      const existingLiburRows = getResRows.filter((row: any) => row.data && row.data[0] && row.data[0].startsWith('libur_'));
       const sortedIndicesToDelete = existingLiburRows
         .map((row: any) => Number(row._rowIndex))
         .filter((idx: number) => !isNaN(idx) && idx > 0)
@@ -2485,6 +2539,21 @@ export const apiClient = {
           await safeCallGAS(url, 'deleteCrud', { sheetName: 'Pengaturan', rowIndex: idx });
         } catch (e) {
           console.error('Failed to delete old holiday row at index', idx, e);
+        }
+      }
+
+      // 2b. Identify and clear all existing "dapolink_" rows to replace them with updated downward list
+      const existingDapoRows = getResRows.filter((row: any) => row.data && row.data[0] && row.data[0].startsWith('dapolink_'));
+      const dapoIndicesToDelete = existingDapoRows
+        .map((row: any) => Number(row._rowIndex))
+        .filter((idx: number) => !isNaN(idx) && idx > 0)
+        .sort((a: number, b: number) => b - a); // descending to avoid shifting issues
+
+      for (const idx of dapoIndicesToDelete) {
+        try {
+          await safeCallGAS(url, 'deleteCrud', { sheetName: 'Pengaturan', rowIndex: idx });
+        } catch (e) {
+          console.error('Failed to delete old dapolink row at index', idx, e);
         }
       }
 
@@ -2502,6 +2571,25 @@ export const apiClient = {
             });
           } catch (e) {
             console.error('Failed to append holiday row', hKey, e);
+          }
+        }
+      }
+
+      // 3b. Save new dapodikLinks downwards, one row per link, in a highly clean, neat, and readable format
+      if (customization && customization.dapodikLinks) {
+        for (const [title, linkUrl] of Object.entries(customization.dapodikLinks)) {
+          if (linkUrl) {
+            const dKey = `dapolink_${title}`;
+            const dRowData = [dKey, String(linkUrl)];
+            try {
+              await safeCallGAS(url, 'saveCrud', {
+                sheetName: 'Pengaturan',
+                rowData: dRowData,
+                rowIndex: null
+              });
+            } catch (e) {
+              console.error('Failed to append dapolink row', dKey, e);
+            }
           }
         }
       }

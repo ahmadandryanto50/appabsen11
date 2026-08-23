@@ -156,6 +156,57 @@ export default function App() {
     })(),
   });
 
+  // Active alert reminder popup for Guru & Tendik
+  const [activeReminder, setActiveReminder] = useState<{
+    type: 'morning' | 'afternoon' | 'holiday';
+    message: string;
+  } | null>(null);
+
+  const isTodayHoliday = useCallback((): { isHoliday: boolean; name?: string } => {
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const date = String(today.getDate()).padStart(2, '0');
+    const todayStr = `${year}-${month}-${date}`;
+
+    // Check custom holidays from database
+    if (customization.holidays && Array.isArray(customization.holidays)) {
+      const found = customization.holidays.find((h: any) => h.tanggal === todayStr);
+      if (found) {
+        return { isHoliday: true, name: found.nama };
+      }
+    }
+
+    // Check weekends
+    if (dayOfWeek === 0) {
+      return { isHoliday: true, name: 'Hari Minggu' };
+    }
+    if (dayOfWeek === 6) {
+      return { isHoliday: true, name: 'Hari Sabtu' };
+    }
+
+    return { isHoliday: false };
+  }, [customization.holidays]);
+
+  const handleDismissReminder = () => {
+    if (!activeReminder) return;
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const date = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${year}-${month}-${date}`;
+
+    if (activeReminder.type === 'holiday') {
+      const hours = now.getHours();
+      const period = hours < 12 ? 'morning' : 'afternoon';
+      localStorage.setItem(`absensi_notif_holiday_${period}_dismissed_${todayStr}`, 'true');
+    } else {
+      localStorage.setItem(`absensi_notif_${activeReminder.type}_dismissed_${todayStr}`, 'true');
+    }
+    setActiveReminder(null);
+  };
+
   // Automatically sync document title, favicon, apple touch icon, and web manifest whenever customization changes
   useEffect(() => {
     updateAppMetadataAndIcon(customization);
@@ -207,6 +258,97 @@ export default function App() {
     const interval = setInterval(updateClock, 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // Web Notification permission auto-request for Guru/Tendik
+  useEffect(() => {
+    if (isLoggedIn && currentUser && (currentUser.role === 'Guru' || currentUser.role === 'Tendik')) {
+      if ('Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    }
+  }, [isLoggedIn, currentUser]);
+
+  // Attendance Reminder Checker (Ticks every 15 seconds)
+  useEffect(() => {
+    if (!isLoggedIn || !currentUser) return;
+    if (currentUser.role !== 'Guru' && currentUser.role !== 'Tendik') return;
+
+    const checkReminder = () => {
+      const now = new Date();
+      const hours = now.getHours();
+      const minutes = now.getMinutes();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const date = String(now.getDate()).padStart(2, '0');
+      const todayStr = `${year}-${month}-${date}`;
+
+      const holidayInfo = isTodayHoliday();
+
+      // Helper to fire a real browser notification
+      const triggerBrowserNotification = (title: string, body: string) => {
+        if ('Notification' in window && Notification.permission === 'granted') {
+          try {
+            const notif = new Notification(title, {
+              body,
+              icon: customization.logoUrl || '/logo_smpn11.jpg',
+              tag: title.replace(/\s+/g, '-').toLowerCase()
+            });
+            notif.onclick = () => {
+              window.focus();
+              const targetView = currentUser.role === 'Guru' ? 'absen-guru' : 'absen-tendik';
+              setActiveView(targetView);
+            };
+          } catch (e) {
+            console.error('Error triggering browser notification:', e);
+          }
+        }
+      };
+
+      // MORNING REMINDER: 06:30 - 11:00
+      const isMorningRange = (hours === 6 && minutes >= 30) || (hours > 6 && hours < 11);
+      if (isMorningRange) {
+        if (holidayInfo.isHoliday) {
+          const dismissedKey = `absensi_notif_holiday_morning_dismissed_${todayStr}`;
+          if (!localStorage.getItem(dismissedKey)) {
+            const msg = `Selamat berlibur dan menikmati waktu istirahat! (${holidayInfo.name || 'Hari Libur'})`;
+            setActiveReminder({ type: 'holiday', message: msg });
+            triggerBrowserNotification('Selamat Berlibur! 🎉', msg);
+          }
+        } else {
+          const dismissedKey = `absensi_notif_morning_dismissed_${todayStr}`;
+          if (!localStorage.getItem(dismissedKey)) {
+            const msg = `Jangan Lupa Absen Pagi! ☀️ Silakan lakukan absensi kehadiran pagi sekarang agar tercatat tepat waktu.`;
+            setActiveReminder({ type: 'morning', message: msg });
+            triggerBrowserNotification('Pengingat Absen Pagi ☀️', 'Jangan Lupa Absen Pagi!');
+          }
+        }
+      }
+
+      // AFTERNOON REMINDER: 16:30 - 21:00
+      const isAfternoonRange = (hours === 16 && minutes >= 30) || (hours > 16 && hours < 21);
+      if (isAfternoonRange) {
+        if (holidayInfo.isHoliday) {
+          const dismissedKey = `absensi_notif_holiday_afternoon_dismissed_${todayStr}`;
+          if (!localStorage.getItem(dismissedKey)) {
+            const msg = `Selamat berlibur dan menikmati waktu istirahat! (${holidayInfo.name || 'Hari Libur'})`;
+            setActiveReminder({ type: 'holiday', message: msg });
+            triggerBrowserNotification('Selamat Berlibur! 🎉', msg);
+          }
+        } else {
+          const dismissedKey = `absensi_notif_afternoon_dismissed_${todayStr}`;
+          if (!localStorage.getItem(dismissedKey)) {
+            const msg = `Jangan Lupa Absen Pulang! 🌅 Silakan lakukan absensi pulang sekarang sebelum pulang ke rumah.`;
+            setActiveReminder({ type: 'afternoon', message: msg });
+            triggerBrowserNotification('Pengingat Absen Pulang 🌅', 'Jangan Lupa Absen Pulang!');
+          }
+        }
+      }
+    };
+
+    checkReminder();
+    const interval = setInterval(checkReminder, 15000); // Check every 15 seconds
+    return () => clearInterval(interval);
+  }, [isLoggedIn, currentUser, customization, isTodayHoliday]);
 
   // Fetch classes dynamically
   const fetchKelasList = useCallback(async () => {
@@ -347,6 +489,7 @@ export default function App() {
             logoUrl: (c.logoUrl ? normalizeImageUrl(c.logoUrl.trim()) : prev.logoUrl) || '/logo_smpn11.jpg',
             fullAccessUsernames: Array.isArray(c.fullAccessUsernames) ? c.fullAccessUsernames : prev.fullAccessUsernames,
             userPhotos: { ...(prev.userPhotos || {}), ...normalizedPhotos },
+            dapodikLinks: c.dapodikLinks || prev.dapodikLinks,
             kepalaSekolahNama: c.kepalaSekolahNama?.trim() ?? prev.kepalaSekolahNama ?? '',
             kepalaSekolahNip: c.kepalaSekolahNip?.trim() ?? prev.kepalaSekolahNip ?? '',
             batasWaktuMasuk: c.batasWaktuMasuk?.trim() ?? prev.batasWaktuMasuk ?? '07:00',
@@ -1815,6 +1958,92 @@ export default function App() {
               >
                 Saya Mengerti
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PERSISTENT REMINDER MODAL FOR GURU & TENDIK */}
+      {activeReminder && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full border border-slate-100/80 overflow-hidden transform transition-all animate-scale-up">
+            <div className={`p-6 text-white ${
+              activeReminder.type === 'holiday' 
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-600' 
+                : activeReminder.type === 'morning'
+                ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                : 'bg-gradient-to-r from-indigo-500 to-purple-600'
+            } flex flex-col items-center justify-center text-center py-8 relative`}>
+              <div className="absolute top-4 right-4">
+                <button 
+                  onClick={handleDismissReminder}
+                  className="p-1.5 rounded-full bg-white/20 hover:bg-white/35 transition-colors text-white"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-4 h-4">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              <div className="p-4 bg-white/15 rounded-full mb-3.5 animate-pulse">
+                {activeReminder.type === 'holiday' ? (
+                  <span className="text-3xl">🌴</span>
+                ) : activeReminder.type === 'morning' ? (
+                  <span className="text-3xl">☀️</span>
+                ) : (
+                  <span className="text-3xl">🌅</span>
+                )}
+              </div>
+              <h3 className="text-lg font-extrabold tracking-wide">
+                {activeReminder.type === 'holiday' 
+                  ? 'Selamat Berlibur! 🎉' 
+                  : activeReminder.type === 'morning'
+                  ? 'Saatnya Absen Masuk Pagi!' 
+                  : 'Saatnya Absen Pulang!'}
+              </h3>
+              <p className="text-xs text-white/90 font-semibold mt-1">
+                {currentUser?.nama || currentUser?.username} • {currentUser?.role}
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100 text-slate-700 text-xs font-semibold leading-relaxed text-center">
+                {activeReminder.message}
+              </div>
+
+              <div className="flex gap-2.5">
+                {activeReminder.type !== 'holiday' ? (
+                  <>
+                    <button
+                      onClick={handleDismissReminder}
+                      className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-extrabold transition-all"
+                    >
+                      Nanti Saja
+                    </button>
+                    <button
+                      onClick={() => {
+                        const targetView = currentUser?.role === 'Guru' ? 'absen-guru' : 'absen-tendik';
+                        setActiveView(targetView);
+                        handleDismissReminder();
+                      }}
+                      className={`flex-1 py-3 text-white rounded-xl text-xs font-extrabold transition-all shadow-md ${
+                        activeReminder.type === 'morning'
+                          ? 'bg-amber-500 hover:bg-amber-600'
+                          : 'bg-indigo-600 hover:bg-indigo-700'
+                      }`}
+                    >
+                      Absen Sekarang
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleDismissReminder}
+                    className="w-full py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs font-extrabold transition-all shadow-md"
+                  >
+                    Terima Kasih, Selamat Berlibur!
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
