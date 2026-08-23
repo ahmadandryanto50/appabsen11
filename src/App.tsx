@@ -164,11 +164,7 @@ export default function App() {
 
   const isTodayHoliday = useCallback((): { isHoliday: boolean; name?: string } => {
     const today = new Date();
-    const dayOfWeek = today.getDay(); // 0 = Sunday, 6 = Saturday
-    const year = today.getFullYear();
-    const month = String(today.getMonth() + 1).padStart(2, '0');
-    const date = String(today.getDate()).padStart(2, '0');
-    const todayStr = `${year}-${month}-${date}`;
+    const todayStr = getLocalDateString(today);
 
     // Check custom holidays from database
     if (customization.holidays && Array.isArray(customization.holidays)) {
@@ -178,12 +174,26 @@ export default function App() {
       }
     }
 
-    // Check weekends
-    if (dayOfWeek === 0) {
-      return { isHoliday: true, name: 'Hari Minggu' };
+    // Check weekends in WITA (Asia/Makassar)
+    let isTodayWeekend = false;
+    let dayName = '';
+    try {
+      dayName = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Makassar',
+        weekday: 'long',
+      }).format(today);
+      isTodayWeekend = dayName === 'Saturday' || dayName === 'Sunday';
+    } catch (e) {
+      const dayOfWeek = today.getDay();
+      isTodayWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      dayName = dayOfWeek === 0 ? 'Sunday' : dayOfWeek === 6 ? 'Saturday' : '';
     }
-    if (dayOfWeek === 6) {
-      return { isHoliday: true, name: 'Hari Sabtu' };
+
+    if (isTodayWeekend) {
+      return { 
+        isHoliday: true, 
+        name: dayName === 'Sunday' ? 'Hari Minggu' : 'Hari Sabtu' 
+      };
     }
 
     return { isHoliday: false };
@@ -275,12 +285,23 @@ export default function App() {
 
     const checkReminder = () => {
       const now = new Date();
-      const hours = now.getHours();
-      const minutes = now.getMinutes();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const date = String(now.getDate()).padStart(2, '0');
-      const todayStr = `${year}-${month}-${date}`;
+      // Get hour and minute in Asia/Makassar
+      let hours = now.getHours();
+      let minutes = now.getMinutes();
+      try {
+        const timeParts = new Intl.DateTimeFormat('id-ID', {
+          timeZone: 'Asia/Makassar',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        }).format(now).split(':');
+        if (timeParts.length >= 2) {
+          hours = parseInt(timeParts[0], 10);
+          minutes = parseInt(timeParts[1], 10);
+        }
+      } catch (e) {}
+
+      const todayStr = getLocalDateString(now);
 
       const holidayInfo = isTodayHoliday();
 
@@ -1516,7 +1537,7 @@ export default function App() {
                 </div>
               )}
 
-              {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+              {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || currentUser?.role === 'Tendik') && (
                 <div className="pt-2 pb-2 mt-1 border-t border-slate-800/80">
                   <p className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
                     Konfigurasi Sistem
@@ -1540,63 +1561,71 @@ export default function App() {
                     {isSettingsMenuExpanded && (
                       <div className="pl-3 space-y-1 mt-1 border-l-2 border-slate-800 ml-5 py-1">
                         {/* App Customization View (Strictly for Admin) */}
-                        <button
-                          onClick={() => {
-                            setActiveView('customization');
-                            setMobileMenuOpen(false);
-                          }}
-                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                            activeView === 'customization'
-                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
-                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
-                          <span>Pengaturan Aplikasi</span>
-                        </button>
+                        {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                          <button
+                            onClick={() => {
+                              setActiveView('customization');
+                              setMobileMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              activeView === 'customization'
+                                ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                                : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Pengaturan Aplikasi</span>
+                          </button>
+                        )}
 
                         {/* Hari Libur View */}
-                        <button
-                          onClick={() => {
-                            setActiveView('hari-libur');
-                            setMobileMenuOpen(false);
-                          }}
-                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                            activeView === 'hari-libur'
-                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
-                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          <CalendarRange className="w-3.5 h-3.5 flex-shrink-0" />
-                          <span>Atur Hari Libur</span>
-                        </button>
+                        {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                          <button
+                            onClick={() => {
+                              setActiveView('hari-libur');
+                              setMobileMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              activeView === 'hari-libur'
+                                ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                                : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <CalendarRange className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Atur Hari Libur</span>
+                          </button>
+                        )}
 
                         {/* Apps Script Code View */}
-                        <button
-                          onClick={() => {
-                            setActiveView('apps-script');
-                            setMobileMenuOpen(false);
-                          }}
-                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                            activeView === 'apps-script'
-                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
-                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
-                          }`}
-                        >
-                          <Code className="w-3.5 h-3.5 flex-shrink-0" />
-                          <span>Kode Apps Script (.gs)</span>
-                        </button>
+                        {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                          <button
+                            onClick={() => {
+                              setActiveView('apps-script');
+                              setMobileMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              activeView === 'apps-script'
+                                ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                                : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <Code className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Kode Apps Script (.gs)</span>
+                          </button>
+                        )}
 
                         {/* Download APK */}
-                        <a
-                          href="/e-absensi.apk"
-                          download="e-absensi.apk"
-                          onClick={() => setMobileMenuOpen(false)}
-                          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer hover:bg-slate-800 text-slate-400 hover:text-slate-200"
-                        >
-                          <Download className="w-3.5 h-3.5 flex-shrink-0" />
-                          <span>Download File APK</span>
-                        </a>
+                        {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                          <a
+                            href="/e-absensi.apk"
+                            download="e-absensi.apk"
+                            onClick={() => setMobileMenuOpen(false)}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer hover:bg-slate-800 text-slate-400 hover:text-slate-200"
+                          >
+                            <Download className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Download File APK</span>
+                          </a>
+                        )}
 
                         {/* Set Database URL */}
                         <button
