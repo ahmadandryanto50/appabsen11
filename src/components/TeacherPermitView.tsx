@@ -38,14 +38,21 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
   const [isWeekend, setIsWeekend] = useState(false);
 
   useEffect(() => {
-    // Determine if today is weekend in WITA
-    const tzOffset = 8 * 60; // WITA
-    const now = new Date();
-    const localMs = now.getTime() + (now.getTimezoneOffset() + tzOffset) * 60000;
-    const localDate = new Date(localMs);
-    const dayOfWeek = localDate.getUTCDay(); // 0 is Sunday, 6 is Saturday
-    setIsWeekend(dayOfWeek === 0 || dayOfWeek === 6);
+    // Determine if today is weekend in WITA (Asia/Makassar)
+    let isTodayWeekend = false;
+    try {
+      const dayName = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Makassar',
+        weekday: 'long',
+      }).format(new Date());
+      isTodayWeekend = dayName === 'Saturday' || dayName === 'Sunday';
+    } catch (e) {
+      const dayOfWeek = new Date().getDay();
+      isTodayWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+    }
+    setIsWeekend(isTodayWeekend);
 
+    const now = new Date();
     const todayStr = getLocalDateString(now);
     const stored = localStorage.getItem('absensi_hari_libur');
     if (stored) {
