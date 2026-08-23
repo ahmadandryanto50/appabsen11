@@ -104,6 +104,8 @@ export interface ToastMessage {
 }
 
 export type ViewType =
+  | 'dashboard-satu'
+  | 'dashboard-dua'
   | 'dashboard'
   | 'absen-siswa'
   | 'absen-guru'
@@ -119,7 +121,8 @@ export type ViewType =
   | 'izin-tendik'
   | 'kiosk-scanner'
   | 'cetak-barcode'
-  | 'hari-libur';
+  | 'hari-libur'
+  | 'pintas-dapodik';
 
 export interface ExternalAppItem {
   id: string;
@@ -138,6 +141,7 @@ export interface AppCustomization {
   fullAccessUsernames: string[];
   logoUrl?: string;
   userPhotos?: Record<string, string>;
+  dapodikLinks?: Record<string, string>;
   kepalaSekolahNama?: string;
   kepalaSekolahNip?: string;
   batasWaktuMasuk?: string;

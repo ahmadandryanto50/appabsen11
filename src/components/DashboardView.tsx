@@ -11,6 +11,7 @@ import { apiClient } from '../api';
 import { normalizeImageUrl, getUserPhotoUrl, handleImageFallbackError } from '../utils/imageUrl';
 
 interface DashboardViewProps {
+  subView?: 'satu' | 'dua';
   currentUser: User | null;
   historyList: AttendanceRecord[];
   allStudents?: any[];
@@ -20,6 +21,7 @@ interface DashboardViewProps {
 }
 
 export function DashboardView({
+  subView = 'satu',
   currentUser,
   historyList,
   allStudents,
@@ -693,7 +695,9 @@ export function DashboardView({
 
   return (
     <div className="space-y-6">
-      {/* Welcome Banner */}
+      {subView === 'satu' && (
+        <>
+          {/* Welcome Banner */}
       <div className="bg-gradient-to-r from-blue-700 via-indigo-700 to-indigo-800 rounded-3xl p-6 text-white shadow-xl relative overflow-hidden flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
         <div className="relative z-10 space-y-2.5 max-w-xl">
           <span className="inline-flex items-center gap-1 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-semibold">
@@ -1216,9 +1220,12 @@ export function DashboardView({
         </div>
       )}
     </div>
+        </>
+      )}
 
-      {/* LIVE FEED REKAP PRESENSI TERBARU */}
+      {subView === 'dua' && (
       <div className="space-y-6">
+        {/* LIVE FEED REKAP PRESENSI TERBARU */}
         {/* Render Rekap Sesi Absensi Mengajar Terbaru if Guru or Admin */}
         {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
           <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
@@ -1493,7 +1500,10 @@ export function DashboardView({
           </div>
         )}
       </div>
+      )}
 
+      {subView === 'satu' && (
+      <>
       {/* Quick Actions */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Absen Siswa Sekarang (Visible for Admin and Guru) */}
@@ -1576,6 +1586,8 @@ export function DashboardView({
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* Lightbox / Photo Viewer Modal */}
       {selectedPhoto && (

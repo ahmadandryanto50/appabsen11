@@ -28,6 +28,10 @@ import {
   Home,
   ArrowLeft,
   Download,
+  ChevronDown,
+  ChevronRight,
+  Database,
+  AppWindow,
 } from 'lucide-react';
 
 import { User, AttendanceRecord, TeacherAbsenceRecord, ToastMessage, ViewType, CrudRow, Student, AppCustomization, getLocalDateString, getLocalTimeString } from './types';
@@ -54,12 +58,18 @@ import { ScannerKioskView } from './components/ScannerKioskView';
 import { CetakBarcodeView } from './components/CetakBarcodeView';
 import { ExternalAppsModal, DEFAULT_APPS } from './components/ExternalAppsModal';
 import { HariLiburView } from './components/HariLiburView';
+import { PintasDapodikView } from './components/PintasDapodikView';
 
 export default function App() {
   // Authentication & Navigation
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [activeView, setActiveView] = useState<ViewType>('dashboard');
+  const [activeView, setActiveView] = useState<ViewType>('dashboard-satu');
+  const [isDashboardMenuExpanded, setIsDashboardMenuExpanded] = useState<boolean>(true);
+  const [isAbsensiMenuExpanded, setIsAbsensiMenuExpanded] = useState<boolean>(false);
+  const [isScannerMenuExpanded, setIsScannerMenuExpanded] = useState<boolean>(false);
+  const [isDatabaseMenuExpanded, setIsDatabaseMenuExpanded] = useState<boolean>(false);
+  const [isSettingsMenuExpanded, setIsSettingsMenuExpanded] = useState<boolean>(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Connection config
@@ -856,6 +866,8 @@ export default function App() {
 
   const getViewTitle = () => {
     const titles: Record<ViewType, string> = {
+      'dashboard-satu': 'Dashboard Utama',
+      'dashboard-dua': 'Dashboard Riwayat & Rekap',
       dashboard: 'Dashboard & Ringkasan Presensi',
       'absen-siswa': 'Presensi Siswa di Kelas',
       'absen-guru': 'Formulir Presensi Mandiri Guru',
@@ -872,6 +884,7 @@ export default function App() {
       'kiosk-scanner': 'Kiosk Scanner Otomatis',
       'cetak-barcode': 'Cetak Kartu QR Code Siswa',
       'hari-libur': 'Manajemen Hari Libur & Tanggal Merah',
+      'pintas-dapodik': 'Pintas Dapodik & Aplikasi Lainnya',
     };
     return titles[activeView] || `${customization.appName} ${customization.appSubtitle}`;
   };
@@ -983,156 +996,232 @@ export default function App() {
 
             {/* Sidebar Navigation Items */}
             <nav className={`p-3 space-y-1 flex-1 overflow-y-auto ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
-              <button
-                onClick={() => {
-                  setActiveView('dashboard');
-                  setMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeView === 'dashboard'
-                    ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                    : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
-                <span>Dashboard & Rekap</span>
-              </button>
+              <div className="space-y-1">
+                <button
+                  onClick={() => setIsDashboardMenuExpanded(!isDashboardMenuExpanded)}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    ['dashboard-satu', 'dashboard-dua', 'dashboard'].includes(activeView)
+                      ? 'bg-slate-800 text-white'
+                      : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <LayoutDashboard className="w-4 h-4 flex-shrink-0" />
+                    <span>Dashboard</span>
+                  </div>
+                  {isDashboardMenuExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </button>
 
-              {currentUser?.role !== 'Tendik' && (
-                <>
-                  <button
-                    onClick={() => {
-                      setActiveView('absen-siswa');
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeView === 'absen-siswa'
-                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <ClipboardList className="w-4 h-4 flex-shrink-0" />
-                    <span>Presensi Siswa</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setActiveView('absen-guru');
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeView === 'absen-guru'
-                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <UserCheck className="w-4 h-4 flex-shrink-0" />
-                    <span>Absen Guru</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      setActiveView('izin-guru');
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeView === 'izin-guru'
-                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <CalendarRange className="w-4 h-4 flex-shrink-0" />
-                    <span>Form Izin Guru</span>
-                  </button>
-                </>
-              )}
-
-              {/* Kiosk Scanner & Cetak Barcode: Strictly for Admin Utama and Admin, plus Kiosk for Guru */}
-              {(hasFullAccess(currentUser) || currentUser?.role === 'Guru') && (
-                <>
-                  <button
-                    onClick={() => {
-                      setActiveView('kiosk-scanner');
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeView === 'kiosk-scanner'
-                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <ScanLine className="w-4 h-4 flex-shrink-0" />
-                    <span>Kiosk Scanner</span>
-                  </button>
-
-                  {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                {isDashboardMenuExpanded && (
+                  <div className="pl-3 space-y-1 mt-1 border-l-2 border-slate-800 ml-5 py-1">
                     <button
                       onClick={() => {
-                        setActiveView('cetak-barcode');
+                        setActiveView('dashboard-satu');
                         setMobileMenuOpen(false);
                       }}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'cetak-barcode'
-                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        activeView === 'dashboard-satu' || activeView === 'dashboard'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                          : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <QrCode className="w-4 h-4 flex-shrink-0" />
-                      <span>Cetak Barcode</span>
+                      <LayoutDashboard className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>Dashboard Satu</span>
                     </button>
-                  )}
-                </>
-              )}
 
-              {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
-                <>
-                  <button
-                    onClick={() => {
-                      setActiveView('absen-tendik');
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeView === 'absen-tendik'
-                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                        : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
+                    <button
+                      onClick={() => {
+                        setActiveView('dashboard-dua');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        activeView === 'dashboard-dua'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                          : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <History className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>Dashboard Dua</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1">
+                <button
+                  onClick={() => setIsAbsensiMenuExpanded(!isAbsensiMenuExpanded)}
+                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    ['absen-siswa', 'absen-guru', 'izin-guru', 'absen-tendik', 'izin-tendik', 'riwayat'].includes(activeView)
+                      ? 'bg-slate-800 text-white'
+                      : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
                     <ClipboardList className="w-4 h-4 flex-shrink-0" />
-                    <span>Absen Tendik</span>
-                  </button>
+                    <span>Absen Presensi</span>
+                  </div>
+                  {isAbsensiMenuExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </button>
 
+                {isAbsensiMenuExpanded && (
+                  <div className="pl-3 space-y-1 mt-1 border-l-2 border-slate-800 ml-5 py-1">
+                    {currentUser?.role !== 'Tendik' && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setActiveView('absen-siswa');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'absen-siswa'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <ClipboardList className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Presensi Siswa</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setActiveView('absen-guru');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'absen-guru'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <UserCheck className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Absen Guru</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setActiveView('izin-guru');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'izin-guru'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <CalendarRange className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Form Izin Guru</span>
+                        </button>
+                      </>
+                    )}
+
+                    {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || currentUser?.role === 'Tendik') && (
+                      <>
+                        <button
+                          onClick={() => {
+                            setActiveView('absen-tendik');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'absen-tendik'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <ClipboardList className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Absen Tendik</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setActiveView('izin-tendik');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'izin-tendik'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <CalendarRange className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Form Izin Tendik</span>
+                        </button>
+                      </>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setActiveView('riwayat');
+                        loadHistoryData();
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                        activeView === 'riwayat'
+                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                          : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <History className="w-3.5 h-3.5 flex-shrink-0" />
+                      <span>Riwayat Absensi</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Menu Scanner: Strictly for Admin Utama and Admin, plus Kiosk for Guru */}
+              {(hasFullAccess(currentUser) || currentUser?.role === 'Guru') && (
+                <div className="space-y-1">
                   <button
-                    onClick={() => {
-                      setActiveView('izin-tendik');
-                      setMobileMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      activeView === 'izin-tendik'
-                        ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                    onClick={() => setIsScannerMenuExpanded(!isScannerMenuExpanded)}
+                    className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      ['kiosk-scanner', 'cetak-barcode'].includes(activeView)
+                        ? 'bg-slate-800 text-white'
                         : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    <CalendarRange className="w-4 h-4 flex-shrink-0" />
-                    <span>Form Izin Tendik</span>
+                    <div className="flex items-center gap-3">
+                      <ScanLine className="w-4 h-4 flex-shrink-0" />
+                      <span>Absen Scanner</span>
+                    </div>
+                    {isScannerMenuExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                   </button>
-                </>
-              )}
 
-              <button
-                onClick={() => {
-                  setActiveView('riwayat');
-                  loadHistoryData();
-                  setMobileMenuOpen(false);
-                }}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  activeView === 'riwayat'
-                    ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                    : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <History className="w-4 h-4 flex-shrink-0" />
-                <span>Riwayat Absensi</span>
-              </button>
+                  {isScannerMenuExpanded && (
+                    <div className="pl-3 space-y-1 mt-1 border-l-2 border-slate-800 ml-5 py-1">
+                      <button
+                        onClick={() => {
+                          setActiveView('kiosk-scanner');
+                          setMobileMenuOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                          activeView === 'kiosk-scanner'
+                            ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                            : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        <ScanLine className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Kiosk Scanner</span>
+                      </button>
+
+                      {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                        <button
+                          onClick={() => {
+                            setActiveView('cetak-barcode');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'cetak-barcode'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <QrCode className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Cetak Barcode</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <button
                 onClick={() => {
@@ -1156,145 +1245,229 @@ export default function App() {
               {/* Master CRUD Lists Folders (Strictly for Administrator or Full Access Role) */}
               {hasFullAccess(currentUser) && (
                 <div className="pt-4 pb-2 border-t border-slate-800/80 mt-2">
-                  <p className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                    Manajemen Master Data
-                  </p>
                   <div className="space-y-1">
-                    {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
-                      <button
-                        onClick={() => {
-                          setActiveView('crud-guru');
-                          loadCrudTable('Master_Guru');
-                          setMobileMenuOpen(false);
-                        }}
-                        className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                          activeView === 'crud-guru'
-                            ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                            : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                        }`}
-                      >
-                        <UserCheck className="w-4 h-4 flex-shrink-0 text-slate-500" />
-                        <span>Data Guru & Tendik</span>
-                      </button>
-                    )}
-
                     <button
-                      onClick={() => {
-                        setActiveView('crud-siswa');
-                        loadCrudTable('Master_Siswa');
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'crud-siswa'
-                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                      onClick={() => setIsDatabaseMenuExpanded(!isDatabaseMenuExpanded)}
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        ['crud-guru', 'crud-siswa', 'crud-kelas', 'crud-mapel'].includes(activeView)
+                          ? 'bg-slate-800 text-white'
                           : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <School className="w-4 h-4 flex-shrink-0 text-slate-500" />
-                      <span>Data Siswa</span>
+                      <div className="flex items-center gap-3">
+                        <Database className="w-4 h-4 flex-shrink-0" />
+                        <span>Database Utama</span>
+                      </div>
+                      {isDatabaseMenuExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                     </button>
 
-                    <button
-                      onClick={() => {
-                        setActiveView('crud-kelas');
-                        loadCrudTable('Master_Kelas');
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'crud-kelas'
-                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <ShieldAlert className="w-4 h-4 flex-shrink-0 text-slate-500" />
-                      <span>Data Kelas</span>
-                    </button>
+                    {isDatabaseMenuExpanded && (
+                      <div className="pl-3 space-y-1 mt-1 border-l-2 border-slate-800 ml-5 py-1">
+                        {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                          <button
+                            onClick={() => {
+                              setActiveView('crud-guru');
+                              loadCrudTable('Master_Guru');
+                              setMobileMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              activeView === 'crud-guru'
+                                ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                                : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <UserCheck className="w-3.5 h-3.5 flex-shrink-0" />
+                            <span>Data Guru & Tendik</span>
+                          </button>
+                        )}
 
-                    <button
-                      onClick={() => {
-                        setActiveView('crud-mapel');
-                        loadCrudTable('Master_Mapel');
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'crud-mapel'
-                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <BookOpen className="w-4 h-4 flex-shrink-0 text-slate-500" />
-                      <span>Data Mapel</span>
-                    </button>
+                        <button
+                          onClick={() => {
+                            setActiveView('crud-siswa');
+                            loadCrudTable('Master_Siswa');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'crud-siswa'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <School className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Data Siswa</span>
+                        </button>
 
-                    {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
-                      <button
-                        onClick={() => {
-                          setShowExternalAppsModal(true);
-                          setMobileMenuOpen(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-amber-400 hover:text-amber-300 hover:bg-slate-850"
-                      >
-                        <ExternalLink className="w-4 h-4 flex-shrink-0 text-amber-400" />
-                        <span>Lainnya</span>
-                      </button>
+                        <button
+                          onClick={() => {
+                            setActiveView('crud-kelas');
+                            loadCrudTable('Master_Kelas');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'crud-kelas'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Data Kelas</span>
+                        </button>
+
+                        <button
+                          onClick={() => {
+                            setActiveView('crud-mapel');
+                            loadCrudTable('Master_Mapel');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'crud-mapel'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <BookOpen className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Data Mapel</span>
+                        </button>
+
+                        {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
+                          <button
+                            onClick={() => {
+                              setShowExternalAppsModal(true);
+                              setMobileMenuOpen(false);
+                            }}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer text-amber-400 hover:text-amber-300 hover:bg-slate-800"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5 flex-shrink-0 text-amber-400" />
+                            <span>Lainnya</span>
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
               )}
 
+              {(currentUser?.role === 'Admin Utama') && (
+                <div className="pt-2 pb-2 mt-1 border-t border-slate-800/80">
+                  <p className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    Tautan Eksternal
+                  </p>
+                  <div className="space-y-1">
+                    <button
+                      onClick={() => {
+                        setActiveView('pintas-dapodik');
+                        setMobileMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        activeView === 'pintas-dapodik'
+                          ? 'bg-slate-800 text-white'
+                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <AppWindow className="w-4 h-4 flex-shrink-0" />
+                        <span>Pintas Dapodik</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
-                <div className="pt-2 pb-2 mt-1">
+                <div className="pt-2 pb-2 mt-1 border-t border-slate-800/80">
                   <p className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
                     Konfigurasi Sistem
                   </p>
                   <div className="space-y-1">
-                    {/* App Customization View (Strictly for Admin) */}
                     <button
-                      onClick={() => {
-                        setActiveView('customization');
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'customization'
-                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
+                      onClick={() => setIsSettingsMenuExpanded(!isSettingsMenuExpanded)}
+                      className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        ['customization', 'hari-libur', 'apps-script'].includes(activeView)
+                          ? 'bg-slate-800 text-white'
                           : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
                       }`}
                     >
-                      <Sparkles className="w-4 h-4 flex-shrink-0 text-slate-500" />
-                      <span>Pengaturan Aplikasi</span>
+                      <div className="flex items-center gap-3">
+                        <Settings className="w-4 h-4 flex-shrink-0" />
+                        <span>Pengaturan</span>
+                      </div>
+                      {isSettingsMenuExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                     </button>
 
-                    {/* Hari Libur View */}
-                    <button
-                      onClick={() => {
-                        setActiveView('hari-libur');
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'hari-libur'
-                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <CalendarRange className="w-4 h-4 flex-shrink-0 text-slate-500" />
-                      <span>Atur Hari Libur</span>
-                    </button>
+                    {isSettingsMenuExpanded && (
+                      <div className="pl-3 space-y-1 mt-1 border-l-2 border-slate-800 ml-5 py-1">
+                        {/* App Customization View (Strictly for Admin) */}
+                        <button
+                          onClick={() => {
+                            setActiveView('customization');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'customization'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <Sparkles className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Pengaturan Aplikasi</span>
+                        </button>
 
-                    {/* Apps Script Code View */}
-                    <button
-                      onClick={() => {
-                        setActiveView('apps-script');
-                        setMobileMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        activeView === 'apps-script'
-                          ? `${customization.logoColor || 'bg-blue-600'} text-white shadow`
-                          : 'hover:bg-slate-850 text-slate-400 hover:text-slate-200'
-                      }`}
-                    >
-                      <Code className="w-4 h-4 flex-shrink-0 text-slate-500" />
-                      <span>Kode Apps Script (.gs)</span>
-                    </button>
+                        {/* Hari Libur View */}
+                        <button
+                          onClick={() => {
+                            setActiveView('hari-libur');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'hari-libur'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <CalendarRange className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Atur Hari Libur</span>
+                        </button>
+
+                        {/* Apps Script Code View */}
+                        <button
+                          onClick={() => {
+                            setActiveView('apps-script');
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                            activeView === 'apps-script'
+                              ? `${customization.logoColor || 'bg-blue-600'} text-white shadow-sm`
+                              : 'hover:bg-slate-800 text-slate-400 hover:text-slate-200'
+                          }`}
+                        >
+                          <Code className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Kode Apps Script (.gs)</span>
+                        </button>
+
+                        {/* Download APK */}
+                        <a
+                          href="/e-absensi.apk"
+                          download="e-absensi.apk"
+                          onClick={() => setMobileMenuOpen(false)}
+                          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer hover:bg-slate-800 text-slate-400 hover:text-slate-200"
+                        >
+                          <Download className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Download File APK</span>
+                        </a>
+
+                        {/* Set Database URL */}
+                        <button
+                          onClick={() => {
+                            setShowConfigModal(true);
+                            setMobileMenuOpen(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-[11px] font-bold transition-all cursor-pointer hover:bg-slate-800 text-slate-400 hover:text-slate-200"
+                        >
+                          <Database className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>Set Database URL</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1303,25 +1476,6 @@ export default function App() {
 
           {/* Sidebar Footer Settings & Logout */}
           <div className={`flex-shrink-0 p-3 border-t border-slate-800 space-y-1 ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
-            <a
-              href="/e-absensi.apk"
-              download="e-absensi.apk"
-              onClick={() => setMobileMenuOpen(false)}
-              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-850 transition-colors cursor-pointer"
-            >
-              <Download className="w-4 h-4 flex-shrink-0 text-slate-500" />
-              <span>Download File APK (Manual)</span>
-            </a>
-            <button
-              onClick={() => {
-                setShowConfigModal(true);
-                setMobileMenuOpen(false);
-              }}
-              className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-850 transition-colors cursor-pointer"
-            >
-              <Settings className="w-4 h-4 flex-shrink-0 text-slate-500" />
-              <span>Set Database URL</span>
-            </button>
             <button
               onClick={handleLogout}
               className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-500/10 hover:text-rose-300 transition-colors cursor-pointer"
@@ -1390,8 +1544,9 @@ export default function App() {
           <div className="p-4 sm:p-6 lg:p-8 flex-1 max-w-7xl w-full mx-auto">
             <div>
               {/* VIEW 1: DASHBOARD */}
-              {activeView === 'dashboard' && (
+              {(activeView === 'dashboard' || activeView === 'dashboard-satu' || activeView === 'dashboard-dua') && (
                 <DashboardView
+                  subView={activeView === 'dashboard-dua' ? 'dua' : 'satu'}
                   currentUser={currentUser}
                   historyList={historyList}
                   allStudents={allStudents}
@@ -1556,6 +1711,15 @@ export default function App() {
                   onAddToast={addToast} 
                   customization={customization}
                   onSaveCustomization={handleSaveCustomization}
+                />
+              )}
+
+              {/* VIEW: PINTAS DAPODIK */}
+              {activeView === 'pintas-dapodik' && (currentUser?.role === 'Admin Utama') && (
+                <PintasDapodikView 
+                  customization={customization} 
+                  onSaveCustomization={handleSaveCustomization}
+                  onAddToast={addToast}
                 />
               )}
             </div>
