@@ -1375,18 +1375,14 @@ export default function App() {
                 </button>
               )}
 
-              <span
-                className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black border select-none shadow-sm ${
-                  isDemoMode
-                    ? 'bg-amber-100 text-amber-900 border-amber-300'
-                    : 'bg-emerald-100 text-emerald-900 border-emerald-300'
-                }`}
-              >
+              {isDemoMode && (
                 <span
-                  className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isDemoMode ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                ></span>
-                <span>{isDemoMode ? 'Mode Demo Interaktif' : 'Terhubung Backend'}</span>
-              </span>
+                  className="inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black border select-none shadow-sm bg-amber-100 text-amber-900 border-amber-300"
+                >
+                  <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-amber-500"></span>
+                  <span>Mode Demo Interaktif</span>
+                </span>
+              )}
             </div>
           </header>
 

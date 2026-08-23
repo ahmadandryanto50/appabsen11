@@ -1100,6 +1100,9 @@ export function HistoryView({
                     nama: (namaIdx !== -1 && row.data) ? row.data[namaIdx] : '',
                     kelas: (kelasIdx !== -1 && row.data) ? row.data[kelasIdx] : '',
                     gender: (genderIdx !== -1 && row.data) ? row.data[genderIdx] : 'Laki-laki',
+                    tipe: row.data?.[6] || '',
+                    fontColor: row.fontColor || row.data?.[7] || '',
+                    bgColor: row.bgColor || row.data?.[8] || '',
                   }))
                   .filter((s) => s.nama && s.kelas && String(s.kelas).toLowerCase().trim() === String(selectedGuruClass || '').toLowerCase().trim());
 
@@ -1203,6 +1206,9 @@ export function HistoryView({
           nisn: s.nisn || '-',
           nama: s.nama || 'Siswa',
           gender: s.gender || 'Laki-laki',
+          tipe: s.tipe || '',
+          fontColor: s.fontColor || '',
+          bgColor: s.bgColor || '',
           kelas: selectedGuruClass,
           totalSessions: effectiveSessions,
           hadir: hadirCount,
