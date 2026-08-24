@@ -9,7 +9,7 @@ import { StudentNameBadge, getStudentColorInfo } from '../utils/studentColor';
 interface ScannerKioskViewProps {
   students: CrudRow[];
   customization: AppCustomization;
-  onUpdateCustomization?: (newCust: AppCustomization) => Promise<void> | void;
+  onUpdateCustomization?: (newCust: AppCustomization) => Promise<any> | any;
 }
 
 interface RecentScan {

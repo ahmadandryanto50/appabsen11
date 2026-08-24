@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, getLocalDateString, getLocalTimeString } from '../types';
-import { Camera, FileImage, Trash2, CheckCircle, Clock, Loader2, Play, UserCheck, RotateCw, AlertTriangle } from 'lucide-react';
+import { Camera, FileImage, Trash2, CheckCircle, Clock, Loader2, Play, UserCheck, RotateCw, AlertTriangle, ShieldCheck } from 'lucide-react';
 
 interface TendikAttendanceViewProps {
   currentUser: User | null;
@@ -55,6 +55,8 @@ export function TendikAttendanceView({
     }
   }, []);
 
+  const [hasIzinToday, setHasIzinToday] = useState(false);
+
   useEffect(() => {
     try {
       const rawHistory = localStorage.getItem('absensi_history_tendik_absen');
@@ -76,14 +78,44 @@ export function TendikAttendanceView({
             }
           }
         });
+
+        // Check for permit
+        let hasIzin = false;
+        try {
+          const rawPermits = localStorage.getItem('absensi_history_tendik_izin') || '[]';
+          const permits = JSON.parse(rawPermits);
+          const matchPermit = permits.find((log: any) => {
+            const isMatchDate = log.tanggal === todayStr;
+            const isMatchUser = log.nip === currentUser.nip || 
+                               (log.namaTendik && currentUser.nama && log.namaTendik.trim() === currentUser.nama.trim());
+            const isNotHadir = log.status && !log.status.toLowerCase().includes('hadir');
+            return isMatchDate && isMatchUser && isNotHadir;
+          });
+          if (matchPermit) {
+            hasIzin = true;
+          }
+        } catch (err) {}
         
-        setAlreadyDatang(foundDatang);
-        setAlreadyPulang(foundPulang);
-        
-        if (foundDatang && !foundPulang) {
-          setTipeAbsen('Pulang');
-        } else if (!foundDatang) {
-          setTipeAbsen('Datang');
+        setHasIzinToday(hasIzin);
+
+        if (hasIzin) {
+          if (foundDatang) {
+            setAlreadyDatang(true);
+            setAlreadyPulang(true);
+            setTipeAbsen('Datang');
+          } else {
+            setAlreadyDatang(true);
+            setAlreadyPulang(true);
+          }
+        } else {
+          setAlreadyDatang(foundDatang);
+          setAlreadyPulang(foundPulang);
+          
+          if (foundDatang && !foundPulang) {
+            setTipeAbsen('Pulang');
+          } else if (!foundDatang) {
+            setTipeAbsen('Datang');
+          }
         }
       }
     } catch(e) {}
@@ -234,6 +266,12 @@ export function TendikAttendanceView({
       const isSuccess = await onSubmit(payload);
       if (isSuccess) {
         setCameraPhoto(null);
+        if (tipeAbsen === 'Datang') {
+          setAlreadyDatang(true);
+          setTipeAbsen('Pulang');
+        } else if (tipeAbsen === 'Pulang') {
+          setAlreadyPulang(true);
+        }
       } else {
         alert("Gagal menyimpan presensi. Silakan coba tekan Kirim Presensi sekali lagi.");
       }
@@ -321,6 +359,43 @@ export function TendikAttendanceView({
             <span className="text-sm font-extrabold text-slate-700">{currentUser?.role}</span>
           </div>
         </div>
+
+        {/* Status Administrator Non-Wajib Presensi */}
+        {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || String(currentUser?.role || '').toLowerCase().includes('admin') || String(currentUser?.username || '').toLowerCase().includes('admin')) && (
+          <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3 text-amber-900 text-xs">
+            <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-extrabold text-amber-950 block">Akun Administrator (Non-Wajib Presensi)</span>
+              <p className="text-amber-800/90 text-[11px] leading-relaxed">
+                Khusus akun <strong>Admin Utama</strong> dan <strong>Admin</strong>, Anda <strong>tidak memiliki kewajiban presensi</strong> harian (datang/pulang/izin) dan akun ini <strong>tidak dimasukkan ke dalam rekapitulasi evaluasi kehadiran</strong> tenaga kependidikan. Fitur form di bawah tetap dapat digunakan untuk pengujian atau pencatatan simulasi jika diperlukan.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Status Izin Terdeteksi */}
+        {hasIzinToday && (
+          <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 flex items-start gap-3 text-blue-900 text-xs animate-scale-up">
+            <UserCheck className="w-5 h-5 text-blue-600 shrink-0 mt-0.5 animate-pulse" />
+            <div className="space-y-0.5 text-left">
+              <span className="font-extrabold text-blue-950 block">Status Izin/Sakit/Cuti Terdeteksi Hari Ini</span>
+              <p className="text-blue-800/90 text-[11px] leading-relaxed">
+                Anda telah mengajukan permohonan izin/sakit/cuti hari ini. 
+                {localStorage.getItem('absensi_history_tendik_absen') && JSON.parse(localStorage.getItem('absensi_history_tendik_absen') || '[]').some((log: any) => {
+                  const todayStr = getLocalDateString(new Date());
+                  const isMatchDate = log.tanggal === todayStr;
+                  const isMatchUser = log.nip === currentUser?.nip || (log.namaTendik && currentUser?.nama && log.namaTendik.includes(currentUser?.nama));
+                  const tipe = String(log.tipeAbsen || log.kategori || '').toLowerCase();
+                  return isMatchDate && isMatchUser && (tipe.includes('datang') || tipe.includes('masuk'));
+                }) ? (
+                  <span> Absen Pulang dikunci secara otomatis, dan status kehadiran Anda hari ini tetap dihitung <strong>Hadir</strong> karena Anda telah melakukan Absen Datang di pagi hari.</span>
+                ) : (
+                  <span> Fitur Absen Datang dan Absen Pulang dikunci sepenuhnya karena Anda langsung menggunakan form izin hari ini.</span>
+                )}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Select Tipe Presensi (Datang / Pulang) */}
         <div className="space-y-2">

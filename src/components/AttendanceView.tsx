@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Student, User, AppCustomization, getLocalDateString, getLocalTimeString } from '../types';
-import { Camera, FileImage, Trash2, CheckCircle, Clock, CheckSquare, Sparkles, Loader2, Play, RotateCw, AlertTriangle } from 'lucide-react';
+import { Camera, FileImage, Trash2, CheckCircle, Clock, CheckSquare, Sparkles, Loader2, Play, RotateCw, AlertTriangle, ShieldCheck } from 'lucide-react';
 import { StudentNameBadge, getStudentColorInfo } from '../utils/studentColor';
 
 interface AttendanceViewProps {
@@ -402,6 +402,19 @@ export function AttendanceView({
             Pilih kelas, masukkan mata pelajaran, ambil foto suasana belajar, lalu tentukan status presensi siswa.
           </p>
         </div>
+
+        {/* Status Administrator Non-Wajib Presensi Info */}
+        {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || String(currentUser?.role || '').toLowerCase().includes('admin') || String(currentUser?.username || '').toLowerCase().includes('admin')) && (
+          <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3 text-amber-900 text-xs">
+            <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-extrabold text-amber-950 block">Status Administrator: Bebas Kewajiban Jadwal Kelas</span>
+              <p className="text-amber-800/90 text-[11px] leading-relaxed">
+                Sebagai <strong>Admin Utama</strong> / <strong>Admin</strong>, Anda tidak dibebani kewajiban mengajar kelas terjadwal. Anda dapat memilih kelas dan mata pelajaran mana saja untuk membantu mencatat, menguji, atau memvalidasi presensi siswa.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Input Parameters Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

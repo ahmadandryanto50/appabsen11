@@ -5,7 +5,7 @@ import { MonitorSmartphone, Database, Globe, Home, Info, IdCard, Users, Wallet, 
 
 interface PintasDapodikViewProps {
   customization?: AppCustomization;
-  onSaveCustomization?: (customization: AppCustomization) => Promise<{ status: string; message?: string }>;
+  onSaveCustomization?: (customization: AppCustomization) => Promise<any> | any;
   onAddToast?: (message: string, type: 'success' | 'error' | 'warning' | 'info') => void;
 }
 

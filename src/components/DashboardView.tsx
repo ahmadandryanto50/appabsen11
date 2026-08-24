@@ -6,14 +6,81 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion } from 'motion/react';
 import { User, AttendanceRecord, AppCustomization, getLocalDateString } from '../types';
-import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, ExternalLink, ClipboardList, QrCode, Scan, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, EyeOff, ExternalLink, ClipboardList, QrCode, Scan, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 import { apiClient } from '../api';
 import { normalizeImageUrl, getUserPhotoUrl, handleImageFallbackError } from '../utils/imageUrl';
+
+const normalizePersonName = (name: string): string => {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .replace(/(s\.pd\.i|s\.pd|s\.kom|m\.pd|s\.si|dra\.|drs\.|m\.si|s\.t|s\.e|s\.sos|gr\.|dr\.|h\.|hj\.|m\.m|s\.ag)/gi, '')
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+const matchTeacher = (recordGuru: string, targetNama: string) => {
+  if (!recordGuru || !targetNama) return false;
+  const a = recordGuru.toLowerCase().trim();
+  const b = targetNama.toLowerCase().trim();
+  if (a === b) return true;
+  const normA = normalizePersonName(recordGuru);
+  const normB = normalizePersonName(targetNama);
+  if (normA && normB) {
+    if (normA === normB) return true;
+    if (normA.includes(normB) || normB.includes(normA)) return true;
+  }
+  return false;
+};
+
+const getNormalizedDateStr = (dateInput: any): string => {
+  if (!dateInput) return '';
+  if (typeof dateInput === 'string') {
+    const s = dateInput.trim();
+    const ymdMatch = s.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (ymdMatch) return ymdMatch[1];
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) {
+      const [d, m, y] = s.split('/');
+      return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    }
+    const dObj = new Date(s);
+    if (!isNaN(dObj.getTime())) {
+      return getLocalDateString(dObj);
+    }
+  } else if (dateInput instanceof Date && !isNaN(dateInput.getTime())) {
+    return getLocalDateString(dateInput);
+  }
+  return String(dateInput).slice(0, 10);
+};
+
+const isAdminUser = (userOrObj: any): boolean => {
+  if (!userOrObj) return false;
+  const r = String(userOrObj.role || '').toLowerCase().trim();
+  const u = String(userOrObj.username || '').toLowerCase().trim();
+  const n = String(userOrObj.nama || userOrObj.namaGuru || userOrObj.namaTendik || '').toLowerCase().trim();
+  const nip = String(userOrObj.nip || '').toLowerCase().trim();
+
+  if (r === 'admin utama' || r === 'admin' || r === 'administrator' || r === 'admin_utama' || r.includes('admin')) {
+    return true;
+  }
+  if (u === 'admin' || u === 'admin_utama' || u.startsWith('admin')) {
+    return true;
+  }
+  if (n === 'admin' || n === 'admin utama' || n === 'administrator' || n === 'administrator utama' || n.includes('administrator')) {
+    return true;
+  }
+  if (nip === 'admin' || nip === 'admin_utama' || (nip === 'g01' && n.includes('admin'))) {
+    return true;
+  }
+  return false;
+};
 
 interface DashboardViewProps {
   subView?: 'satu' | 'dua';
   currentUser: User | null;
   historyList: AttendanceRecord[];
+  teacherHistoryList?: any[];
   allStudents?: any[];
   allTeachers?: any[];
   onNavigate: (view: any) => void;
@@ -24,6 +91,7 @@ export function DashboardView({
   subView = 'satu',
   currentUser,
   historyList,
+  teacherHistoryList,
   allStudents,
   allTeachers,
   onNavigate,
@@ -38,7 +106,38 @@ export function DashboardView({
   const [loadingTendik, setLoadingTendik] = useState(false);
   const [guruAbsenList, setGuruAbsenList] = useState<any[]>([]);
   const [loadingGuruAbsen, setLoadingGuruAbsen] = useState(false);
+  const [teacherPermitList, setTeacherPermitList] = useState<any[]>(() => {
+    if (teacherHistoryList && Array.isArray(teacherHistoryList) && teacherHistoryList.length > 0) {
+      return teacherHistoryList;
+    }
+    try {
+      const cached = localStorage.getItem('absensi_history_guru_izin');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [tendikPermitList, setTendikPermitList] = useState<any[]>(() => {
+    try {
+      const cached = localStorage.getItem('absensi_history_tendik_izin');
+      return cached ? JSON.parse(cached) : [];
+    } catch {
+      return [];
+    }
+  });
   const [guruHeaders, setGuruHeaders] = useState<string[]>([]);
+  const [selectedGuruNip, setSelectedGuruNip] = useState<string>('');
+  const [selectedTendikNip, setSelectedTendikNip] = useState<string>('');
+  const userManuallySelectedGuru = React.useRef(false);
+  const userManuallySelectedTendik = React.useRef(false);
+  const [guruExpanded, setGuruExpanded] = useState<boolean>(false);
+  const [tendikExpanded, setTendikExpanded] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (teacherHistoryList && Array.isArray(teacherHistoryList) && teacherHistoryList.length > 0) {
+      setTeacherPermitList(teacherHistoryList);
+    }
+  }, [teacherHistoryList]);
 
   // State for Live Kiosk (Presensi Masuk Siswa Hari Ini) - initialize with cached list to prevent flicker/disappearing
   const [kioskTodayList, setKioskTodayList] = useState<any[]>(() => {
@@ -379,6 +478,9 @@ export function DashboardView({
 
       const roleIdx = getRoleIndex(t.data.length);
       const role = (t.data[roleIdx] || '').trim().toUpperCase();
+      const nama = (t.data[2] || '').trim().toUpperCase();
+
+      if (role.includes('ADMIN') || nama.includes('ADMIN')) return false;
 
       return role === 'GURU';
     });
@@ -391,8 +493,9 @@ export function DashboardView({
 
       const roleIdx = getRoleIndex(t.data.length);
       const role = (t.data[roleIdx] || '').trim().toUpperCase();
+      const nama = (t.data[2] || '').trim().toUpperCase();
       
-      if (role === 'ADMIN') return false;
+      if (role.includes('ADMIN') || nama.includes('ADMIN')) return false;
       if (role === 'GURU') return false;
       
       return (
@@ -692,6 +795,341 @@ export function DashboardView({
       .filter(c => c.grade === grade)
       .sort((a, b) => a.className.localeCompare(b.className));
   };
+
+  const listGuruUsers = useMemo(() => {
+    const list: { nip: string; nama: string; role: string }[] = [];
+    activeTeachers.forEach(t => {
+      if (t.data && t.data[2]) {
+        const nip = (t.data[1] || '').trim();
+        const nama = (t.data[2] || '').trim();
+        if (!isAdminUser({ nama, nip, role: 'Guru' })) {
+          list.push({ nip, nama, role: 'Guru' });
+        }
+      }
+    });
+    (guruAbsenList || []).forEach(g => {
+      const nama = (g.namaGuru || g.nama || '').trim();
+      const nip = (g.nip || '').trim();
+      if (nama && !isAdminUser({ nama, nip }) && !list.some(item => matchTeacher(item.nama, nama))) {
+        list.push({ nip, nama, role: 'Guru' });
+      }
+    });
+    return list.sort((a, b) => a.nama.localeCompare(b.nama));
+  }, [activeTeachers, guruAbsenList]);
+
+  const listTendikUsers = useMemo(() => {
+    const list: { nip: string; nama: string; role: string }[] = [];
+    activeTendik.forEach(t => {
+      if (t.data && t.data[2]) {
+        const nip = (t.data[1] || '').trim();
+        const nama = (t.data[2] || '').trim();
+        if (!isAdminUser({ nama, nip, role: 'Tendik' })) {
+          list.push({ nip, nama, role: 'Tendik' });
+        }
+      }
+    });
+    (tendikList || []).forEach(t => {
+      const nama = (t.namaTendik || t.nama || '').trim();
+      const nip = (t.nip || '').trim();
+      if (nama && !isAdminUser({ nama, nip }) && !list.some(item => matchTeacher(item.nama, nama))) {
+        list.push({ nip, nama, role: 'Tendik' });
+      }
+    });
+    return list.sort((a, b) => a.nama.localeCompare(b.nama));
+  }, [activeTendik, tendikList]);
+
+  useEffect(() => {
+    if (listGuruUsers.length > 0) {
+      if (isFullAccess) {
+        if (!userManuallySelectedGuru.current) {
+          setSelectedGuruNip(listGuruUsers[0].nip || listGuruUsers[0].nama);
+        }
+      } else {
+        setSelectedGuruNip(currentUser?.nip || currentUser?.nama || '');
+      }
+    }
+  }, [currentUser, listGuruUsers, isFullAccess]);
+
+  useEffect(() => {
+    if (listTendikUsers.length > 0) {
+      if (isFullAccess) {
+        if (!userManuallySelectedTendik.current) {
+          setSelectedTendikNip(listTendikUsers[0].nip || listTendikUsers[0].nama);
+        }
+      } else {
+        setSelectedTendikNip(currentUser?.nip || currentUser?.nama || '');
+      }
+    }
+  }, [currentUser, listTendikUsers, isFullAccess]);
+
+  const currentMonthStr = useMemo(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  }, []);
+
+  const rekapGuruTargetDays = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_guru_target_days');
+      return saved ? parseInt(saved, 10) : 22;
+    } catch {
+      return 22;
+    }
+  }, []);
+
+  const rekapGuruStartDay = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_guru_start_day');
+      return saved ? parseInt(saved, 10) : 1;
+    } catch {
+      return 1;
+    }
+  }, []);
+
+  const rekapTendikTargetDays = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_tendik_target_days');
+      return saved ? parseInt(saved, 10) : 22;
+    } catch {
+      return 22;
+    }
+  }, []);
+
+  const rekapTendikStartDay = useMemo(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_tendik_start_day');
+      return saved ? parseInt(saved, 10) : 1;
+    } catch {
+      return 1;
+    }
+  }, []);
+
+  const computeMonthlyStats = (
+    person: { nip: string; nama: string },
+    monthStr: string,
+    targetDays: number,
+    startDay: number,
+    presensiLogs: any[],
+    permitLogs: any[],
+    isTendik: boolean = false
+  ) => {
+    const parts = (monthStr || '2026-08').split('-');
+    const year = parseInt(parts[0], 10) || 2026;
+    const month = parseInt(parts[1], 10) || 8;
+    const totalDaysInMonth = new Date(year, month, 0).getDate();
+    const effectiveStartDay = Math.max(1, Math.min(startDay || 1, totalDaysInMonth));
+    const todayStr = getLocalDateString(new Date());
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const totalHariKerja = targetDays || 22;
+
+    const targetNip = person.nip || '';
+    const targetNama = person.nama || '';
+
+    const dayRows = [];
+    let countHadir = 0;
+    let countIzin = 0;
+    let countSakit = 0;
+    let countCutiDL = 0;
+    let countAlpa = 0;
+
+    for (let day = 1; day <= totalDaysInMonth; day++) {
+      const dStr = `${parts[0]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const dObj = new Date(year, month - 1, day);
+      const dayName = dayNames[dObj.getDay()];
+      const isWeekend = dObj.getDay() === 0 || dObj.getDay() === 6;
+
+      const allDayPresensi = (presensiLogs || []).filter((log: any) => {
+        const logDate = getNormalizedDateStr(log.tanggal || log.rawTanggal);
+        if (logDate !== dStr) return false;
+        if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+        const nameInLog = isTendik ? (log.namaTendik || log.namaGuru || log.nama) : (log.namaGuru || log.nama);
+        if (targetNama && nameInLog && matchTeacher(nameInLog, targetNama)) return true;
+        return false;
+      });
+
+      const presensiMatch = allDayPresensi.length > 0 ? allDayPresensi[0] : null;
+
+      const izinMatch = (permitLogs || []).find((log: any) => {
+        const logDate = getNormalizedDateStr(log.tanggal);
+        if (logDate !== dStr) return false;
+        if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+        const nameInLog = isTendik ? (log.namaTendik || log.namaGuru || log.nama) : (log.namaGuru || log.nama);
+        if (targetNama && nameInLog && matchTeacher(nameInLog, targetNama)) return true;
+        return false;
+      });
+
+      let status = '-';
+      let statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
+      let jamDatang = '-';
+      let jamPulang = '-';
+      let timeLog = '-';
+      let keterangan = '-';
+      let photo: string | null = null;
+
+      if (presensiMatch) {
+        const logDatang = allDayPresensi.find((l: any) => {
+          const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+          return type.includes('datang') || type.includes('masuk');
+        });
+        const logPulang = allDayPresensi.find((l: any) => {
+          const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+          return type.includes('pulang') || type.includes('keluar');
+        });
+
+        if (logDatang && logDatang.waktu) {
+          jamDatang = String(logDatang.waktu).substring(0, 5);
+        }
+        if (logPulang && logPulang.waktu) {
+          jamPulang = String(logPulang.waktu).substring(0, 5);
+        }
+
+        const hasDatang = !!logDatang;
+        const hasPulang = !!logPulang;
+
+        let isAlpaIncomplete = false;
+        if (hasDatang && !hasPulang) {
+          if (!izinMatch) {
+            if (dStr < todayStr) {
+              isAlpaIncomplete = true;
+            }
+          }
+        }
+
+        if (isAlpaIncomplete) {
+          status = 'Alpa';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          countAlpa++;
+          keterangan = 'Tidak Hadir (Hanya Absen Datang)';
+        } else {
+          status = 'Hadir';
+          statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold';
+          countHadir++;
+          keterangan = presensiMatch.tipeAbsen || 'Presensi Mandiri / Kiosk';
+          if (hasDatang && !hasPulang && izinMatch) {
+            keterangan += ' (Izin Pulang)';
+          }
+        }
+
+        photo = presensiMatch.photo || null;
+        timeLog = jamDatang !== '-' ? (jamPulang !== '-' ? `${jamDatang} - ${jamPulang}` : jamDatang) : '-';
+      } else if (izinMatch) {
+        const st = String(izinMatch.status || '').toLowerCase();
+        photo = (izinMatch as any).photo || null;
+        if (st.includes('sakit')) {
+          status = 'Sakit';
+          statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-bold';
+          countSakit++;
+        } else if (st.includes('dinas') || st.includes('cuti') || st.includes('dl')) {
+          status = st.includes('cuti') ? 'Cuti' : 'Dinas Luar';
+          statusBadge = 'bg-purple-50 text-purple-700 border-purple-200 font-bold';
+          countCutiDL++;
+        } else {
+          status = 'Izin';
+          statusBadge = 'bg-blue-50 text-blue-700 border-blue-200 font-bold';
+          countIzin++;
+        }
+        keterangan = izinMatch.alasan || 'Permohonan Resmi';
+      } else if (isWeekend) {
+        status = 'Libur Akhir Pekan';
+        statusBadge = 'bg-slate-100 text-slate-400 border-slate-200 font-medium';
+        keterangan = 'Akhir Pekan';
+      } else if (day < effectiveStartDay) {
+        status = 'Belum Dimulai';
+        statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
+        keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
+      } else if (dStr <= todayStr) {
+        status = 'Alpa';
+        statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+        countAlpa++;
+        keterangan = 'Hari Kerja Belum Presensi';
+      } else {
+        status = 'Belum Berlangsung';
+        statusBadge = 'bg-slate-50 text-slate-400 border-slate-100';
+        keterangan = '-';
+      }
+
+      dayRows.push({
+        dayNumber: day,
+        tanggal: dStr,
+        dayName,
+        status,
+        statusBadge,
+        jamDatang,
+        jamPulang,
+        timeLog,
+        keterangan,
+        photo,
+      });
+    }
+
+    const persentase = totalHariKerja > 0 ? Math.min(100, Math.round((countHadir / totalHariKerja) * 100)) : 0;
+
+    return {
+      nip: targetNip || '-',
+      nama: targetNama || '-',
+      countHadir,
+      countIzin,
+      countSakit,
+      countCutiDL,
+      countAlpa,
+      totalHariKerja,
+      persentase,
+      dayRows,
+    };
+  };
+
+  const activeGuruPerson = useMemo(() => {
+    if (currentUser?.role === 'Guru' && !isFullAccess) {
+      return { nip: currentUser?.nip || '', nama: currentUser?.nama || '' };
+    }
+    const found = listGuruUsers.find(g => (g.nip && g.nip === selectedGuruNip) || (g.nama && g.nama === selectedGuruNip));
+    return found || listGuruUsers[0] || (currentUser ? { nip: currentUser?.nip || '', nama: currentUser?.nama || '' } : null);
+  }, [currentUser, isFullAccess, listGuruUsers, selectedGuruNip]);
+
+  const activeTendikPerson = useMemo(() => {
+    if (currentUser?.role === 'Tendik' && !isFullAccess) {
+      return { nip: currentUser?.nip || '', nama: currentUser?.nama || '' };
+    }
+    const found = listTendikUsers.find(t => (t.nip && t.nip === selectedTendikNip) || (t.nama && t.nama === selectedTendikNip));
+    return found || listTendikUsers[0] || (currentUser ? { nip: currentUser?.nip || '', nama: currentUser?.nama || '' } : null);
+  }, [currentUser, isFullAccess, listTendikUsers, selectedTendikNip]);
+
+  const currentGuruStats = useMemo(() => {
+    if (!activeGuruPerson) return null;
+    return computeMonthlyStats(
+      activeGuruPerson,
+      currentMonthStr,
+      rekapGuruTargetDays,
+      rekapGuruStartDay,
+      guruAbsenList,
+      teacherPermitList,
+      false
+    );
+  }, [activeGuruPerson, currentMonthStr, rekapGuruTargetDays, rekapGuruStartDay, guruAbsenList, teacherPermitList]);
+
+  const currentTendikStats = useMemo(() => {
+    if (!activeTendikPerson) return null;
+    return computeMonthlyStats(
+      activeTendikPerson,
+      currentMonthStr,
+      rekapTendikTargetDays,
+      rekapTendikStartDay,
+      tendikList,
+      tendikPermitList,
+      true
+    );
+  }, [activeTendikPerson, currentMonthStr, rekapTendikTargetDays, rekapTendikStartDay, tendikList, tendikPermitList]);
+
+  const selectedGuruIndex = useMemo(() => {
+    if (!activeGuruPerson) return 0;
+    const idx = listGuruUsers.findIndex(g => (g.nip && g.nip === activeGuruPerson.nip) || (g.nama && g.nama === activeGuruPerson.nama));
+    return idx >= 0 ? idx : 0;
+  }, [listGuruUsers, activeGuruPerson]);
+
+  const selectedTendikIndex = useMemo(() => {
+    if (!activeTendikPerson) return 0;
+    const idx = listTendikUsers.findIndex(t => (t.nip && t.nip === activeTendikPerson.nip) || (t.nama && t.nama === activeTendikPerson.nama));
+    return idx >= 0 ? idx : 0;
+  }, [listTendikUsers, activeTendikPerson]);
 
   return (
     <div className="space-y-6">
@@ -1228,7 +1666,173 @@ export function DashboardView({
         {/* LIVE FEED REKAP PRESENSI TERBARU */}
         {/* Render Rekap Sesi Absensi Mengajar Terbaru if Guru or Admin */}
         {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Guru' || isFullAccess) && (
-          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+          <>
+            {/* GURU MONTHLY ATTENDANCE SUMMARY CARD (DI ATAS REKAP SESI ABSENSI MENGAJAR) */}
+            {currentGuruStats && (
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5 transition-all">
+                {/* 5-Column Summary Stats Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {/* 1. IDENTITAS GURU */}
+                  <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                      Identitas Guru {isFullAccess && listGuruUsers.length > 0 ? `#${selectedGuruIndex + 1}` : ''}
+                    </span>
+                    <p className="text-sm font-extrabold text-slate-800 truncate" title={currentGuruStats.nama}>
+                      {currentGuruStats.nama}
+                    </p>
+                    <p className="text-[10px] font-mono text-slate-500 font-medium truncate">
+                      NIP: {currentGuruStats.nip || '-'}
+                    </p>
+                  </div>
+
+                  {/* 2. HADIR */}
+                  <div className="bg-emerald-50/50 border border-emerald-100 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider block">Hadir</span>
+                    <p className="text-lg font-black text-emerald-700">
+                      {currentGuruStats.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-medium truncate">Presensi Mandiri / Kiosk</p>
+                  </div>
+
+                  {/* 3. IZIN / SAKIT / CUTI */}
+                  <div className="bg-amber-50/50 border border-amber-100 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[9px] font-extrabold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                    <p className="text-lg font-black text-amber-700">
+                      {currentGuruStats.countIzin + currentGuruStats.countSakit + currentGuruStats.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-medium truncate">
+                      S: {currentGuruStats.countSakit} | I: {currentGuruStats.countIzin} | DL/C: {currentGuruStats.countCutiDL}
+                    </p>
+                  </div>
+
+                  {/* 4. ALPA / TANPA KET. */}
+                  <div className="bg-rose-50/50 border border-rose-100 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[9px] font-extrabold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                    <p className="text-lg font-black text-rose-700">
+                      {currentGuruStats.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-medium truncate">Hari Kerja Belum Presensi</p>
+                  </div>
+
+                  {/* 5. % KEHADIRAN */}
+                  <div className="bg-indigo-50/50 border border-indigo-100 p-3.5 rounded-xl space-y-1 col-span-2 sm:col-span-1">
+                    <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block">% Kehadiran</span>
+                    <p className="text-lg font-black text-indigo-700">{currentGuruStats.persentase}%</p>
+                    <p className="text-[10px] text-slate-500 font-medium truncate">
+                      {currentGuruStats.countHadir} dari {currentGuruStats.totalHariKerja} Hari Target
+                    </p>
+                  </div>
+                </div>
+
+                {/* Bottom Bar: Selector & Toggle Rincian */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <span className="font-semibold text-slate-600">Urutan Abjad:</span>
+                    {isFullAccess && listGuruUsers.length > 1 ? (
+                      <select
+                        value={selectedGuruNip}
+                        onChange={(e) => {
+                          setSelectedGuruNip(e.target.value);
+                          userManuallySelectedGuru.current = true;
+                        }}
+                        aria-label="Pilih Guru untuk Rekap"
+                        className="px-2.5 py-1 text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      >
+                        {listGuruUsers.map((g, idx) => (
+                          <option key={`sel-g-${g.nip || idx}-${g.nama}`} value={g.nip || g.nama}>
+                            {idx + 1}. {g.nama} ({g.nip || 'Tanpa NIP'})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="font-bold text-slate-800">{currentGuruStats.nama}</span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end sm:self-center">
+                    <button
+                      type="button"
+                      onClick={() => setGuruExpanded(!guruExpanded)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                        guruExpanded
+                          ? 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300'
+                      }`}
+                    >
+                      {guruExpanded ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{guruExpanded ? 'Tutup Rincian Harian' : `Lihat Rincian Harian (Tgl 1 - ${currentGuruStats.dayRows.length})`}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Detailed Daily Breakdown Table (When Expanded) */}
+                {guruExpanded && (
+                  <div className="mt-3 pt-3 border-t border-slate-200 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-slate-700">
+                        Rincian Presensi Harian Guru: {currentGuruStats.nama} ({currentMonthStr})
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        Target: {currentGuruStats.totalHariKerja} Hari Kerja
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                          <tr>
+                            <th className="p-2.5 pl-3 w-12 text-center">Tgl</th>
+                            <th className="p-2.5 w-24">Hari</th>
+                            <th className="p-2.5 text-center w-28">Status</th>
+                            <th className="p-2.5 text-center w-24">Jam Datang</th>
+                            <th className="p-2.5 text-center w-24">Jam Pulang</th>
+                            <th className="p-2.5">Keterangan</th>
+                            <th className="p-2.5 text-center w-20">Foto</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-medium">
+                          {currentGuruStats.dayRows.map((row) => (
+                            <tr
+                              key={`guru-day-${row.dayNumber}`}
+                              className={`hover:bg-slate-50/60 transition-colors ${
+                                row.dayName === 'Minggu' || row.dayName === 'Sabtu' ? 'bg-slate-50/40 text-slate-400' : ''
+                              }`}
+                            >
+                              <td className="p-2.5 pl-3 text-center font-bold font-mono text-slate-700">{row.dayNumber}</td>
+                              <td className="p-2.5 text-slate-600 font-semibold">{row.dayName}</td>
+                              <td className="p-2.5 text-center">
+                                <span className={`inline-block px-2 py-0.5 text-[10px] rounded-md border ${row.statusBadge}`}>
+                                  {row.status}
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-center font-mono font-semibold text-slate-600">{row.jamDatang}</td>
+                              <td className="p-2.5 text-center font-mono font-semibold text-slate-600">{row.jamPulang}</td>
+                              <td className="p-2.5 text-slate-500 text-[11px]">{row.keterangan}</td>
+                              <td className="p-2.5 text-center whitespace-nowrap">
+                                {row.photo ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedPhoto(row.photo)}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold cursor-pointer transition-all"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>Foto</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-300 text-[10px]">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
               <div>
                 <h4 className="font-extrabold text-slate-800 text-sm tracking-tight flex items-center gap-2">
@@ -1318,6 +1922,7 @@ export function DashboardView({
               </table>
             </div>
           </div>
+          </>
         )}
 
         {/* Render Riwayat Presensi Hadir Guru (Mandiri) Terbaru if Guru or Admin */}
@@ -1412,7 +2017,173 @@ export function DashboardView({
 
         {/* Render Riwayat Presensi Hadir Tendik Terbaru if Tendik or Admin */}
         {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || currentUser?.role === 'Tendik') && (
-          <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
+          <>
+            {/* TENDIK MONTHLY ATTENDANCE SUMMARY CARD (DI ATAS RIWAYAT PRESENSI HADIR TENDIK) */}
+            {currentTendikStats && (
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3.5 transition-all">
+                {/* 5-Column Summary Stats Grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+                  {/* 1. IDENTITAS TENDIK */}
+                  <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">
+                      Identitas Tendik {isFullAccess && listTendikUsers.length > 0 ? `#${selectedTendikIndex + 1}` : ''}
+                    </span>
+                    <p className="text-sm font-extrabold text-slate-800 truncate" title={currentTendikStats.nama}>
+                      {currentTendikStats.nama}
+                    </p>
+                    <p className="text-[10px] font-mono text-slate-500 font-medium truncate">
+                      NIP: {currentTendikStats.nip || '-'}
+                    </p>
+                  </div>
+
+                  {/* 2. HADIR */}
+                  <div className="bg-emerald-50/50 border border-emerald-100 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider block">Hadir</span>
+                    <p className="text-lg font-black text-emerald-700">
+                      {currentTendikStats.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-medium truncate">Presensi Mandiri / Kiosk</p>
+                  </div>
+
+                  {/* 3. IZIN / SAKIT / CUTI */}
+                  <div className="bg-amber-50/50 border border-amber-100 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[9px] font-extrabold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                    <p className="text-lg font-black text-amber-700">
+                      {currentTendikStats.countIzin + currentTendikStats.countSakit + currentTendikStats.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-medium truncate">
+                      S: {currentTendikStats.countSakit} | I: {currentTendikStats.countIzin} | DL/C: {currentTendikStats.countCutiDL}
+                    </p>
+                  </div>
+
+                  {/* 4. ALPA / TANPA KET. */}
+                  <div className="bg-rose-50/50 border border-rose-100 p-3.5 rounded-xl space-y-1">
+                    <span className="text-[9px] font-extrabold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                    <p className="text-lg font-black text-rose-700">
+                      {currentTendikStats.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-medium truncate">Hari Kerja Belum Presensi</p>
+                  </div>
+
+                  {/* 5. % KEHADIRAN */}
+                  <div className="bg-indigo-50/50 border border-indigo-100 p-3.5 rounded-xl space-y-1 col-span-2 sm:col-span-1">
+                    <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block">% Kehadiran</span>
+                    <p className="text-lg font-black text-indigo-700">{currentTendikStats.persentase}%</p>
+                    <p className="text-[10px] text-slate-500 font-medium truncate">
+                      {currentTendikStats.countHadir} dari {currentTendikStats.totalHariKerja} Hari Target
+                    </p>
+                  </div>
+                </div>
+
+                {/* Bottom Bar: Selector & Toggle Rincian */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                  <div className="flex items-center gap-2 text-xs text-slate-500">
+                    <span className="font-semibold text-slate-600">Urutan Abjad:</span>
+                    {isFullAccess && listTendikUsers.length > 1 ? (
+                      <select
+                        value={selectedTendikNip}
+                        onChange={(e) => {
+                          setSelectedTendikNip(e.target.value);
+                          userManuallySelectedTendik.current = true;
+                        }}
+                        aria-label="Pilih Tendik untuk Rekap"
+                        className="px-2.5 py-1 text-xs font-bold text-slate-800 bg-slate-100 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                      >
+                        {listTendikUsers.map((t, idx) => (
+                          <option key={`sel-t-${t.nip || idx}-${t.nama}`} value={t.nip || t.nama}>
+                            {idx + 1}. {t.nama} ({t.nip || 'Tanpa NIP'})
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="font-bold text-slate-800">{currentTendikStats.nama}</span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2 self-end sm:self-center">
+                    <button
+                      type="button"
+                      onClick={() => setTendikExpanded(!tendikExpanded)}
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs ${
+                        tendikExpanded
+                          ? 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300'
+                      }`}
+                    >
+                      {tendikExpanded ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                      <span>{tendikExpanded ? 'Tutup Rincian Harian' : `Lihat Rincian Harian (Tgl 1 - ${currentTendikStats.dayRows.length})`}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Detailed Daily Breakdown Table (When Expanded) */}
+                {tendikExpanded && (
+                  <div className="mt-3 pt-3 border-t border-slate-200 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-slate-700">
+                        Rincian Presensi Harian Tendik: {currentTendikStats.nama} ({currentMonthStr})
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-medium">
+                        Target: {currentTendikStats.totalHariKerja} Hari Kerja
+                      </span>
+                    </div>
+
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                          <tr>
+                            <th className="p-2.5 pl-3 w-12 text-center">Tgl</th>
+                            <th className="p-2.5 w-24">Hari</th>
+                            <th className="p-2.5 text-center w-28">Status</th>
+                            <th className="p-2.5 text-center w-24">Jam Datang</th>
+                            <th className="p-2.5 text-center w-24">Jam Pulang</th>
+                            <th className="p-2.5">Keterangan</th>
+                            <th className="p-2.5 text-center w-20">Foto</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 font-medium">
+                          {currentTendikStats.dayRows.map((row) => (
+                            <tr
+                              key={`tendik-day-${row.dayNumber}`}
+                              className={`hover:bg-slate-50/60 transition-colors ${
+                                row.dayName === 'Minggu' || row.dayName === 'Sabtu' ? 'bg-slate-50/40 text-slate-400' : ''
+                              }`}
+                            >
+                              <td className="p-2.5 pl-3 text-center font-bold font-mono text-slate-700">{row.dayNumber}</td>
+                              <td className="p-2.5 text-slate-600 font-semibold">{row.dayName}</td>
+                              <td className="p-2.5 text-center">
+                                <span className={`inline-block px-2 py-0.5 text-[10px] rounded-md border ${row.statusBadge}`}>
+                                  {row.status}
+                                </span>
+                              </td>
+                              <td className="p-2.5 text-center font-mono font-semibold text-slate-600">{row.jamDatang}</td>
+                              <td className="p-2.5 text-center font-mono font-semibold text-slate-600">{row.jamPulang}</td>
+                              <td className="p-2.5 text-slate-500 text-[11px]">{row.keterangan}</td>
+                              <td className="p-2.5 text-center whitespace-nowrap">
+                                {row.photo ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedPhoto(row.photo)}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-md text-[10px] font-bold cursor-pointer transition-all"
+                                  >
+                                    <Eye className="w-3 h-3" />
+                                    <span>Foto</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-300 text-[10px]">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-sm space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-100">
               <div>
                 <h4 className="font-extrabold text-slate-800 text-sm tracking-tight flex items-center gap-2">
@@ -1498,6 +2269,7 @@ export function DashboardView({
               </table>
             </div>
           </div>
+          </>
         )}
       </div>
       )}

@@ -756,8 +756,10 @@ export default function App() {
       } else {
         addToast(res.message || 'Pengaturan disimpan lokal (gagal sinkronisasi cloud).', 'warning');
       }
+      return res;
     } catch (err: any) {
       addToast('Pengaturan disimpan lokal (koneksi cloud terputus).', 'warning');
+      return { status: 'error', message: err.message || 'Gagal sinkronisasi cloud' };
     }
   };
 
@@ -1721,6 +1723,7 @@ export default function App() {
                   subView={activeView === 'dashboard-dua' ? 'dua' : 'satu'}
                   currentUser={currentUser}
                   historyList={historyList}
+                  teacherHistoryList={teacherHistoryList}
                   allStudents={allStudents}
                   allTeachers={allTeachers}
                   onNavigate={(view) => setActiveView(view)}

@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { User, getLocalDateString } from '../types';
-import { Camera, FileImage, Trash2, CheckCircle, Clock, Loader2, Play, CalendarDays, RotateCw, AlertTriangle, Sparkles } from 'lucide-react';
+import { Camera, FileImage, Trash2, CheckCircle, Clock, Loader2, Play, CalendarDays, RotateCw, AlertTriangle, Sparkles, ShieldCheck } from 'lucide-react';
 
 interface TendikPermitViewProps {
   currentUser: User | null;
@@ -281,6 +281,19 @@ export function TendikPermitView({
             <span className="text-sm font-extrabold text-slate-700">{currentUser?.role}</span>
           </div>
         </div>
+
+        {/* Status Administrator Non-Wajib Presensi */}
+        {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || String(currentUser?.role || '').toLowerCase().includes('admin') || String(currentUser?.username || '').toLowerCase().includes('admin')) && (
+          <div className="bg-amber-50/80 border border-amber-200/80 rounded-2xl p-4 flex items-start gap-3 text-amber-900 text-xs">
+            <ShieldCheck className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-extrabold text-amber-950 block">Akun Administrator (Non-Wajib Permohonan Izin)</span>
+              <p className="text-amber-800/90 text-[11px] leading-relaxed">
+                Khusus akun <strong>Admin Utama</strong> dan <strong>Admin</strong>, Anda <strong>tidak memiliki kewajiban permohonan izin/cuti rutin</strong> dan akun ini <strong>tidak dimasukkan ke dalam perhitungan rekapitulasi ketidakhadiran</strong> staf/tendik.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Inputs */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">

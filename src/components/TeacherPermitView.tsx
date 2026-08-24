@@ -119,7 +119,12 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
               const rowRole = roleIdx !== -1 ? row.data[roleIdx] : 'Guru';
               return { nip: rowNip, nama: rowNama, status: rowStatus, role: rowRole };
             })
-            .filter((t) => t.nama && t.nip && t.status.toLowerCase() === 'aktif');
+            .filter((t) => {
+              const r = String(t.role || '').toLowerCase();
+              const n = String(t.nama || '').toLowerCase();
+              const isAdm = r === 'admin' || r === 'admin utama' || r.includes('admin') || n.includes('admin');
+              return t.nama && t.nip && t.status.toLowerCase() === 'aktif' && !isAdm;
+            });
 
           setTeachers(parsed);
         }

@@ -17,7 +17,7 @@ export interface Holiday {
 interface HariLiburViewProps {
   onAddToast: (msg: string, type: 'success' | 'error' | 'warning' | 'info') => void;
   customization?: AppCustomization;
-  onSaveCustomization?: (newCust: AppCustomization) => Promise<void>;
+  onSaveCustomization?: (newCust: AppCustomization) => Promise<any> | any;
 }
 
 export function HariLiburView({ onAddToast, customization, onSaveCustomization }: HariLiburViewProps) {

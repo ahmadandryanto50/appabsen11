@@ -26,12 +26,17 @@ import {
   Clock,
   Trash2,
   Eye,
+  EyeOff,
+  X,
   ExternalLink,
   ScanLine,
   CheckCheck,
   RefreshCw,
   GraduationCap,
   Save,
+  LayoutGrid,
+  List,
+  ArrowLeft,
 } from 'lucide-react';
 import { apiClient } from '../api';
 import { formatKeterlambatan } from '../utils/timeUtils';
@@ -117,9 +122,28 @@ const getPeriodeLabelText = (
   return 'Semua Tanggal';
 };
 
+const normalizePersonName = (name: string): string => {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .replace(/(s\.pd\.i|s\.pd|s\.kom|m\.pd|s\.si|dra\.|drs\.|m\.si|s\.t|s\.e|s\.sos|gr\.|dr\.|h\.|hj\.|m\.m|s\.ag)/gi, '')
+    .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 const matchTeacher = (recordGuru: string, targetNama: string) => {
   if (!recordGuru || !targetNama) return false;
-  return recordGuru.toLowerCase().trim() === targetNama.toLowerCase().trim();
+  const a = recordGuru.toLowerCase().trim();
+  const b = targetNama.toLowerCase().trim();
+  if (a === b) return true;
+  const normA = normalizePersonName(recordGuru);
+  const normB = normalizePersonName(targetNama);
+  if (normA && normB) {
+    if (normA === normB) return true;
+    if (normA.includes(normB) || normB.includes(normA)) return true;
+  }
+  return false;
 };
 
 const matchMapel = (recordMapel: string, targetMapel: string) => {
@@ -189,6 +213,30 @@ export function HistoryView({
   customization,
 }: HistoryViewProps) {
   const isFullAccess = (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || String(currentUser?.role || '').toLowerCase().includes('admin') || Boolean(currentUser?.username?.toLowerCase().includes('admin'));
+  const isAdminUtama = currentUser?.role === 'Admin Utama' || String(currentUser?.role || '').toLowerCase() === 'admin utama' || (currentUser?.username || '').toLowerCase() === 'admin_utama';
+
+  // Helper to determine if an account/record belongs to Admin or Admin Utama (excluded from mandatory teacher/tendik attendance & recaps)
+  const isAdminUser = (userOrObj: any): boolean => {
+    if (!userOrObj) return false;
+    const r = String(userOrObj.role || '').toLowerCase().trim();
+    const u = String(userOrObj.username || '').toLowerCase().trim();
+    const n = String(userOrObj.nama || userOrObj.namaGuru || userOrObj.namaTendik || '').toLowerCase().trim();
+    const nip = String(userOrObj.nip || '').toLowerCase().trim();
+
+    if (r === 'admin utama' || r === 'admin' || r === 'administrator' || r === 'admin_utama' || r.includes('admin')) {
+      return true;
+    }
+    if (u === 'admin' || u === 'admin_utama' || u.startsWith('admin')) {
+      return true;
+    }
+    if (n === 'admin' || n === 'admin utama' || n === 'administrator' || n === 'administrator utama' || n.includes('administrator')) {
+      return true;
+    }
+    if (nip === 'admin' || nip === 'admin_utama' || (nip === 'g01' && n.includes('admin'))) {
+      return true;
+    }
+    return false;
+  };
 
   const [subTab, setSubTab] = useState<'siswa' | 'kiosk-siswa' | 'guru' | 'guru-absen' | 'tendik-absen' | 'tendik-izin' | 'rekap-pdf' | 'rekap-kelas-guru'>(
     currentUser?.role === 'Tendik' ? 'tendik-absen' : 'siswa'
@@ -345,7 +393,22 @@ export function HistoryView({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [rekapGuruNip, setRekapGuruNip] = useState<string>('');
-  const [rekapGuruTargetDays, setRekapGuruTargetDays] = useState<number>(22);
+  const [rekapGuruTargetDays, setRekapGuruTargetDays] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_guru_target_days');
+      return saved ? parseInt(saved, 10) : 22;
+    } catch {
+      return 22;
+    }
+  });
+  const [rekapGuruStartDay, setRekapGuruStartDay] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_guru_start_day');
+      return saved ? parseInt(saved, 10) : 1;
+    } catch {
+      return 1;
+    }
+  });
 
   // States for Monthly Individual Recap - TENDIK
   const [rekapTendikMonth, setRekapTendikMonth] = useState<string>(() => {
@@ -353,57 +416,483 @@ export function HistoryView({
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [rekapTendikNip, setRekapTendikNip] = useState<string>('');
-  const [rekapTendikTargetDays, setRekapTendikTargetDays] = useState<number>(22);
+  const [rekapTendikTargetDays, setRekapTendikTargetDays] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_tendik_target_days');
+      return saved ? parseInt(saved, 10) : 22;
+    } catch {
+      return 22;
+    }
+  });
+  const [rekapTendikStartDay, setRekapTendikStartDay] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_tendik_start_day');
+      return saved ? parseInt(saved, 10) : 1;
+    } catch {
+      return 1;
+    }
+  });
 
   const [savingRecapMsg, setSavingRecapMsg] = useState<string>('');
   const [isSavingGuruRecap, setIsSavingGuruRecap] = useState<boolean>(false);
   const [isSavingTendikRecap, setIsSavingTendikRecap] = useState<boolean>(false);
 
-  // List Teachers & Tendik Users
+  // Search & View Mode states for collective recap
+  const [searchRekapGuru, setSearchRekapGuru] = useState<string>('');
+  const [guruRekapViewMode, setGuruRekapViewMode] = useState<'cards' | 'table'>('cards');
+  const [selectedGuruDetailNip, setSelectedGuruDetailNip] = useState<string | null>(null);
+
+  const [searchRekapTendik, setSearchRekapTendik] = useState<string>('');
+  const [tendikRekapViewMode, setTendikRekapViewMode] = useState<'cards' | 'table'>('cards');
+  const [selectedTendikDetailNip, setSelectedTendikDetailNip] = useState<string | null>(null);
+
+  // List Teachers & Tendik Users - STRICTLY SORTED ALPHABETICALLY (A to Z)
+  // Khusus Admin Utama dan Admin tidak diwajibkan absen dan tidak masuk rekap harian/bulanan
   const listGuruUsers = useMemo(() => {
-    const filtered = masterGuruList.filter(g => {
+    const fromMaster = masterGuruList.filter(g => {
+      if (isAdminUser(g)) return false;
       const r = String(g.role || '').toLowerCase();
-      return r === 'guru' || r === 'admin' || !r;
+      return r === 'guru' || (!r.includes('tendik') && !r.includes('tu') && !r.includes('tata usaha') && !r.includes('staf') && !r.includes('pegawai'));
     });
-    if (filtered.length > 0) return filtered;
-    return [
+    const extraGuruMap = new Map<string, { nip: string; nama: string; role: string }>();
+    (guruAbsenHistory || []).forEach((log: any) => {
+      if (isAdminUser(log)) return;
+      const nama = log.namaGuru || log.nama;
+      const nip = log.nip || '';
+      if (nama && !fromMaster.some(m => matchTeacher(m.nama, nama))) {
+        extraGuruMap.set(nama.toLowerCase().trim(), { nip: nip || '-', nama: nama.trim(), role: 'Guru' });
+      }
+    });
+    (teacherHistoryList || []).forEach((log: any) => {
+      if (isAdminUser(log)) return;
+      const nama = log.namaGuru || log.nama;
+      const nip = log.nip || '';
+      if (nama && !fromMaster.some(m => matchTeacher(m.nama, nama))) {
+        extraGuruMap.set(nama.toLowerCase().trim(), { nip: nip || '-', nama: nama.trim(), role: 'Guru' });
+      }
+    });
+    (teachers || []).forEach((t: any) => {
+      if (isAdminUser(t)) return;
+      if (t.nama && !fromMaster.some(m => matchTeacher(m.nama, t.nama))) {
+        extraGuruMap.set(t.nama.toLowerCase().trim(), { nip: t.nip || '-', nama: t.nama.trim(), role: 'Guru' });
+      }
+    });
+    const combined = [...fromMaster, ...Array.from(extraGuruMap.values())].filter(item => !isAdminUser(item));
+    const base = combined.length > 0 ? combined : [
       { nip: '19900202201502', nama: 'Budi Santoso, S.Pd.', role: 'Guru' },
       { nip: '19920815201803', nama: 'Siti Rahma, M.Pd.', role: 'Guru' },
       { nip: '19881112201201', nama: 'Hendra Wijaya, S.Si.', role: 'Guru' },
     ];
-  }, [masterGuruList]);
+    return [...base].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id', { sensitivity: 'base' }));
+  }, [masterGuruList, guruAbsenHistory, teacherHistoryList, teachers]);
 
   const listTendikUsers = useMemo(() => {
-    const filtered = masterGuruList.filter(g => {
+    const fromMaster = masterGuruList.filter(g => {
+      if (isAdminUser(g)) return false;
       const r = String(g.role || '').toLowerCase();
-      return r.includes('tendik');
+      return r.includes('tendik') || r.includes('tu') || r.includes('tata usaha') || r.includes('staf') || r.includes('pegawai');
     });
-    if (filtered.length > 0) return filtered;
-    return [
+    const extraTendikMap = new Map<string, { nip: string; nama: string; role: string }>();
+    (tendikAbsenHistory || []).forEach((log: any) => {
+      if (isAdminUser(log)) return;
+      const nama = log.namaTendik || log.namaGuru || log.nama;
+      const nip = log.nip || '';
+      if (nama && !fromMaster.some(m => matchTeacher(m.nama, nama))) {
+        extraTendikMap.set(nama.toLowerCase().trim(), { nip: nip || '-', nama: nama.trim(), role: 'Tendik' });
+      }
+    });
+    (tendikIzinHistory || []).forEach((log: any) => {
+      if (isAdminUser(log)) return;
+      const nama = log.namaTendik || log.namaGuru || log.nama;
+      const nip = log.nip || '';
+      if (nama && !fromMaster.some(m => matchTeacher(m.nama, nama))) {
+        extraTendikMap.set(nama.toLowerCase().trim(), { nip: nip || '-', nama: nama.trim(), role: 'Tendik' });
+      }
+    });
+    const combined = [...fromMaster, ...Array.from(extraTendikMap.values())].filter(item => !isAdminUser(item));
+    const base = combined.length > 0 ? combined : [
       { nip: '19950505202005', nama: 'Rina Herawati, S.Pd.I.', role: 'Tendik' },
       { nip: '19970606202206', nama: 'Doni Setiawan', role: 'Tendik' },
     ];
-  }, [masterGuruList]);
+    return [...base].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id', { sensitivity: 'base' }));
+  }, [masterGuruList, tendikAbsenHistory, tendikIzinHistory]);
 
   useEffect(() => {
     if (!rekapGuruNip) {
-      if (currentUser?.role === 'Guru' && currentUser?.nip) {
+      if (isFullAccess) {
+        setRekapGuruNip('ALL');
+      } else if (currentUser?.role === 'Guru' && currentUser?.nip && !isAdminUser(currentUser)) {
         setRekapGuruNip(currentUser.nip);
       } else if (listGuruUsers.length > 0) {
         setRekapGuruNip(listGuruUsers[0].nip || listGuruUsers[0].nama);
       }
     }
-  }, [currentUser, listGuruUsers, rekapGuruNip]);
+  }, [currentUser, isFullAccess, listGuruUsers, rekapGuruNip]);
 
   useEffect(() => {
     if (!rekapTendikNip) {
-      if (currentUser?.role === 'Tendik' && currentUser?.nip) {
+      if (isFullAccess) {
+        setRekapTendikNip('ALL');
+      } else if (currentUser?.role === 'Tendik' && currentUser?.nip && !isAdminUser(currentUser)) {
         setRekapTendikNip(currentUser.nip);
       } else if (listTendikUsers.length > 0) {
         setRekapTendikNip(listTendikUsers[0].nip || listTendikUsers[0].nama);
       }
     }
-  }, [currentUser, listTendikUsers, rekapTendikNip]);
+  }, [currentUser, isFullAccess, listTendikUsers, rekapTendikNip]);
+
+  // Compute Collective Monthly Attendance Data for ALL Guru
+  const allGuruMonthlyList = useMemo(() => {
+    const parts = (rekapGuruMonth || '2026-08').split('-');
+    const year = parseInt(parts[0], 10) || 2026;
+    const month = parseInt(parts[1], 10) || 8;
+    const totalDaysInMonth = new Date(year, month, 0).getDate();
+    const effectiveStartDay = Math.max(1, Math.min(rekapGuruStartDay || 1, totalDaysInMonth));
+    const todayStr = getLocalDateString(new Date());
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const totalHariKerja = rekapGuruTargetDays || 22;
+
+    return listGuruUsers.map((guru) => {
+      const targetNip = guru.nip || '';
+      const targetNama = guru.nama || '';
+
+      const dayRows = [];
+      let countHadir = 0;
+      let countIzin = 0;
+      let countSakit = 0;
+      let countCutiDL = 0;
+      let countAlpa = 0;
+
+      for (let day = 1; day <= totalDaysInMonth; day++) {
+        const dStr = `${parts[0]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dObj = new Date(year, month - 1, day);
+        const dayName = dayNames[dObj.getDay()];
+        const isWeekend = dObj.getDay() === 0 || dObj.getDay() === 6;
+
+        const allDayPresensi = (guruAbsenHistory || []).filter((log: any) => {
+          const logDate = getNormalizedDateStr(log.tanggal || log.rawTanggal);
+          if (logDate !== dStr) return false;
+          if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+          if (targetNama && log.namaGuru && matchTeacher(log.namaGuru, targetNama)) return true;
+          return false;
+        });
+
+        const presensiMatch = allDayPresensi.length > 0 ? allDayPresensi[0] : null;
+
+        const izinMatch = (teacherHistoryList || []).find((log: any) => {
+          const logDate = getNormalizedDateStr(log.tanggal);
+          if (logDate !== dStr) return false;
+          if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+          if (targetNama && log.namaGuru && matchTeacher(log.namaGuru, targetNama)) return true;
+          return false;
+        });
+
+        let status = '-';
+        let statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
+        let jamDatang = '-';
+        let jamPulang = '-';
+        let timeLog = '-';
+        let keterangan = '-';
+        let photo: string | null = null;
+
+        if (presensiMatch) {
+          const logDatang = allDayPresensi.find((l: any) => {
+            const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+            return type.includes('datang') || type.includes('masuk');
+          });
+          const logPulang = allDayPresensi.find((l: any) => {
+            const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+            return type.includes('pulang') || type.includes('keluar');
+          });
+
+          if (logDatang && logDatang.waktu) {
+            jamDatang = String(logDatang.waktu).substring(0, 5);
+          }
+          if (logPulang && logPulang.waktu) {
+            jamPulang = String(logPulang.waktu).substring(0, 5);
+          }
+
+          const hasDatang = !!logDatang;
+          const hasPulang = !!logPulang;
+
+          let isAlpaIncomplete = false;
+          if (hasDatang && !hasPulang) {
+            if (!izinMatch) {
+              if (dStr < todayStr) {
+                isAlpaIncomplete = true;
+              }
+            }
+          }
+
+          if (isAlpaIncomplete) {
+            status = 'Alpa';
+            statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+            countAlpa++;
+            keterangan = 'Tidak Hadir (Hanya Absen Datang)';
+          } else {
+            status = 'Hadir';
+            statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold';
+            countHadir++;
+            keterangan = presensiMatch.tipeAbsen || 'Presensi Mandiri';
+            if (hasDatang && !hasPulang && izinMatch) {
+              keterangan += ' (Izin Pulang)';
+            }
+          }
+
+          photo = presensiMatch.photo || null;
+          timeLog = jamDatang !== '-' ? (jamPulang !== '-' ? `${jamDatang} - ${jamPulang}` : jamDatang) : '-';
+        } else if (izinMatch) {
+          const st = String(izinMatch.status || '').toLowerCase();
+          photo = (izinMatch as any).photo || null;
+          if (st.includes('sakit')) {
+            status = 'Sakit';
+            statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-bold';
+            countSakit++;
+          } else if (st.includes('dinas') || st.includes('cuti') || st.includes('dl')) {
+            status = st.includes('cuti') ? 'Cuti' : 'Dinas Luar';
+            statusBadge = 'bg-purple-50 text-purple-700 border-purple-200 font-bold';
+            countCutiDL++;
+          } else {
+            status = 'Izin';
+            statusBadge = 'bg-blue-50 text-blue-700 border-blue-200 font-bold';
+            countIzin++;
+          }
+          keterangan = izinMatch.alasan || 'Permohonan Resmi';
+        } else if (isWeekend) {
+          status = 'Libur Akhir Pekan';
+          statusBadge = 'bg-slate-100 text-slate-400 border-slate-200 font-medium';
+          keterangan = 'Akhir Pekan';
+        } else if (day < effectiveStartDay) {
+          status = 'Belum Dimulai';
+          statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
+          keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
+        } else if (dStr <= todayStr) {
+          status = 'Alpa';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          countAlpa++;
+          keterangan = 'Tanpa Keterangan';
+        } else {
+          status = 'Belum Berlangsung';
+          statusBadge = 'bg-slate-50 text-slate-400 border-slate-100';
+          keterangan = '-';
+        }
+
+        dayRows.push({
+          dayNumber: day,
+          tanggal: dStr,
+          dayName,
+          status,
+          statusBadge,
+          jamDatang,
+          jamPulang,
+          timeLog,
+          keterangan,
+          photo,
+        });
+      }
+
+      const persentase = totalHariKerja > 0 ? Math.min(100, Math.round((countHadir / totalHariKerja) * 100)) : 0;
+
+      return {
+        nip: targetNip || '-',
+        nama: targetNama || '-',
+        countHadir,
+        countIzin,
+        countSakit,
+        countCutiDL,
+        countAlpa,
+        totalHariKerja,
+        persentase,
+        dayRows,
+      };
+    });
+  }, [rekapGuruMonth, rekapGuruTargetDays, rekapGuruStartDay, listGuruUsers, guruAbsenHistory, teacherHistoryList]);
+
+  // Compute Collective Monthly Attendance Data for ALL Tendik
+  const allTendikMonthlyList = useMemo(() => {
+    const parts = (rekapTendikMonth || '2026-08').split('-');
+    const year = parseInt(parts[0], 10) || 2026;
+    const month = parseInt(parts[1], 10) || 8;
+    const totalDaysInMonth = new Date(year, month, 0).getDate();
+    const effectiveStartDay = Math.max(1, Math.min(rekapTendikStartDay || 1, totalDaysInMonth));
+    const todayStr = getLocalDateString(new Date());
+    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const totalHariKerja = rekapTendikTargetDays || 22;
+
+    return listTendikUsers.map((tendik) => {
+      const targetNip = tendik.nip || '';
+      const targetNama = tendik.nama || '';
+
+      const dayRows = [];
+      let countHadir = 0;
+      let countIzin = 0;
+      let countSakit = 0;
+      let countCutiDL = 0;
+      let countAlpa = 0;
+
+      for (let day = 1; day <= totalDaysInMonth; day++) {
+        const dStr = `${parts[0]}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dObj = new Date(year, month - 1, day);
+        const dayName = dayNames[dObj.getDay()];
+        const isWeekend = dObj.getDay() === 0 || dObj.getDay() === 6;
+
+        const allDayPresensi = (tendikAbsenHistory || []).filter((log: any) => {
+          const logDate = getNormalizedDateStr(log.tanggal || log.rawTanggal);
+          if (logDate !== dStr) return false;
+          if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+          if (targetNama && log.namaTendik && matchTeacher(log.namaTendik, targetNama)) return true;
+          return false;
+        });
+
+        const presensiMatch = allDayPresensi.length > 0 ? allDayPresensi[0] : null;
+
+        const izinMatch = (tendikIzinHistory || []).find((log: any) => {
+          const logDate = getNormalizedDateStr(log.tanggal);
+          if (logDate !== dStr) return false;
+          if (targetNip && log.nip && String(log.nip).trim() === String(targetNip).trim()) return true;
+          if (targetNama && log.namaTendik && matchTeacher(log.namaTendik, targetNama)) return true;
+          return false;
+        });
+
+        let status = '-';
+        let statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
+        let jamDatang = '-';
+        let jamPulang = '-';
+        let timeLog = '-';
+        let keterangan = '-';
+        let photo: string | null = null;
+
+        if (presensiMatch) {
+          const logDatang = allDayPresensi.find((l: any) => {
+            const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+            return type.includes('datang') || type.includes('masuk');
+          });
+          const logPulang = allDayPresensi.find((l: any) => {
+            const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
+            return type.includes('pulang') || type.includes('keluar');
+          });
+
+          if (logDatang && logDatang.waktu) {
+            jamDatang = String(logDatang.waktu).substring(0, 5);
+          }
+          if (logPulang && logPulang.waktu) {
+            jamPulang = String(logPulang.waktu).substring(0, 5);
+          }
+
+          const hasDatang = !!logDatang;
+          const hasPulang = !!logPulang;
+
+          let isAlpaIncomplete = false;
+          if (hasDatang && !hasPulang) {
+            if (!izinMatch) {
+              if (dStr < todayStr) {
+                isAlpaIncomplete = true;
+              }
+            }
+          }
+
+          if (isAlpaIncomplete) {
+            status = 'Alpa';
+            statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+            countAlpa++;
+            keterangan = 'Tidak Hadir (Hanya Absen Datang)';
+          } else {
+            status = 'Hadir';
+            statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold';
+            countHadir++;
+            keterangan = presensiMatch.tipeAbsen || 'Presensi Mandiri';
+            if (hasDatang && !hasPulang && izinMatch) {
+              keterangan += ' (Izin Pulang)';
+            }
+          }
+
+          photo = presensiMatch.photo || null;
+          timeLog = jamDatang !== '-' ? (jamPulang !== '-' ? `${jamDatang} - ${jamPulang}` : jamDatang) : '-';
+        } else if (izinMatch) {
+          const st = String(izinMatch.status || '').toLowerCase();
+          photo = (izinMatch as any).photo || null;
+          if (st.includes('sakit')) {
+            status = 'Sakit';
+            statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-bold';
+            countSakit++;
+          } else if (st.includes('dinas') || st.includes('cuti') || st.includes('dl')) {
+            status = st.includes('cuti') ? 'Cuti' : 'Dinas Luar';
+            statusBadge = 'bg-purple-50 text-purple-700 border-purple-200 font-bold';
+            countCutiDL++;
+          } else {
+            status = 'Izin';
+            statusBadge = 'bg-blue-50 text-blue-700 border-blue-200 font-bold';
+            countIzin++;
+          }
+          keterangan = izinMatch.alasan || 'Permohonan Resmi';
+        } else if (isWeekend) {
+          status = 'Libur Akhir Pekan';
+          statusBadge = 'bg-slate-100 text-slate-400 border-slate-200 font-medium';
+          keterangan = 'Akhir Pekan';
+        } else if (day < effectiveStartDay) {
+          status = 'Belum Dimulai';
+          statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
+          keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
+        } else if (dStr <= todayStr) {
+          status = 'Alpa';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          countAlpa++;
+          keterangan = 'Tanpa Keterangan';
+        } else {
+          status = 'Belum Berlangsung';
+          statusBadge = 'bg-slate-50 text-slate-400 border-slate-100';
+          keterangan = '-';
+        }
+
+        dayRows.push({
+          dayNumber: day,
+          tanggal: dStr,
+          dayName,
+          status,
+          statusBadge,
+          jamDatang,
+          jamPulang,
+          timeLog,
+          keterangan,
+          photo,
+        });
+      }
+
+      const persentase = totalHariKerja > 0 ? Math.min(100, Math.round((countHadir / totalHariKerja) * 100)) : 0;
+
+      return {
+        nip: targetNip || '-',
+        nama: targetNama || '-',
+        countHadir,
+        countIzin,
+        countSakit,
+        countCutiDL,
+        countAlpa,
+        totalHariKerja,
+        persentase,
+        dayRows,
+      };
+    });
+  }, [rekapTendikMonth, rekapTendikTargetDays, rekapTendikStartDay, listTendikUsers, tendikAbsenHistory, tendikIzinHistory]);
+
+  // Filtered lists for searching (alphabetical order maintained)
+  const filteredAllGuruMonthlyList = useMemo(() => {
+    if (!searchRekapGuru.trim()) return allGuruMonthlyList;
+    const q = searchRekapGuru.toLowerCase().trim();
+    return allGuruMonthlyList.filter(g =>
+      (g.nama || '').toLowerCase().includes(q) ||
+      (g.nip || '').toLowerCase().includes(q)
+    );
+  }, [allGuruMonthlyList, searchRekapGuru]);
+
+  const filteredAllTendikMonthlyList = useMemo(() => {
+    if (!searchRekapTendik.trim()) return allTendikMonthlyList;
+    const q = searchRekapTendik.toLowerCase().trim();
+    return allTendikMonthlyList.filter(t =>
+      (t.nama || '').toLowerCase().includes(q) ||
+      (t.nip || '').toLowerCase().includes(q)
+    );
+  }, [allTendikMonthlyList, searchRekapTendik]);
 
   // Compute Guru Monthly Attendance Data
   const guruMonthlyData = useMemo(() => {
@@ -419,6 +908,7 @@ export function HistoryView({
     const year = parseInt(parts[0], 10) || 2026;
     const month = parseInt(parts[1], 10) || 8;
     const totalDaysInMonth = new Date(year, month, 0).getDate();
+    const effectiveStartDay = Math.max(1, Math.min(rekapGuruStartDay || 1, totalDaysInMonth));
 
     const dayRows = [];
     let countHadir = 0;
@@ -463,12 +953,6 @@ export function HistoryView({
       let photo = null;
 
       if (presensiMatch) {
-        status = 'Hadir';
-        statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold';
-        keterangan = presensiMatch.tipeAbsen || 'Presensi Mandiri';
-        photo = presensiMatch.photo || null;
-        countHadir++;
-
         // Calculate Jam Datang & Jam Pulang
         const logDatang = allDayPresensi.find((l: any) => {
           const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
@@ -496,6 +980,34 @@ export function HistoryView({
           }
         }
 
+        const hasDatang = jamDatang !== '-';
+        const hasPulang = jamPulang !== '-';
+
+        let isAlpaIncomplete = false;
+        if (hasDatang && !hasPulang) {
+          if (!izinMatch) {
+            if (dStr < todayStr) {
+              isAlpaIncomplete = true;
+            }
+          }
+        }
+
+        if (isAlpaIncomplete) {
+          status = 'Alpa';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          countAlpa++;
+          keterangan = 'Tidak Hadir (Hanya Absen Datang)';
+        } else {
+          status = 'Hadir';
+          statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold';
+          countHadir++;
+          keterangan = presensiMatch.tipeAbsen || 'Presensi Mandiri';
+          if (hasDatang && !hasPulang && izinMatch) {
+            keterangan += ' (Izin Pulang)';
+          }
+        }
+
+        photo = presensiMatch.photo || null;
         timeLog = jamDatang !== '-' ? (jamPulang !== '-' ? `${jamDatang} - ${jamPulang}` : jamDatang) : '-';
       } else if (izinMatch) {
         const st = String(izinMatch.status || '').toLowerCase();
@@ -519,6 +1031,10 @@ export function HistoryView({
         status = 'Libur Akhir Pekan';
         statusBadge = 'bg-slate-100 text-slate-400 border-slate-200';
         keterangan = 'Akhir Pekan';
+      } else if (day < effectiveStartDay) {
+        status = 'Belum Dimulai';
+        statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
+        keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
       } else if (dStr <= todayStr) {
         status = 'Alpa';
         statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
@@ -562,7 +1078,7 @@ export function HistoryView({
       totalHariKerja,
       persentase,
     };
-  }, [rekapGuruMonth, rekapGuruNip, rekapGuruTargetDays, listGuruUsers, guruAbsenHistory, teacherHistoryList, currentUser]);
+  }, [rekapGuruMonth, rekapGuruNip, rekapGuruTargetDays, rekapGuruStartDay, listGuruUsers, guruAbsenHistory, teacherHistoryList, currentUser]);
 
   // Compute Tendik Monthly Attendance Data
   const tendikMonthlyData = useMemo(() => {
@@ -578,6 +1094,7 @@ export function HistoryView({
     const year = parseInt(parts[0], 10) || 2026;
     const month = parseInt(parts[1], 10) || 8;
     const totalDaysInMonth = new Date(year, month, 0).getDate();
+    const effectiveStartDay = Math.max(1, Math.min(rekapTendikStartDay || 1, totalDaysInMonth));
 
     const dayRows = [];
     let countHadir = 0;
@@ -622,12 +1139,6 @@ export function HistoryView({
       let photo = null;
 
       if (presensiMatch) {
-        status = 'Hadir';
-        statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold';
-        keterangan = presensiMatch.tipeAbsen || 'Presensi Mandiri';
-        photo = presensiMatch.photo || null;
-        countHadir++;
-
         // Calculate Jam Datang & Jam Pulang
         const logDatang = allDayPresensi.find((l: any) => {
           const type = String(l.tipeAbsen || l.kategori || '').toLowerCase();
@@ -655,6 +1166,34 @@ export function HistoryView({
           }
         }
 
+        const hasDatang = jamDatang !== '-';
+        const hasPulang = jamPulang !== '-';
+
+        let isAlpaIncomplete = false;
+        if (hasDatang && !hasPulang) {
+          if (!izinMatch) {
+            if (dStr < todayStr) {
+              isAlpaIncomplete = true;
+            }
+          }
+        }
+
+        if (isAlpaIncomplete) {
+          status = 'Alpa';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          countAlpa++;
+          keterangan = 'Tidak Hadir (Hanya Absen Datang)';
+        } else {
+          status = 'Hadir';
+          statusBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200 font-bold';
+          countHadir++;
+          keterangan = presensiMatch.tipeAbsen || 'Presensi Mandiri';
+          if (hasDatang && !hasPulang && izinMatch) {
+            keterangan += ' (Izin Pulang)';
+          }
+        }
+
+        photo = presensiMatch.photo || null;
         timeLog = jamDatang !== '-' ? (jamPulang !== '-' ? `${jamDatang} - ${jamPulang}` : jamDatang) : '-';
       } else if (izinMatch) {
         const st = String(izinMatch.status || '').toLowerCase();
@@ -678,6 +1217,10 @@ export function HistoryView({
         status = 'Libur Akhir Pekan';
         statusBadge = 'bg-slate-100 text-slate-400 border-slate-200';
         keterangan = 'Akhir Pekan';
+      } else if (day < effectiveStartDay) {
+        status = 'Belum Dimulai';
+        statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
+        keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
       } else if (dStr <= todayStr) {
         status = 'Alpa';
         statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
@@ -721,31 +1264,53 @@ export function HistoryView({
       totalHariKerja,
       persentase,
     };
-  }, [rekapTendikMonth, rekapTendikNip, rekapTendikTargetDays, listTendikUsers, tendikAbsenHistory, tendikIzinHistory, currentUser]);
+  }, [rekapTendikMonth, rekapTendikNip, rekapTendikTargetDays, rekapTendikStartDay, listTendikUsers, tendikAbsenHistory, tendikIzinHistory, currentUser]);
 
   // Handlers for Guru Monthly
   const handleSaveGuruMonthlyToSheets = async () => {
     setIsSavingGuruRecap(true);
     setSavingRecapMsg('');
     try {
-      const res = await apiClient.saveGuruMonthlyRecap({
-        bulanTahun: rekapGuruMonth,
-        nip: guruMonthlyData.targetNip || 'GURU',
-        namaGuru: guruMonthlyData.targetNama || 'Guru',
-        hadir: guruMonthlyData.countHadir,
-        izin: guruMonthlyData.countIzin,
-        sakit: guruMonthlyData.countSakit,
-        cutiDL: guruMonthlyData.countCutiDL,
-        alpa: guruMonthlyData.countAlpa,
-        totalHari: guruMonthlyData.totalHariKerja,
-        persentase: guruMonthlyData.persentase,
-        catatan: `Rekap Kehadiran Bulan ${guruMonthlyData.monthLabel}`,
-        dayRows: guruMonthlyData.dayRows,
-      });
-      if (res && res.status === 'success') {
-        setSavingRecapMsg('✅ ' + (res.message || 'Rekap bulanan Guru berhasil disimpan ke spreadsheet!'));
+      if (rekapGuruNip === 'ALL') {
+        let successCount = 0;
+        for (const g of allGuruMonthlyList) {
+          const res = await apiClient.saveGuruMonthlyRecap({
+            bulanTahun: rekapGuruMonth,
+            nip: g.nip || 'GURU',
+            namaGuru: g.nama || 'Guru',
+            hadir: g.countHadir,
+            izin: g.countIzin,
+            sakit: g.countSakit,
+            cutiDL: g.countCutiDL,
+            alpa: g.countAlpa,
+            totalHari: g.totalHariKerja,
+            persentase: g.persentase,
+            catatan: `Rekap Kehadiran Semua Guru Bulan ${guruMonthlyData.monthLabel}`,
+            dayRows: g.dayRows,
+          });
+          if (res && res.status === 'success') successCount++;
+        }
+        setSavingRecapMsg(`✅ Berhasil menyimpan rekap bulanan untuk ${successCount} dari ${allGuruMonthlyList.length} guru ke spreadsheet!`);
       } else {
-        setSavingRecapMsg('❌ Gagal menyimpan: ' + (res?.message || 'Terjadi kesalahan'));
+        const res = await apiClient.saveGuruMonthlyRecap({
+          bulanTahun: rekapGuruMonth,
+          nip: guruMonthlyData.targetNip || 'GURU',
+          namaGuru: guruMonthlyData.targetNama || 'Guru',
+          hadir: guruMonthlyData.countHadir,
+          izin: guruMonthlyData.countIzin,
+          sakit: guruMonthlyData.countSakit,
+          cutiDL: guruMonthlyData.countCutiDL,
+          alpa: guruMonthlyData.countAlpa,
+          totalHari: guruMonthlyData.totalHariKerja,
+          persentase: guruMonthlyData.persentase,
+          catatan: `Rekap Kehadiran Bulan ${guruMonthlyData.monthLabel}`,
+          dayRows: guruMonthlyData.dayRows,
+        });
+        if (res && res.status === 'success') {
+          setSavingRecapMsg('✅ ' + (res.message || 'Rekap bulanan Guru berhasil disimpan ke spreadsheet!'));
+        } else {
+          setSavingRecapMsg('❌ Gagal menyimpan: ' + (res?.message || 'Terjadi kesalahan'));
+        }
       }
     } catch (e: any) {
       setSavingRecapMsg('❌ Error: ' + e.message);
@@ -760,6 +1325,93 @@ export function HistoryView({
     renderOfficialKopSurat(doc, customization);
 
     const primaryColor: [number, number, number] = [37, 99, 235];
+
+    if (rekapGuruNip === 'ALL') {
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(11.5);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.text('LAPORAN REKAPITULASI KEHADIRAN BULANAN SEMUA GURU', 105, 40, { align: 'center' });
+
+      doc.setFontSize(8.5);
+      doc.setFont('Helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Bulan / Periode: ${guruMonthlyData.monthLabel}  |  Target: ${rekapGuruTargetDays} Hari Kerja`, 105, 45, { align: 'center' });
+
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(15, 48, 195, 48);
+
+      const tableBody: any[] = allGuruMonthlyList.map((g, idx) => [
+        idx + 1,
+        g.nip || '-',
+        g.nama,
+        `${g.countHadir}`,
+        `${g.countIzin}`,
+        `${g.countSakit}`,
+        `${g.countCutiDL}`,
+        `${g.countAlpa}`,
+        `${g.persentase}%`
+      ]);
+
+      const totalHadir = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countHadir, 0);
+      const totalIzin = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countIzin, 0);
+      const totalSakit = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countSakit, 0);
+      const totalCutiDL = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countCutiDL, 0);
+      const totalAlpa = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countAlpa, 0);
+      const avgPersentase = allGuruMonthlyList.length > 0
+        ? Math.round(allGuruMonthlyList.reduce((acc, curr) => acc + curr.persentase, 0) / allGuruMonthlyList.length)
+        : 0;
+
+      tableBody.push([
+        '',
+        'TOTAL',
+        `${allGuruMonthlyList.length} Orang Guru`,
+        `${totalHadir}`,
+        `${totalIzin}`,
+        `${totalSakit}`,
+        `${totalCutiDL}`,
+        `${totalAlpa}`,
+        `${avgPersentase}%`
+      ]);
+
+      autoTable(doc, {
+        startY: 52,
+        head: [['No', 'NIP', 'Nama Guru', 'Hadir', 'Izin', 'Sakit', 'Cuti/DL', 'Alpa', '% Hadir']],
+        body: tableBody,
+        theme: 'striped',
+        headStyles: { fillColor: primaryColor, textColor: [255, 255, 255], fontSize: 8, halign: 'center' },
+        bodyStyles: { fontSize: 7.5, textColor: [51, 65, 85] },
+        columnStyles: {
+          0: { cellWidth: 8, halign: 'center' },
+          1: { cellWidth: 32, halign: 'center' },
+          2: { cellWidth: 46 },
+          3: { cellWidth: 14, halign: 'center' },
+          4: { cellWidth: 14, halign: 'center' },
+          5: { cellWidth: 14, halign: 'center' },
+          6: { cellWidth: 16, halign: 'center' },
+          7: { cellWidth: 14, halign: 'center' },
+          8: { cellWidth: 18, halign: 'center' },
+        },
+        margin: { left: 15, right: 15 }
+      });
+
+      let currentY = (doc as any).lastAutoTable.finalY + 12;
+      if (currentY > 230) {
+        doc.addPage();
+        currentY = 25;
+      }
+
+      doc.setFontSize(9);
+      doc.setFont('Helvetica', 'normal');
+      doc.text('Mengetahui, Kepala Sekolah,', 135, currentY);
+
+      doc.setFont('Helvetica', 'bold');
+      doc.text(`( ${customization?.kepalaSekolahNama || '....................'} )`, 135, currentY + 25);
+      doc.text(`NIP. ${customization?.kepalaSekolahNip || '....................'}`, 135, currentY + 30);
+
+      doc.save(`Rekap_Bulanan_Semua_Guru_${rekapGuruMonth}.pdf`);
+      return;
+    }
 
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(12);
@@ -860,6 +1512,26 @@ export function HistoryView({
   };
 
   const handleExportGuruMonthlyExcel = () => {
+    if (rekapGuruNip === 'ALL') {
+      const dataForSheet = allGuruMonthlyList.map((g, idx) => ({
+        'No': idx + 1,
+        'NIP': g.nip || '-',
+        'Nama Guru': g.nama,
+        'Jumlah Hadir': g.countHadir,
+        'Jumlah Izin': g.countIzin,
+        'Jumlah Sakit': g.countSakit,
+        'Jumlah Cuti / DL': g.countCutiDL,
+        'Jumlah Alpa / Tanpa Keterangan': g.countAlpa,
+        'Target Hari Kerja': g.totalHariKerja,
+        'Persentase Kehadiran (%)': `${g.persentase}%`
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Rekap Semua Guru');
+      XLSX.writeFile(workbook, `Rekap_Bulanan_Semua_Guru_${rekapGuruMonth}.xlsx`);
+      return;
+    }
+
     const dataForSheet = guruMonthlyData.dayRows.map(r => ({
       'No Tanggal': r.dayNumber,
       'Tanggal': r.tanggal,
@@ -879,24 +1551,46 @@ export function HistoryView({
     setIsSavingTendikRecap(true);
     setSavingRecapMsg('');
     try {
-      const res = await apiClient.saveTendikMonthlyRecap({
-        bulanTahun: rekapTendikMonth,
-        nip: tendikMonthlyData.targetNip || 'TENDIK',
-        namaTendik: tendikMonthlyData.targetNama || 'Tendik',
-        hadir: tendikMonthlyData.countHadir,
-        izin: tendikMonthlyData.countIzin,
-        sakit: tendikMonthlyData.countSakit,
-        cutiDL: tendikMonthlyData.countCutiDL,
-        alpa: tendikMonthlyData.countAlpa,
-        totalHari: tendikMonthlyData.totalHariKerja,
-        persentase: tendikMonthlyData.persentase,
-        catatan: `Rekap Kehadiran Bulan ${tendikMonthlyData.monthLabel}`,
-        dayRows: tendikMonthlyData.dayRows,
-      });
-      if (res && res.status === 'success') {
-        setSavingRecapMsg('✅ ' + (res.message || 'Rekap bulanan Tendik berhasil disimpan ke spreadsheet!'));
+      if (rekapTendikNip === 'ALL') {
+        let successCount = 0;
+        for (const t of allTendikMonthlyList) {
+          const res = await apiClient.saveTendikMonthlyRecap({
+            bulanTahun: rekapTendikMonth,
+            nip: t.nip || 'TENDIK',
+            namaTendik: t.nama || 'Tendik',
+            hadir: t.countHadir,
+            izin: t.countIzin,
+            sakit: t.countSakit,
+            cutiDL: t.countCutiDL,
+            alpa: t.countAlpa,
+            totalHari: t.totalHariKerja,
+            persentase: t.persentase,
+            catatan: `Rekap Kehadiran Semua Tendik Bulan ${tendikMonthlyData.monthLabel}`,
+            dayRows: t.dayRows,
+          });
+          if (res && res.status === 'success') successCount++;
+        }
+        setSavingRecapMsg(`✅ Berhasil menyimpan rekap bulanan untuk ${successCount} dari ${allTendikMonthlyList.length} tendik ke spreadsheet!`);
       } else {
-        setSavingRecapMsg('❌ Gagal menyimpan: ' + (res?.message || 'Terjadi kesalahan'));
+        const res = await apiClient.saveTendikMonthlyRecap({
+          bulanTahun: rekapTendikMonth,
+          nip: tendikMonthlyData.targetNip || 'TENDIK',
+          namaTendik: tendikMonthlyData.targetNama || 'Tendik',
+          hadir: tendikMonthlyData.countHadir,
+          izin: tendikMonthlyData.countIzin,
+          sakit: tendikMonthlyData.countSakit,
+          cutiDL: tendikMonthlyData.countCutiDL,
+          alpa: tendikMonthlyData.countAlpa,
+          totalHari: tendikMonthlyData.totalHariKerja,
+          persentase: tendikMonthlyData.persentase,
+          catatan: `Rekap Kehadiran Bulan ${tendikMonthlyData.monthLabel}`,
+          dayRows: tendikMonthlyData.dayRows,
+        });
+        if (res && res.status === 'success') {
+          setSavingRecapMsg('✅ ' + (res.message || 'Rekap bulanan Tendik berhasil disimpan ke spreadsheet!'));
+        } else {
+          setSavingRecapMsg('❌ Gagal menyimpan: ' + (res?.message || 'Terjadi kesalahan'));
+        }
       }
     } catch (e: any) {
       setSavingRecapMsg('❌ Error: ' + e.message);
@@ -911,6 +1605,93 @@ export function HistoryView({
     renderOfficialKopSurat(doc, customization);
 
     const primaryColor: [number, number, number] = [16, 185, 129];
+
+    if (rekapTendikNip === 'ALL') {
+      doc.setFont('Helvetica', 'bold');
+      doc.setFontSize(11.5);
+      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+      doc.text('LAPORAN REKAPITULASI KEHADIRAN BULANAN SEMUA TENDIK', 105, 40, { align: 'center' });
+
+      doc.setFontSize(8.5);
+      doc.setFont('Helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Bulan / Periode: ${tendikMonthlyData.monthLabel}  |  Target: ${rekapTendikTargetDays} Hari Kerja`, 105, 45, { align: 'center' });
+
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.5);
+      doc.line(15, 48, 195, 48);
+
+      const tableBody: any[] = allTendikMonthlyList.map((t, idx) => [
+        idx + 1,
+        t.nip || '-',
+        t.nama,
+        `${t.countHadir}`,
+        `${t.countIzin}`,
+        `${t.countSakit}`,
+        `${t.countCutiDL}`,
+        `${t.countAlpa}`,
+        `${t.persentase}%`
+      ]);
+
+      const totalHadir = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countHadir, 0);
+      const totalIzin = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countIzin, 0);
+      const totalSakit = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countSakit, 0);
+      const totalCutiDL = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countCutiDL, 0);
+      const totalAlpa = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countAlpa, 0);
+      const avgPersentase = allTendikMonthlyList.length > 0
+        ? Math.round(allTendikMonthlyList.reduce((acc, curr) => acc + curr.persentase, 0) / allTendikMonthlyList.length)
+        : 0;
+
+      tableBody.push([
+        '',
+        'TOTAL',
+        `${allTendikMonthlyList.length} Orang Tendik`,
+        `${totalHadir}`,
+        `${totalIzin}`,
+        `${totalSakit}`,
+        `${totalCutiDL}`,
+        `${totalAlpa}`,
+        `${avgPersentase}%`
+      ]);
+
+      autoTable(doc, {
+        startY: 52,
+        head: [['No', 'NIP', 'Nama Tendik', 'Hadir', 'Izin', 'Sakit', 'Cuti/DL', 'Alpa', '% Hadir']],
+        body: tableBody,
+        theme: 'striped',
+        headStyles: { fillColor: primaryColor, textColor: [255, 255, 255], fontSize: 8, halign: 'center' },
+        bodyStyles: { fontSize: 7.5, textColor: [51, 65, 85] },
+        columnStyles: {
+          0: { cellWidth: 8, halign: 'center' },
+          1: { cellWidth: 32, halign: 'center' },
+          2: { cellWidth: 46 },
+          3: { cellWidth: 14, halign: 'center' },
+          4: { cellWidth: 14, halign: 'center' },
+          5: { cellWidth: 14, halign: 'center' },
+          6: { cellWidth: 16, halign: 'center' },
+          7: { cellWidth: 14, halign: 'center' },
+          8: { cellWidth: 18, halign: 'center' },
+        },
+        margin: { left: 15, right: 15 }
+      });
+
+      let currentY = (doc as any).lastAutoTable.finalY + 12;
+      if (currentY > 230) {
+        doc.addPage();
+        currentY = 25;
+      }
+
+      doc.setFontSize(9);
+      doc.setFont('Helvetica', 'normal');
+      doc.text('Mengetahui, Kepala Sekolah,', 135, currentY);
+
+      doc.setFont('Helvetica', 'bold');
+      doc.text(`( ${customization?.kepalaSekolahNama || '....................'} )`, 135, currentY + 25);
+      doc.text(`NIP. ${customization?.kepalaSekolahNip || '....................'}`, 135, currentY + 30);
+
+      doc.save(`Rekap_Bulanan_Semua_Tendik_${rekapTendikMonth}.pdf`);
+      return;
+    }
 
     doc.setFont('Helvetica', 'bold');
     doc.setFontSize(12);
@@ -1011,6 +1792,26 @@ export function HistoryView({
   };
 
   const handleExportTendikMonthlyExcel = () => {
+    if (rekapTendikNip === 'ALL') {
+      const dataForSheet = allTendikMonthlyList.map((t, idx) => ({
+        'No': idx + 1,
+        'NIP': t.nip || '-',
+        'Nama Tendik': t.nama,
+        'Jumlah Hadir': t.countHadir,
+        'Jumlah Izin': t.countIzin,
+        'Jumlah Sakit': t.countSakit,
+        'Jumlah Cuti / DL': t.countCutiDL,
+        'Jumlah Alpa / Tanpa Keterangan': t.countAlpa,
+        'Target Hari Kerja': t.totalHariKerja,
+        'Persentase Kehadiran (%)': `${t.persentase}%`
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Rekap Semua Tendik');
+      XLSX.writeFile(workbook, `Rekap_Bulanan_Semua_Tendik_${rekapTendikMonth}.xlsx`);
+      return;
+    }
+
     const dataForSheet = tendikMonthlyData.dayRows.map(r => ({
       'No Tanggal': r.dayNumber,
       'Tanggal': r.tanggal,
@@ -1025,20 +1826,20 @@ export function HistoryView({
     XLSX.writeFile(workbook, `Rekap_Bulanan_Tendik_${tendikMonthlyData.targetNip}_${rekapTendikMonth}.xlsx`);
   };
 
-  // Auto-set selectedGuru if currentUser is a Teacher
+  // Auto-set selectedGuru if currentUser is a Teacher (not Admin)
   useEffect(() => {
-    if (currentUser?.nama && !selectedGuru) {
+    if (currentUser?.nama && !selectedGuru && !isAdminUser(currentUser) && currentUser?.role === 'Guru') {
       setSelectedGuru(currentUser.nama);
     }
   }, [currentUser, selectedGuru]);
 
-  // Compute restricted teachers for dropdown
+  // Compute restricted teachers for dropdown (excluding Admin & Admin Utama)
   const filteredTeachersForRecap = useMemo(() => {
-    if (isFullAccess) return teachers;
-    if (currentUser?.role === 'Guru' && currentUser?.nama) {
-      return teachers.filter(t => matchTeacher(t.nama, currentUser.nama));
+    if (isFullAccess) return teachers.filter(t => !isAdminUser(t));
+    if (currentUser?.role === 'Guru' && currentUser?.nama && !isAdminUser(currentUser)) {
+      return teachers.filter(t => matchTeacher(t.nama, currentUser.nama) && !isAdminUser(t));
     }
-    return teachers;
+    return teachers.filter(t => !isAdminUser(t));
   }, [isFullAccess, currentUser, teachers]);
 
   // Compute classes taught by selected teacher
@@ -4530,14 +5331,18 @@ export function HistoryView({
           </div>
         )}
 
-        {/* SUB TAB 8: REKAP BULANAN GURU (PERSEORANGAN) */}
+        {/* SUB TAB 8: REKAP BULANAN GURU (PERSEORANGAN / SEMUA GURU) */}
         {subTab === 'rekap-guru' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-lg font-bold text-slate-800 tracking-tight">Rekapitulasi Kehadiran Bulanan Guru (Perseorangan)</h3>
+                <h3 className="text-lg font-bold text-slate-800 tracking-tight">
+                  {rekapGuruNip === 'ALL' ? 'Rekapitulasi Kehadiran Bulanan Semua Guru' : 'Rekapitulasi Kehadiran Bulanan Guru (Perseorangan)'}
+                </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Laporan rekap presensi bulanan perseorangan Guru. Tersimpan otomatis ke sheet <span className="font-bold text-blue-600">Rekap_Kehadiran Guru</span>.
+                  {rekapGuruNip === 'ALL'
+                    ? 'Laporan rekapitulasi kehadiran seluruh guru dalam satu bulan kerja.'
+                    : 'Laporan rekap presensi bulanan perseorangan Guru. Tersimpan otomatis ke sheet Rekap_Kehadiran Guru.'}
                 </p>
               </div>
 
@@ -4577,7 +5382,7 @@ export function HistoryView({
             )}
 
             {/* Filter controls */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pilih Guru</label>
                 <select
@@ -4585,9 +5390,12 @@ export function HistoryView({
                   onChange={(e) => setRekapGuruNip(e.target.value)}
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
                 >
+                  {isFullAccess && (
+                    <option value="ALL">⭐ SEMUA GURU (SEMUA NIP - URUT ABJAD A-Z)</option>
+                  )}
                   {listGuruUsers.map((g: any, idx: number) => (
                     <option key={`guru-opt-${g.nip || idx}`} value={g.nip || g.nama}>
-                      {g.nama} {g.nip ? `(NIP: ${g.nip})` : ''}
+                      {g.nama} {g.nip && g.nip !== 'ALL' ? `(NIP: ${g.nip})` : ''}
                     </option>
                   ))}
                 </select>
@@ -4604,122 +5412,616 @@ export function HistoryView({
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Target Hari Kerja (Bulan Ini)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">
+                    Mulai Tgl / Hari Hitung
+                  </label>
+                  {!isAdminUtama && (
+                    <span className="text-[9px] font-extrabold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                      Hanya Admin Utama
+                    </span>
+                  )}
+                </div>
+                <select
+                  disabled={!isAdminUtama}
+                  value={rekapGuruStartDay}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10) || 1;
+                    setRekapGuruStartDay(val);
+                    try { localStorage.setItem('absensi_rekap_guru_start_day', String(val)); } catch {}
+                  }}
+                  className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-semibold ${
+                    !isAdminUtama ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : 'bg-white text-slate-800 border-slate-200 cursor-pointer'
+                  }`}
+                  title={!isAdminUtama ? 'Hanya Admin Utama yang dapat menentukan tanggal awal hitung presensi' : 'Tentukan mulai tanggal berapa presensi dihitung (hari sebelumnya tidak dihitung Alpa)'}
+                >
+                  {(() => {
+                    const parts = (rekapGuruMonth || '2026-08').split('-');
+                    const yr = parseInt(parts[0], 10) || 2026;
+                    const mo = parseInt(parts[1], 10) || 8;
+                    const totalDays = new Date(yr, mo, 0).getDate();
+                    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+                    return Array.from({ length: totalDays }, (_, i) => i + 1).map((d) => {
+                      const dObj = new Date(yr, mo - 1, d);
+                      const dName = dayNames[dObj.getDay()];
+                      return (
+                        <option key={`guru-start-day-${d}`} value={d}>
+                          Tgl {d} ({dName}) {d === 1 ? '- Awal Bulan' : ''}
+                        </option>
+                      );
+                    });
+                  })()}
+                </select>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">
+                    Target Hari Kerja
+                  </label>
+                  {!isAdminUtama && (
+                    <span className="text-[9px] font-extrabold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                      Hanya Admin Utama
+                    </span>
+                  )}
+                </div>
                 <input
                   type="number"
                   min={1}
                   max={31}
+                  disabled={!isAdminUtama}
                   value={rekapGuruTargetDays}
-                  onChange={(e) => setRekapGuruTargetDays(parseInt(e.target.value, 10) || 22)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10) || 22;
+                    setRekapGuruTargetDays(val);
+                    try { localStorage.setItem('absensi_rekap_guru_target_days', String(val)); } catch {}
+                  }}
+                  className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-semibold ${
+                    !isAdminUtama ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : 'bg-white text-slate-800 border-slate-200'
+                  }`}
+                  title={!isAdminUtama ? 'Hanya Admin Utama yang dapat mengedit Target Hari Kerja' : 'Edit target hari kerja'}
                 />
               </div>
             </div>
 
-            {/* Summary Stat Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Identitas Guru</span>
-                <p className="text-sm font-extrabold text-slate-800 truncate" title={guruMonthlyData.targetNama}>{guruMonthlyData.targetNama}</p>
-                <p className="text-[10px] text-slate-400 font-medium">NIP: {guruMonthlyData.targetNip || '-'}</p>
-              </div>
-
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
-                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Hadir</span>
-                <p className="text-xl font-extrabold text-emerald-600">{guruMonthlyData.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
-                <p className="text-[10px] text-slate-400 font-medium">Presensi Mandiri / Kiosk</p>
-              </div>
-
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
-                <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
-                <p className="text-xl font-extrabold text-amber-600">
-                  {guruMonthlyData.countIzin + guruMonthlyData.countSakit + guruMonthlyData.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
-                </p>
-                <p className="text-[10px] text-slate-400 font-medium">S: {guruMonthlyData.countSakit} | I: {guruMonthlyData.countIzin} | DL/C: {guruMonthlyData.countCutiDL}</p>
-              </div>
-
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
-                <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
-                <p className="text-xl font-extrabold text-rose-600">{guruMonthlyData.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
-                <p className="text-[10px] text-slate-400 font-medium">Hari Kerja Belum Presensi</p>
-              </div>
-
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 col-span-2 sm:col-span-1">
-                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">% Kehadiran</span>
-                <p className="text-xl font-extrabold text-blue-600">{guruMonthlyData.persentase}%</p>
-                <p className="text-[10px] text-slate-400 font-medium">{guruMonthlyData.countHadir} dari {guruMonthlyData.totalHariKerja} Hari Target</p>
-              </div>
-            </div>
-
-            {/* Daily Matrix Table */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
-                  Rincian Kehadiran Bulan {guruMonthlyData.monthLabel} ({guruMonthlyData.totalDaysInMonth} Hari)
-                </h4>
-                <span className="text-[11px] text-slate-500 font-bold bg-white px-3 py-1 rounded-full border border-slate-200 shadow-xs">
-                  Sheet Target: <span className="text-blue-600 font-black">Rekap_Kehadiran Guru</span>
+            {rekapGuruStartDay > 1 && (
+              <div className="flex items-center gap-2.5 bg-blue-50/70 border border-blue-200/80 px-4 py-2.5 rounded-xl text-xs text-blue-900 font-medium">
+                <Calendar className="w-4 h-4 text-blue-600 shrink-0" />
+                <span>
+                  Hitung presensi bulanan aktif dimulai dari <strong>Tanggal {rekapGuruStartDay}</strong>. Tanggal 1 s.d. {rekapGuruStartDay - 1} berstatus <em>Belum Dimulai</em> (tidak dihitung Alpa).
                 </span>
               </div>
+            )}
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="bg-slate-100/80 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
-                      <th className="py-3 px-4 text-center">Tgl</th>
-                      <th className="py-3 px-4">Tanggal Lengkap</th>
-                      <th className="py-3 px-4">Hari</th>
-                      <th className="py-3 px-4 text-center">Status Kehadiran</th>
-                      <th className="py-3 px-4 text-center">Jam Datang</th>
-                      <th className="py-3 px-4 text-center">Jam Pulang</th>
-                      <th className="py-3 px-4">Keterangan / Alasan</th>
-                      <th className="py-3 px-4 text-center">Foto Bukti</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {guruMonthlyData.dayRows.map((r, idx) => (
-                      <tr key={`g-day-${r.tanggal}-${idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
-                        <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{r.dayNumber}</td>
-                        <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{r.tanggal}</td>
-                        <td className="py-3 px-4 font-bold text-slate-800">{r.dayName}</td>
-                        <td className="py-3 px-4 text-center">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] border ${r.statusBadge}`}>
-                            {r.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamDatang}</td>
-                        <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamPulang}</td>
-                        <td className="py-3 px-4 text-slate-600">{r.keterangan}</td>
-                        <td className="py-3 px-4 text-center">
-                          {r.photo ? (
-                            <button
-                              onClick={() => setSelectedPhoto(r.photo)}
-                              className="px-2.5 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-[10px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1"
-                            >
-                              <Eye className="w-3 h-3" />
-                              <span>Foto</span>
-                            </button>
-                          ) : (
-                            <span className="text-slate-300 text-[10px]">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {/* Back to ALL Guru button if looking at individual */}
+            {rekapGuruNip !== 'ALL' && isFullAccess && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-blue-50/80 border border-blue-200 p-3.5 rounded-2xl shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
+                  <div>
+                    <span className="text-xs font-extrabold text-blue-900 block">
+                      Rincian Presensi Guru: <span className="underline">{guruMonthlyData.targetNama}</span>
+                    </span>
+                    <span className="text-[10px] text-blue-700 font-mono">
+                      NIP: {guruMonthlyData.targetNip || '-'} | Periode: {guruMonthlyData.monthLabel}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRekapGuruNip('ALL');
+                    setSelectedGuruDetailNip(null);
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Tutup & Kembali ke Semua Guru (A-Z)</span>
+                </button>
               </div>
-            </div>
+            )}
+
+            {/* Summary Stat Cards */}
+            {rekapGuruNip === 'ALL' ? (
+              (() => {
+                const totalHadir = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countHadir, 0);
+                const totalIzin = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countIzin, 0);
+                const totalSakit = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countSakit, 0);
+                const totalCutiDL = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countCutiDL, 0);
+                const totalAlpa = allGuruMonthlyList.reduce((acc, curr) => acc + curr.countAlpa, 0);
+                const avgPersentase = allGuruMonthlyList.length > 0
+                  ? Math.round(allGuruMonthlyList.reduce((acc, curr) => acc + curr.persentase, 0) / allGuruMonthlyList.length)
+                  : 0;
+
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Guru</span>
+                        <p className="text-xl font-extrabold text-blue-600">{allGuruMonthlyList.length} <span className="text-xs font-semibold text-slate-400">Orang</span></p>
+                        <p className="text-[10px] text-slate-400 font-medium">Bulan: {guruMonthlyData.monthLabel}</p>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Total Hadir</span>
+                        <p className="text-xl font-extrabold text-emerald-600">{totalHadir} <span className="text-xs font-semibold text-slate-400">Total Hari</span></p>
+                        <p className="text-[10px] text-slate-400 font-medium">Akumulasi Semua Guru</p>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                        <p className="text-xl font-extrabold text-amber-600">
+                          {totalIzin + totalSakit + totalCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-medium">S: {totalSakit} | I: {totalIzin} | C/DL: {totalCutiDL}</p>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                        <p className="text-xl font-extrabold text-rose-600">{totalAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                        <p className="text-[10px] text-slate-400 font-medium">Belum Presensi</p>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 col-span-2 sm:col-span-1">
+                        <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Rata-Rata Kehadiran</span>
+                        <p className="text-xl font-extrabold text-indigo-600">{avgPersentase}%</p>
+                        <p className="text-[10px] text-slate-400 font-medium">Target: {rekapGuruTargetDays} Hari Kerja</p>
+                      </div>
+                    </div>
+
+                    {/* Search & View Mode Switcher */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-100/70 border border-slate-200 rounded-2xl">
+                      <div className="relative flex-1 max-w-md">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Cari Nama Guru / NIP (contoh: Ahmad, Dede)..."
+                          value={searchRekapGuru}
+                          onChange={(e) => setSearchRekapGuru(e.target.value)}
+                          className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-slate-800 font-medium placeholder:text-slate-400"
+                        />
+                        {searchRekapGuru && (
+                          <button
+                            type="button"
+                            onClick={() => setSearchRekapGuru('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs px-1"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-slate-500">
+                          {filteredAllGuruMonthlyList.length} dari {allGuruMonthlyList.length} Guru (Urut A-Z)
+                        </span>
+                        <div className="flex bg-slate-200/80 p-1 rounded-xl gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setGuruRekapViewMode('cards')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${guruRekapViewMode === 'cards' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+                          >
+                            <LayoutGrid className="w-3.5 h-3.5" />
+                            <span>Kartu Ringkasan</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setGuruRekapViewMode('table')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${guruRekapViewMode === 'table' ? 'bg-white text-blue-600 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+                          >
+                            <List className="w-3.5 h-3.5" />
+                            <span>Tabel Matriks</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Identitas Guru</span>
+                  <p className="text-sm font-extrabold text-slate-800 truncate" title={guruMonthlyData.targetNama}>{guruMonthlyData.targetNama}</p>
+                  <p className="text-[10px] text-slate-400 font-medium">NIP: {guruMonthlyData.targetNip || '-'}</p>
+                </div>
+
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Hadir</span>
+                  <p className="text-xl font-extrabold text-emerald-600">{guruMonthlyData.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                  <p className="text-[10px] text-slate-400 font-medium">Presensi Mandiri / Kiosk</p>
+                </div>
+
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                  <p className="text-xl font-extrabold text-amber-600">
+                    {guruMonthlyData.countIzin + guruMonthlyData.countSakit + guruMonthlyData.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-medium">S: {guruMonthlyData.countSakit} | I: {guruMonthlyData.countIzin} | DL/C: {guruMonthlyData.countCutiDL}</p>
+                </div>
+
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                  <p className="text-xl font-extrabold text-rose-600">{guruMonthlyData.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                  <p className="text-[10px] text-slate-400 font-medium">Hari Kerja Belum Presensi</p>
+                </div>
+
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 col-span-2 sm:col-span-1">
+                  <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider block">% Kehadiran</span>
+                  <p className="text-xl font-extrabold text-blue-600">{guruMonthlyData.persentase}%</p>
+                  <p className="text-[10px] text-slate-400 font-medium">{guruMonthlyData.countHadir} dari {guruMonthlyData.totalHariKerja} Hari Target</p>
+                </div>
+              </div>
+            )}
+
+            {/* Matrix Table or Card View */}
+            {rekapGuruNip === 'ALL' ? (
+              guruRekapViewMode === 'cards' ? (
+                /* ALL GURU CARD-ROW VIEW (SORTED A TO Z) */
+                <div className="space-y-4">
+                  {filteredAllGuruMonthlyList.length === 0 ? (
+                    <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl text-slate-400 text-xs">
+                      Tidak ada guru yang sesuai dengan kata kunci "{searchRekapGuru}".
+                    </div>
+                  ) : (
+                    filteredAllGuruMonthlyList.map((g, idx) => {
+                      const isExpanded = selectedGuruDetailNip === (g.nip || g.nama);
+                      return (
+                        <div
+                          key={`all-g-card-${g.nip || idx}`}
+                          className={`bg-white border rounded-2xl p-4 shadow-sm transition-all space-y-3 ${isExpanded ? 'border-blue-500 ring-2 ring-blue-500/20 shadow-md' : 'border-slate-200 hover:border-blue-300 hover:shadow-md'}`}
+                        >
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            {/* 1. IDENTITAS GURU */}
+                            <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl space-y-0.5">
+                              <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Identitas Guru #{idx + 1}</span>
+                              <p className="text-sm font-extrabold text-slate-800 truncate" title={g.nama}>{g.nama}</p>
+                              <p className="text-[10px] font-mono text-slate-500 font-medium">NIP: {g.nip || '-'}</p>
+                            </div>
+
+                            {/* 2. HADIR */}
+                            <div className="bg-emerald-50/50 border border-emerald-100 p-3.5 rounded-xl space-y-0.5">
+                              <span className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider block">Hadir</span>
+                              <p className="text-lg font-black text-emerald-700">{g.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                              <p className="text-[10px] text-slate-500 font-medium">Presensi Mandiri / Kiosk</p>
+                            </div>
+
+                            {/* 3. IZIN / SAKIT / CUTI */}
+                            <div className="bg-amber-50/50 border border-amber-100 p-3.5 rounded-xl space-y-0.5">
+                              <span className="text-[9px] font-extrabold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                              <p className="text-lg font-black text-amber-700">
+                                {g.countIzin + g.countSakit + g.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                              </p>
+                              <p className="text-[10px] text-slate-500 font-medium">S: {g.countSakit} | I: {g.countIzin} | DL/C: {g.countCutiDL}</p>
+                            </div>
+
+                            {/* 4. ALPA / TANPA KET. */}
+                            <div className="bg-rose-50/50 border border-rose-100 p-3.5 rounded-xl space-y-0.5">
+                              <span className="text-[9px] font-extrabold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                              <p className="text-lg font-black text-rose-700">{g.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                              <p className="text-[10px] text-slate-500 font-medium">Hari Kerja Belum Presensi</p>
+                            </div>
+
+                            {/* 5. % KEHADIRAN */}
+                            <div className="bg-indigo-50/50 border border-indigo-100 p-3.5 rounded-xl space-y-0.5 col-span-2 md:col-span-1">
+                              <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block">% Kehadiran</span>
+                              <p className="text-lg font-black text-indigo-700">{g.persentase}%</p>
+                              <p className="text-[10px] text-slate-500 font-medium">{g.countHadir} dari {g.totalHariKerja} Hari Target</p>
+                            </div>
+                          </div>
+
+                          {/* Card bottom action bar */}
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                            <span className="text-[11px] text-slate-400 font-medium">
+                              Urutan Abjad: <span className="font-bold text-slate-700">{g.nama}</span>
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isExpanded) {
+                                    setSelectedGuruDetailNip(null);
+                                  } else {
+                                    setSelectedGuruDetailNip(g.nip || g.nama);
+                                  }
+                                }}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${isExpanded ? 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200'}`}
+                              >
+                                {isExpanded ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                <span>{isExpanded ? 'Tutup Rincian Harian' : `Lihat Rincian Harian (Tgl 1 - ${g.dayRows.length})`}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* INLINE DETAILED DAILY BREAKDOWN TABLE (WHEN EXPANDED) */}
+                          {isExpanded && (
+                            <div className="mt-3 pt-3 border-t border-blue-100 space-y-3 animate-fade-in">
+                              <div className="flex items-center justify-between bg-blue-50/60 p-3 rounded-xl border border-blue-200">
+                                <div>
+                                  <h5 className="text-xs font-extrabold text-blue-950">
+                                    Rincian Harian: {g.nama} ({g.nip || 'Tanpa NIP'})
+                                  </h5>
+                                  <p className="text-[10px] text-blue-700">
+                                    Bulan: {guruMonthlyData.monthLabel} • Hadir: {g.countHadir} Hari • Izin: {g.countIzin} • Sakit: {g.countSakit} • Cuti: {g.countCutiDL} • Alpa: {g.countAlpa}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedGuruDetailNip(null)}
+                                  className="px-3 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                  <X className="w-3 h-3" />
+                                  <span>Tutup</span>
+                                </button>
+                              </div>
+
+                              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                                <table className="w-full text-left text-xs bg-white">
+                                  <thead>
+                                    <tr className="bg-slate-100/90 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                                      <th className="py-2.5 px-3 text-center">Tgl</th>
+                                      <th className="py-2.5 px-3">Tanggal</th>
+                                      <th className="py-2.5 px-3">Hari</th>
+                                      <th className="py-2.5 px-3 text-center">Status</th>
+                                      <th className="py-2.5 px-3 text-center">Jam Datang</th>
+                                      <th className="py-2.5 px-3 text-center">Jam Pulang</th>
+                                      <th className="py-2.5 px-3">Keterangan</th>
+                                      <th className="py-2.5 px-3 text-center">Foto</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {g.dayRows.map((r: any, rIdx: number) => (
+                                      <tr key={`g-inline-${g.nip}-${r.tanggal}-${rIdx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
+                                        <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">{r.dayNumber}</td>
+                                        <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">{r.tanggal}</td>
+                                        <td className="py-2.5 px-3 font-bold text-slate-800">{r.dayName}</td>
+                                        <td className="py-2.5 px-3 text-center">
+                                          <span className={`px-2 py-0.5 rounded-full text-[10px] border ${r.statusBadge}`}>
+                                            {r.status}
+                                          </span>
+                                        </td>
+                                        <td className="py-2.5 px-3 text-center font-mono text-slate-600 text-[11px]">{r.jamDatang}</td>
+                                        <td className="py-2.5 px-3 text-center font-mono text-slate-600 text-[11px]">{r.jamPulang}</td>
+                                        <td className="py-2.5 px-3 text-slate-600 text-[11px]">{r.keterangan}</td>
+                                        <td className="py-2.5 px-3 text-center">
+                                          {r.photo ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => setSelectedPhoto(r.photo)}
+                                              className="px-2 py-0.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded text-[10px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1"
+                                            >
+                                              <Eye className="w-3 h-3" />
+                                              <span>Foto</span>
+                                            </button>
+                                          ) : (
+                                            <span className="text-slate-300 text-[10px]">-</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              <div className="flex justify-end pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedGuruDetailNip(null)}
+                                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                  <span>Tutup Rincian Harian</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              ) : (
+                /* ALL GURU TABLE VIEW */
+                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/50">
+                    <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                      Rekapitulasi Kehadiran Seluruh Guru (Urut Abjad A-Z) - Bulan {guruMonthlyData.monthLabel}
+                    </h4>
+                    <span className="text-[11px] text-slate-500 font-bold bg-white px-3 py-1 rounded-full border border-slate-200 shadow-xs">
+                      Target: <span className="text-blue-600 font-black">{rekapGuruTargetDays} Hari Kerja</span>
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-100/80 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                          <th className="py-3 px-4 text-center">No</th>
+                          <th className="py-3 px-4">NIP</th>
+                          <th className="py-3 px-4">Nama Guru</th>
+                          <th className="py-3 px-4 text-center text-emerald-700">Jumlah Hadir</th>
+                          <th className="py-3 px-4 text-center text-blue-700">Jumlah Izin</th>
+                          <th className="py-3 px-4 text-center text-amber-700">Sakit</th>
+                          <th className="py-3 px-4 text-center text-purple-700">Cuti / DL</th>
+                          <th className="py-3 px-4 text-center text-rose-700">Alpa / Tanpa Ket.</th>
+                          <th className="py-3 px-4 text-center text-indigo-700">% Hadir</th>
+                          <th className="py-3 px-4 text-center">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredAllGuruMonthlyList.map((g, idx) => (
+                          <tr key={`all-g-${g.nip || idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
+                            <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                            <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{g.nip || '-'}</td>
+                            <td className="py-3 px-4 font-bold text-slate-800">{g.nama}</td>
+                            <td className="py-3 px-4 text-center font-bold text-emerald-600">{g.countHadir} Hari</td>
+                            <td className="py-3 px-4 text-center font-semibold text-blue-600">{g.countIzin} Hari</td>
+                            <td className="py-3 px-4 text-center font-semibold text-amber-600">{g.countSakit} Hari</td>
+                            <td className="py-3 px-4 text-center font-semibold text-purple-600">{g.countCutiDL} Hari</td>
+                            <td className="py-3 px-4 text-center font-bold text-rose-600">{g.countAlpa} Hari</td>
+                            <td className="py-3 px-4 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${g.persentase >= 85 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                                {g.persentase}%
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRekapGuruNip(g.nip || g.nama);
+                                  setSelectedGuruDetailNip(g.nip || g.nama);
+                                }}
+                                className="px-2.5 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+                              >
+                                Lihat Rincian
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-50 font-bold border-t-2 border-slate-200 text-slate-800">
+                        <tr>
+                          <td colSpan={3} className="py-3 px-4 text-right">TOTAL & RATA-RATA:</td>
+                          <td className="py-3 px-4 text-center text-emerald-700 font-extrabold">
+                            {filteredAllGuruMonthlyList.reduce((acc, curr) => acc + curr.countHadir, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-blue-700">
+                            {filteredAllGuruMonthlyList.reduce((acc, curr) => acc + curr.countIzin, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-amber-700">
+                            {filteredAllGuruMonthlyList.reduce((acc, curr) => acc + curr.countSakit, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-purple-700">
+                            {filteredAllGuruMonthlyList.reduce((acc, curr) => acc + curr.countCutiDL, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-rose-700 font-extrabold">
+                            {filteredAllGuruMonthlyList.reduce((acc, curr) => acc + curr.countAlpa, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-indigo-700 font-extrabold">
+                            {filteredAllGuruMonthlyList.length > 0
+                              ? Math.round(filteredAllGuruMonthlyList.reduce((acc, curr) => acc + curr.persentase, 0) / filteredAllGuruMonthlyList.length)
+                              : 0}%
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/50">
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                      Rincian Kehadiran: {guruMonthlyData.targetNama} ({guruMonthlyData.totalDaysInMonth} Hari)
+                    </h4>
+                    <p className="text-[10px] text-slate-400 font-mono">
+                      NIP: {guruMonthlyData.targetNip || '-'} • Bulan {guruMonthlyData.monthLabel}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-500 font-bold bg-white px-3 py-1 rounded-full border border-slate-200 shadow-xs">
+                      Sheet Target: <span className="text-blue-600 font-black">Rekap_Kehadiran Guru</span>
+                    </span>
+                    {isFullAccess && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRekapGuruNip('ALL');
+                          setSelectedGuruDetailNip(null);
+                        }}
+                        className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Tutup Rincian</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/80 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                        <th className="py-3 px-4 text-center">Tgl</th>
+                        <th className="py-3 px-4">Tanggal Lengkap</th>
+                        <th className="py-3 px-4">Hari</th>
+                        <th className="py-3 px-4 text-center">Status Kehadiran</th>
+                        <th className="py-3 px-4 text-center">Jam Datang</th>
+                        <th className="py-3 px-4 text-center">Jam Pulang</th>
+                        <th className="py-3 px-4">Keterangan / Alasan</th>
+                        <th className="py-3 px-4 text-center">Foto Bukti</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {guruMonthlyData.dayRows.map((r, idx) => (
+                        <tr key={`g-day-${r.tanggal}-${idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
+                          <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{r.dayNumber}</td>
+                          <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{r.tanggal}</td>
+                          <td className="py-3 px-4 font-bold text-slate-800">{r.dayName}</td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] border ${r.statusBadge}`}>
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamDatang}</td>
+                          <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamPulang}</td>
+                          <td className="py-3 px-4 text-slate-600">{r.keterangan}</td>
+                          <td className="py-3 px-4 text-center">
+                            {r.photo ? (
+                              <button
+                                onClick={() => setSelectedPhoto(r.photo)}
+                                className="px-2.5 py-1 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg text-[10px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Foto</span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-300 text-[10px]">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {isFullAccess && (
+                  <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+                    <span className="text-xs text-slate-500 font-medium">
+                      Selesai melihat rincian? Klik tombol di samping untuk menutup kembali.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRekapGuruNip('ALL');
+                        setSelectedGuruDetailNip(null);
+                      }}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Kembali ke Rekap Semua Guru (A-Z)</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        {/* SUB TAB 9: REKAP BULANAN TENDIK (PERSEORANGAN) */}
+        {/* SUB TAB 9: REKAP BULANAN TENDIK (PERSEORANGAN / SEMUA TENDIK) */}
         {subTab === 'rekap-tendik' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-lg font-bold text-slate-800 tracking-tight">Rekapitulasi Kehadiran Bulanan Tendik (Perseorangan)</h3>
+                <h3 className="text-lg font-bold text-slate-800 tracking-tight">
+                  {rekapTendikNip === 'ALL' ? 'Rekapitulasi Kehadiran Bulanan Semua Tendik' : 'Rekapitulasi Kehadiran Bulanan Tendik (Perseorangan)'}
+                </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Laporan rekap presensi bulanan perseorangan Tendik. Tersimpan otomatis ke sheet <span className="font-bold text-emerald-600">Rekap_Kehadiran Tendik</span>.
+                  {rekapTendikNip === 'ALL'
+                    ? 'Laporan rekapitulasi kehadiran seluruh Tenaga Kependidikan (Tendik) dalam satu bulan kerja.'
+                    : 'Laporan rekap presensi bulanan perseorangan Tendik. Tersimpan otomatis ke sheet Rekap_Kehadiran Tendik.'}
                 </p>
               </div>
 
@@ -4759,7 +6061,7 @@ export function HistoryView({
             )}
 
             {/* Filter controls */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Pilih Tendik</label>
                 <select
@@ -4767,9 +6069,12 @@ export function HistoryView({
                   onChange={(e) => setRekapTendikNip(e.target.value)}
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-white font-semibold text-slate-800"
                 >
+                  {isFullAccess && (
+                    <option value="ALL">⭐ SEMUA TENDIK (SEMUA NIP - URUT ABJAD A-Z)</option>
+                  )}
                   {listTendikUsers.map((t: any, idx: number) => (
                     <option key={`tendik-opt-${t.nip || idx}`} value={t.nip || t.nama}>
-                      {t.nama} {t.nip ? `(NIP: ${t.nip})` : ''}
+                      {t.nama} {t.nip && t.nip !== 'ALL' ? `(NIP: ${t.nip})` : ''}
                     </option>
                   ))}
                 </select>
@@ -4786,111 +6091,601 @@ export function HistoryView({
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Target Hari Kerja (Bulan Ini)</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">
+                    Mulai Tgl / Hari Hitung
+                  </label>
+                  {!isAdminUtama && (
+                    <span className="text-[9px] font-extrabold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                      Hanya Admin Utama
+                    </span>
+                  )}
+                </div>
+                <select
+                  disabled={!isAdminUtama}
+                  value={rekapTendikStartDay}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10) || 1;
+                    setRekapTendikStartDay(val);
+                    try { localStorage.setItem('absensi_rekap_tendik_start_day', String(val)); } catch {}
+                  }}
+                  className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-semibold ${
+                    !isAdminUtama ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : 'bg-white text-slate-800 border-slate-200 cursor-pointer'
+                  }`}
+                  title={!isAdminUtama ? 'Hanya Admin Utama yang dapat menentukan tanggal awal hitung presensi' : 'Tentukan mulai tanggal berapa presensi dihitung (hari sebelumnya tidak dihitung Alpa)'}
+                >
+                  {(() => {
+                    const parts = (rekapTendikMonth || '2026-08').split('-');
+                    const yr = parseInt(parts[0], 10) || 2026;
+                    const mo = parseInt(parts[1], 10) || 8;
+                    const totalDays = new Date(yr, mo, 0).getDate();
+                    const dayNames = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+                    return Array.from({ length: totalDays }, (_, i) => i + 1).map((d) => {
+                      const dObj = new Date(yr, mo - 1, d);
+                      const dName = dayNames[dObj.getDay()];
+                      return (
+                        <option key={`tendik-start-day-${d}`} value={d}>
+                          Tgl {d} ({dName}) {d === 1 ? '- Awal Bulan' : ''}
+                        </option>
+                      );
+                    });
+                  })()}
+                </select>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase">
+                    Target Hari Kerja
+                  </label>
+                  {!isAdminUtama && (
+                    <span className="text-[9px] font-extrabold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                      Hanya Admin Utama
+                    </span>
+                  )}
+                </div>
                 <input
                   type="number"
                   min={1}
                   max={31}
+                  disabled={!isAdminUtama}
                   value={rekapTendikTargetDays}
-                  onChange={(e) => setRekapTendikTargetDays(parseInt(e.target.value, 10) || 22)}
-                  className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-white font-semibold text-slate-800"
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10) || 22;
+                    setRekapTendikTargetDays(val);
+                    try { localStorage.setItem('absensi_rekap_tendik_target_days', String(val)); } catch {}
+                  }}
+                  className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-semibold ${
+                    !isAdminUtama ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : 'bg-white text-slate-800 border-slate-200'
+                  }`}
+                  title={!isAdminUtama ? 'Hanya Admin Utama yang dapat mengedit Target Hari Kerja' : 'Edit target hari kerja'}
                 />
               </div>
             </div>
 
-            {/* Summary Stat Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Identitas Tendik</span>
-                <p className="text-sm font-extrabold text-slate-800 truncate" title={tendikMonthlyData.targetNama}>{tendikMonthlyData.targetNama}</p>
-                <p className="text-[10px] text-slate-400 font-medium">NIP: {tendikMonthlyData.targetNip || '-'}</p>
-              </div>
-
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
-                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Hadir</span>
-                <p className="text-xl font-extrabold text-emerald-600">{tendikMonthlyData.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
-                <p className="text-[10px] text-slate-400 font-medium">Presensi Mandiri / Kiosk</p>
-              </div>
-
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
-                <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
-                <p className="text-xl font-extrabold text-amber-600">
-                  {tendikMonthlyData.countIzin + tendikMonthlyData.countSakit + tendikMonthlyData.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
-                </p>
-                <p className="text-[10px] text-slate-400 font-medium">S: {tendikMonthlyData.countSakit} | I: {tendikMonthlyData.countIzin} | DL/C: {tendikMonthlyData.countCutiDL}</p>
-              </div>
-
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
-                <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
-                <p className="text-xl font-extrabold text-rose-600">{tendikMonthlyData.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
-                <p className="text-[10px] text-slate-400 font-medium">Hari Kerja Belum Presensi</p>
-              </div>
-
-              <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 col-span-2 sm:col-span-1">
-                <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">% Kehadiran</span>
-                <p className="text-xl font-extrabold text-emerald-600">{tendikMonthlyData.persentase}%</p>
-                <p className="text-[10px] text-slate-400 font-medium">{tendikMonthlyData.countHadir} dari {tendikMonthlyData.totalHariKerja} Hari Target</p>
-              </div>
-            </div>
-
-            {/* Daily Matrix Table */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
-                  Rincian Kehadiran Bulan {tendikMonthlyData.monthLabel} ({tendikMonthlyData.totalDaysInMonth} Hari)
-                </h4>
-                <span className="text-[11px] text-slate-500 font-bold bg-white px-3 py-1 rounded-full border border-slate-200 shadow-xs">
-                  Sheet Target: <span className="text-emerald-600 font-black">Rekap_Kehadiran Tendik</span>
+            {rekapTendikStartDay > 1 && (
+              <div className="flex items-center gap-2.5 bg-emerald-50/70 border border-emerald-200/80 px-4 py-2.5 rounded-xl text-xs text-emerald-900 font-medium">
+                <Calendar className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>
+                  Hitung presensi bulanan aktif dimulai dari <strong>Tanggal {rekapTendikStartDay}</strong>. Tanggal 1 s.d. {rekapTendikStartDay - 1} berstatus <em>Belum Dimulai</em> (tidak dihitung Alpa).
                 </span>
               </div>
+            )}
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="bg-slate-100/80 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
-                      <th className="py-3 px-4 text-center">Tgl</th>
-                      <th className="py-3 px-4">Tanggal Lengkap</th>
-                      <th className="py-3 px-4">Hari</th>
-                      <th className="py-3 px-4 text-center">Status Kehadiran</th>
-                      <th className="py-3 px-4 text-center">Jam Datang</th>
-                      <th className="py-3 px-4 text-center">Jam Pulang</th>
-                      <th className="py-3 px-4">Keterangan / Alasan</th>
-                      <th className="py-3 px-4 text-center">Foto Bukti</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {tendikMonthlyData.dayRows.map((r, idx) => (
-                      <tr key={`t-day-${r.tanggal}-${idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
-                        <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{r.dayNumber}</td>
-                        <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{r.tanggal}</td>
-                        <td className="py-3 px-4 font-bold text-slate-800">{r.dayName}</td>
-                        <td className="py-3 px-4 text-center">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] border ${r.statusBadge}`}>
-                            {r.status}
-                          </span>
-                        </td>
-                        <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamDatang}</td>
-                        <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamPulang}</td>
-                        <td className="py-3 px-4 text-slate-600">{r.keterangan}</td>
-                        <td className="py-3 px-4 text-center">
-                          {r.photo ? (
-                            <button
-                              onClick={() => setSelectedPhoto(r.photo)}
-                              className="px-2.5 py-1 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-[10px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1"
-                            >
-                              <Eye className="w-3 h-3" />
-                              <span>Foto</span>
-                            </button>
-                          ) : (
-                            <span className="text-slate-300 text-[10px]">-</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {/* Back to ALL Tendik button if looking at individual */}
+            {rekapTendikNip !== 'ALL' && isFullAccess && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-emerald-50/80 border border-emerald-200 p-3.5 rounded-2xl shadow-xs">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                  <div>
+                    <span className="text-xs font-extrabold text-emerald-900 block">
+                      Rincian Presensi Tendik: <span className="underline">{tendikMonthlyData.targetNama}</span>
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-mono">
+                      NIP: {tendikMonthlyData.targetNip || '-'} | Periode: {tendikMonthlyData.monthLabel}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRekapTendikNip('ALL');
+                    setSelectedTendikDetailNip(null);
+                  }}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-sm hover:shadow flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Tutup & Kembali ke Semua Tendik (A-Z)</span>
+                </button>
               </div>
-            </div>
+            )}
+
+            {/* Summary Stat Cards */}
+            {rekapTendikNip === 'ALL' ? (
+              (() => {
+                const totalHadir = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countHadir, 0);
+                const totalIzin = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countIzin, 0);
+                const totalSakit = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countSakit, 0);
+                const totalCutiDL = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countCutiDL, 0);
+                const totalAlpa = allTendikMonthlyList.reduce((acc, curr) => acc + curr.countAlpa, 0);
+                const avgPersentase = allTendikMonthlyList.length > 0
+                  ? Math.round(allTendikMonthlyList.reduce((acc, curr) => acc + curr.persentase, 0) / allTendikMonthlyList.length)
+                  : 0;
+
+                return (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Total Tendik</span>
+                        <p className="text-xl font-extrabold text-emerald-600">{allTendikMonthlyList.length} <span className="text-xs font-semibold text-slate-400">Orang</span></p>
+                        <p className="text-[10px] text-slate-400 font-medium">Bulan: {tendikMonthlyData.monthLabel}</p>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Total Hadir</span>
+                        <p className="text-xl font-extrabold text-emerald-600">{totalHadir} <span className="text-xs font-semibold text-slate-400">Total Hari</span></p>
+                        <p className="text-[10px] text-slate-400 font-medium">Akumulasi Semua Tendik</p>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                        <p className="text-xl font-extrabold text-amber-600">
+                          {totalIzin + totalSakit + totalCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                        </p>
+                        <p className="text-[10px] text-slate-400 font-medium">S: {totalSakit} | I: {totalIzin} | C/DL: {totalCutiDL}</p>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                        <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                        <p className="text-xl font-extrabold text-rose-600">{totalAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                        <p className="text-[10px] text-slate-400 font-medium">Belum Presensi</p>
+                      </div>
+
+                      <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 col-span-2 sm:col-span-1">
+                        <span className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider block">Rata-Rata Kehadiran</span>
+                        <p className="text-xl font-extrabold text-indigo-600">{avgPersentase}%</p>
+                        <p className="text-[10px] text-slate-400 font-medium">Target: {rekapTendikTargetDays} Hari Kerja</p>
+                      </div>
+                    </div>
+
+                    {/* Search & View Mode Switcher */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3 bg-slate-100/70 border border-slate-200 rounded-2xl">
+                      <div className="relative flex-1 max-w-md">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Cari Nama Tendik / NIP (contoh: Doni, Rina)..."
+                          value={searchRekapTendik}
+                          onChange={(e) => setSearchRekapTendik(e.target.value)}
+                          className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 text-slate-800 font-medium placeholder:text-slate-400"
+                        />
+                        {searchRekapTendik && (
+                          <button
+                            type="button"
+                            onClick={() => setSearchRekapTendik('')}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs px-1"
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-slate-500">
+                          {filteredAllTendikMonthlyList.length} dari {allTendikMonthlyList.length} Tendik (Urut A-Z)
+                        </span>
+                        <div className="flex bg-slate-200/80 p-1 rounded-xl gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setTendikRekapViewMode('cards')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${tendikRekapViewMode === 'cards' ? 'bg-white text-emerald-600 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+                          >
+                            <LayoutGrid className="w-3.5 h-3.5" />
+                            <span>Kartu Ringkasan</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTendikRekapViewMode('table')}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${tendikRekapViewMode === 'table' ? 'bg-white text-emerald-600 shadow-xs' : 'text-slate-600 hover:text-slate-800'}`}
+                          >
+                            <List className="w-3.5 h-3.5" />
+                            <span>Tabel Matriks</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Identitas Tendik</span>
+                  <p className="text-sm font-extrabold text-slate-800 truncate" title={tendikMonthlyData.targetNama}>{tendikMonthlyData.targetNama}</p>
+                  <p className="text-[10px] text-slate-400 font-medium">NIP: {tendikMonthlyData.targetNip || '-'}</p>
+                </div>
+
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">Hadir</span>
+                  <p className="text-xl font-extrabold text-emerald-600">{tendikMonthlyData.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                  <p className="text-[10px] text-slate-400 font-medium">Presensi Mandiri / Kiosk</p>
+                </div>
+
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                  <p className="text-xl font-extrabold text-amber-600">
+                    {tendikMonthlyData.countIzin + tendikMonthlyData.countSakit + tendikMonthlyData.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                  </p>
+                  <p className="text-[10px] text-slate-400 font-medium">S: {tendikMonthlyData.countSakit} | I: {tendikMonthlyData.countIzin} | DL/C: {tendikMonthlyData.countCutiDL}</p>
+                </div>
+
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1">
+                  <span className="text-[10px] font-bold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                  <p className="text-xl font-extrabold text-rose-600">{tendikMonthlyData.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                  <p className="text-[10px] text-slate-400 font-medium">Hari Kerja Belum Presensi</p>
+                </div>
+
+                <div className="bg-white border border-slate-200/80 p-4 rounded-2xl shadow-sm space-y-1 col-span-2 sm:col-span-1">
+                  <span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider block">% Kehadiran</span>
+                  <p className="text-xl font-extrabold text-emerald-600">{tendikMonthlyData.persentase}%</p>
+                  <p className="text-[10px] text-slate-400 font-medium">{tendikMonthlyData.countHadir} dari {tendikMonthlyData.totalHariKerja} Hari Target</p>
+                </div>
+              </div>
+            )}
+
+            {/* Daily Matrix Table or All Tendik Table */}
+            {rekapTendikNip === 'ALL' ? (
+              tendikRekapViewMode === 'cards' ? (
+                /* ALL TENDIK CARD-ROW VIEW (SORTED A TO Z) */
+                <div className="space-y-4">
+                  {filteredAllTendikMonthlyList.length === 0 ? (
+                    <div className="p-8 text-center bg-white border border-slate-200 rounded-2xl text-slate-400 text-xs">
+                      Tidak ada tenaga kependidikan yang sesuai dengan kata kunci "{searchRekapTendik}".
+                    </div>
+                  ) : (
+                    filteredAllTendikMonthlyList.map((t, idx) => {
+                      const isExpanded = selectedTendikDetailNip === (t.nip || t.nama);
+                      return (
+                        <div
+                          key={`all-t-card-${t.nip || idx}`}
+                          className={`bg-white border rounded-2xl p-4 shadow-sm transition-all space-y-3 ${isExpanded ? 'border-emerald-500 ring-2 ring-emerald-500/20 shadow-md' : 'border-slate-200 hover:border-emerald-300 hover:shadow-md'}`}
+                        >
+                          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                            {/* 1. IDENTITAS TENDIK */}
+                            <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl space-y-0.5">
+                              <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider block">Identitas Tendik #{idx + 1}</span>
+                              <p className="text-sm font-extrabold text-slate-800 truncate" title={t.nama}>{t.nama}</p>
+                              <p className="text-[10px] font-mono text-slate-500 font-medium">NIP: {t.nip || '-'}</p>
+                            </div>
+
+                            {/* 2. HADIR */}
+                            <div className="bg-emerald-50/50 border border-emerald-100 p-3.5 rounded-xl space-y-0.5">
+                              <span className="text-[9px] font-extrabold text-emerald-600 uppercase tracking-wider block">Hadir</span>
+                              <p className="text-lg font-black text-emerald-700">{t.countHadir} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                              <p className="text-[10px] text-slate-500 font-medium">Presensi Mandiri / Kiosk</p>
+                            </div>
+
+                            {/* 3. IZIN / SAKIT / CUTI */}
+                            <div className="bg-amber-50/50 border border-amber-100 p-3.5 rounded-xl space-y-0.5">
+                              <span className="text-[9px] font-extrabold text-amber-600 uppercase tracking-wider block">Izin / Sakit / Cuti</span>
+                              <p className="text-lg font-black text-amber-700">
+                                {t.countIzin + t.countSakit + t.countCutiDL} <span className="text-xs font-semibold text-slate-400">Hari</span>
+                              </p>
+                              <p className="text-[10px] text-slate-500 font-medium">S: {t.countSakit} | I: {t.countIzin} | DL/C: {t.countCutiDL}</p>
+                            </div>
+
+                            {/* 4. ALPA / TANPA KET. */}
+                            <div className="bg-rose-50/50 border border-rose-100 p-3.5 rounded-xl space-y-0.5">
+                              <span className="text-[9px] font-extrabold text-rose-600 uppercase tracking-wider block">Alpa / Tanpa Ket.</span>
+                              <p className="text-lg font-black text-rose-700">{t.countAlpa} <span className="text-xs font-semibold text-slate-400">Hari</span></p>
+                              <p className="text-[10px] text-slate-500 font-medium">Hari Kerja Belum Presensi</p>
+                            </div>
+
+                            {/* 5. % KEHADIRAN */}
+                            <div className="bg-indigo-50/50 border border-indigo-100 p-3.5 rounded-xl space-y-0.5 col-span-2 md:col-span-1">
+                              <span className="text-[9px] font-extrabold text-indigo-600 uppercase tracking-wider block">% Kehadiran</span>
+                              <p className="text-lg font-black text-indigo-700">{t.persentase}%</p>
+                              <p className="text-[10px] text-slate-500 font-medium">{t.countHadir} dari {t.totalHariKerja} Hari Target</p>
+                            </div>
+                          </div>
+
+                          {/* Card bottom action bar */}
+                          <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                            <span className="text-[11px] text-slate-400 font-medium">
+                              Urutan Abjad: <span className="font-bold text-slate-700">{t.nama}</span>
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isExpanded) {
+                                    setSelectedTendikDetailNip(null);
+                                  } else {
+                                    setSelectedTendikDetailNip(t.nip || t.nama);
+                                  }
+                                }}
+                                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${isExpanded ? 'bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-200' : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'}`}
+                              >
+                                {isExpanded ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                <span>{isExpanded ? 'Tutup Rincian Harian' : `Lihat Rincian Harian (Tgl 1 - ${t.dayRows.length})`}</span>
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* INLINE DETAILED DAILY BREAKDOWN TABLE (WHEN EXPANDED) */}
+                          {isExpanded && (
+                            <div className="mt-3 pt-3 border-t border-emerald-100 space-y-3 animate-fade-in">
+                              <div className="flex items-center justify-between bg-emerald-50/60 p-3 rounded-xl border border-emerald-200">
+                                <div>
+                                  <h5 className="text-xs font-extrabold text-emerald-950">
+                                    Rincian Harian: {t.nama} ({t.nip || 'Tanpa NIP'})
+                                  </h5>
+                                  <p className="text-[10px] text-emerald-700">
+                                    Bulan: {tendikMonthlyData.monthLabel} • Hadir: {t.countHadir} Hari • Izin: {t.countIzin} • Sakit: {t.countSakit} • Cuti: {t.countCutiDL} • Alpa: {t.countAlpa}
+                                  </p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedTendikDetailNip(null)}
+                                  className="px-3 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer"
+                                >
+                                  <X className="w-3 h-3" />
+                                  <span>Tutup</span>
+                                </button>
+                              </div>
+
+                              <div className="overflow-x-auto rounded-xl border border-slate-200">
+                                <table className="w-full text-left text-xs bg-white">
+                                  <thead>
+                                    <tr className="bg-slate-100/90 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                                      <th className="py-2.5 px-3 text-center">Tgl</th>
+                                      <th className="py-2.5 px-3">Tanggal</th>
+                                      <th className="py-2.5 px-3">Hari</th>
+                                      <th className="py-2.5 px-3 text-center">Status</th>
+                                      <th className="py-2.5 px-3 text-center">Jam Datang</th>
+                                      <th className="py-2.5 px-3 text-center">Jam Pulang</th>
+                                      <th className="py-2.5 px-3">Keterangan</th>
+                                      <th className="py-2.5 px-3 text-center">Foto</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-100">
+                                    {t.dayRows.map((r: any, rIdx: number) => (
+                                      <tr key={`t-inline-${t.nip}-${r.tanggal}-${rIdx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
+                                        <td className="py-2.5 px-3 text-center text-slate-400 font-mono text-[11px]">{r.dayNumber}</td>
+                                        <td className="py-2.5 px-3 font-mono text-slate-600 text-[11px]">{r.tanggal}</td>
+                                        <td className="py-2.5 px-3 font-bold text-slate-800">{r.dayName}</td>
+                                        <td className="py-2.5 px-3 text-center">
+                                          <span className={`px-2 py-0.5 rounded-full text-[10px] border ${r.statusBadge}`}>
+                                            {r.status}
+                                          </span>
+                                        </td>
+                                        <td className="py-2.5 px-3 text-center font-mono text-slate-600 text-[11px]">{r.jamDatang}</td>
+                                        <td className="py-2.5 px-3 text-center font-mono text-slate-600 text-[11px]">{r.jamPulang}</td>
+                                        <td className="py-2.5 px-3 text-slate-600 text-[11px]">{r.keterangan}</td>
+                                        <td className="py-2.5 px-3 text-center">
+                                          {r.photo ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => setSelectedPhoto(r.photo)}
+                                              className="px-2 py-0.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded text-[10px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1"
+                                            >
+                                              <Eye className="w-3 h-3" />
+                                              <span>Foto</span>
+                                            </button>
+                                          ) : (
+                                            <span className="text-slate-300 text-[10px]">-</span>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+
+                              <div className="flex justify-end pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedTendikDetailNip(null)}
+                                  className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                  <span>Tutup Rincian Harian</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              ) : (
+                /* ALL TENDIK TABLE VIEW */
+                <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                  <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/50">
+                    <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                      Rekapitulasi Kehadiran Seluruh Tendik (Urut Abjad A-Z) - Bulan {tendikMonthlyData.monthLabel}
+                    </h4>
+                    <span className="text-[11px] text-slate-500 font-bold bg-white px-3 py-1 rounded-full border border-slate-200 shadow-xs">
+                      Target: <span className="text-emerald-600 font-black">{rekapTendikTargetDays} Hari Kerja</span>
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-100/80 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                          <th className="py-3 px-4 text-center">No</th>
+                          <th className="py-3 px-4">NIP</th>
+                          <th className="py-3 px-4">Nama Tendik</th>
+                          <th className="py-3 px-4 text-center text-emerald-700">Jumlah Hadir</th>
+                          <th className="py-3 px-4 text-center text-blue-700">Jumlah Izin</th>
+                          <th className="py-3 px-4 text-center text-amber-700">Sakit</th>
+                          <th className="py-3 px-4 text-center text-purple-700">Cuti / DL</th>
+                          <th className="py-3 px-4 text-center text-rose-700">Alpa / Tanpa Ket.</th>
+                          <th className="py-3 px-4 text-center text-indigo-700">% Hadir</th>
+                          <th className="py-3 px-4 text-center">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredAllTendikMonthlyList.map((t, idx) => (
+                          <tr key={`all-t-${t.nip || idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
+                            <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{idx + 1}</td>
+                            <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{t.nip || '-'}</td>
+                            <td className="py-3 px-4 font-bold text-slate-800">{t.nama}</td>
+                            <td className="py-3 px-4 text-center font-bold text-emerald-600">{t.countHadir} Hari</td>
+                            <td className="py-3 px-4 text-center font-semibold text-blue-600">{t.countIzin} Hari</td>
+                            <td className="py-3 px-4 text-center font-semibold text-amber-600">{t.countSakit} Hari</td>
+                            <td className="py-3 px-4 text-center font-semibold text-purple-600">{t.countCutiDL} Hari</td>
+                            <td className="py-3 px-4 text-center font-bold text-rose-600">{t.countAlpa} Hari</td>
+                            <td className="py-3 px-4 text-center">
+                              <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${t.persentase >= 85 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                                {t.persentase}%
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRekapTendikNip(t.nip || t.nama);
+                                  setSelectedTendikDetailNip(t.nip || t.nama);
+                                }}
+                                className="px-2.5 py-1 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-[10px] font-bold cursor-pointer transition-colors"
+                              >
+                                Lihat Rincian
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-50 font-bold border-t-2 border-slate-200 text-slate-800">
+                        <tr>
+                          <td colSpan={3} className="py-3 px-4 text-right">TOTAL & RATA-RATA:</td>
+                          <td className="py-3 px-4 text-center text-emerald-700 font-extrabold">
+                            {filteredAllTendikMonthlyList.reduce((acc, curr) => acc + curr.countHadir, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-blue-700">
+                            {filteredAllTendikMonthlyList.reduce((acc, curr) => acc + curr.countIzin, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-amber-700">
+                            {filteredAllTendikMonthlyList.reduce((acc, curr) => acc + curr.countSakit, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-purple-700">
+                            {filteredAllTendikMonthlyList.reduce((acc, curr) => acc + curr.countCutiDL, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-rose-700 font-extrabold">
+                            {filteredAllTendikMonthlyList.reduce((acc, curr) => acc + curr.countAlpa, 0)} Hari
+                          </td>
+                          <td className="py-3 px-4 text-center text-indigo-700 font-extrabold">
+                            {filteredAllTendikMonthlyList.length > 0
+                              ? Math.round(filteredAllTendikMonthlyList.reduce((acc, curr) => acc + curr.persentase, 0) / filteredAllTendikMonthlyList.length)
+                              : 0}%
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                <div className="p-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50/50">
+                  <div>
+                    <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">
+                      Rincian Kehadiran: {tendikMonthlyData.targetNama} ({tendikMonthlyData.totalDaysInMonth} Hari)
+                    </h4>
+                    <p className="text-[10px] text-slate-400 font-mono">
+                      NIP: {tendikMonthlyData.targetNip || '-'} • Bulan {tendikMonthlyData.monthLabel}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[11px] text-slate-500 font-bold bg-white px-3 py-1 rounded-full border border-slate-200 shadow-xs">
+                      Sheet Target: <span className="text-emerald-600 font-black">Rekap_Kehadiran Tendik</span>
+                    </span>
+                    {isFullAccess && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRekapTendikNip('ALL');
+                          setSelectedTendikDetailNip(null);
+                        }}
+                        className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Tutup Rincian</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-100/80 text-slate-600 uppercase text-[10px] font-extrabold tracking-wider border-b border-slate-200">
+                        <th className="py-3 px-4 text-center">Tgl</th>
+                        <th className="py-3 px-4">Tanggal Lengkap</th>
+                        <th className="py-3 px-4">Hari</th>
+                        <th className="py-3 px-4 text-center">Status Kehadiran</th>
+                        <th className="py-3 px-4 text-center">Jam Datang</th>
+                        <th className="py-3 px-4 text-center">Jam Pulang</th>
+                        <th className="py-3 px-4">Keterangan / Alasan</th>
+                        <th className="py-3 px-4 text-center">Foto Bukti</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {tendikMonthlyData.dayRows.map((r, idx) => (
+                        <tr key={`t-day-${r.tanggal}-${idx}`} className="hover:bg-slate-50 transition-colors font-medium text-slate-700">
+                          <td className="py-3 px-4 text-center text-slate-400 font-mono text-[11px]">{r.dayNumber}</td>
+                          <td className="py-3 px-4 font-mono text-slate-600 text-[11px]">{r.tanggal}</td>
+                          <td className="py-3 px-4 font-bold text-slate-800">{r.dayName}</td>
+                          <td className="py-3 px-4 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] border ${r.statusBadge}`}>
+                              {r.status}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamDatang}</td>
+                          <td className="py-3 px-4 text-center font-mono text-slate-600 text-[11px]">{r.jamPulang}</td>
+                          <td className="py-3 px-4 text-slate-600">{r.keterangan}</td>
+                          <td className="py-3 px-4 text-center">
+                            {r.photo ? (
+                              <button
+                                onClick={() => setSelectedPhoto(r.photo)}
+                                className="px-2.5 py-1 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 rounded-lg text-[10px] font-bold cursor-pointer transition-colors inline-flex items-center gap-1"
+                              >
+                                <Eye className="w-3 h-3" />
+                                <span>Foto</span>
+                              </button>
+                            ) : (
+                              <span className="text-slate-300 text-[10px]">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {isFullAccess && (
+                  <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center">
+                    <span className="text-xs text-slate-500 font-medium">
+                      Selesai melihat rincian? Klik tombol di samping untuk menutup kembali.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRekapTendikNip('ALL');
+                        setSelectedTendikDetailNip(null);
+                      }}
+                      className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Kembali ke Rekap Semua Tendik (A-Z)</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
