@@ -355,8 +355,8 @@ export const apiClient = {
       if (res.ok) {
         const data = await res.json();
         if (data.status === 'success') {
-          if (data.webAppUrl !== undefined) {
-            localStorage.setItem(STORAGE_KEYS.APP_URL, data.webAppUrl.trim() || 'demo');
+          if (data.webAppUrl && data.webAppUrl.trim() !== '' && data.webAppUrl !== 'demo') {
+            localStorage.setItem(STORAGE_KEYS.APP_URL, data.webAppUrl.trim());
           }
           return data;
         }
@@ -2318,6 +2318,17 @@ export const apiClient = {
         }
       }
 
+      // Explicitly read dual-redundant 'rekap_settings' row if exists
+      const rekapRow = fallback.result.rows.find((row: any) => row.data && row.data[0] === 'rekap_settings');
+      if (rekapRow && rekapRow.data[1]) {
+        try {
+          if (!fallbackCustomization) fallbackCustomization = {};
+          fallbackCustomization.rekapSettings = JSON.parse(rekapRow.data[1]);
+        } catch (e) {
+          console.error('Failed to parse JSON rekap_settings:', e);
+        }
+      }
+
       // Read downwards dapodikLinks rows (starting with "dapolink_") for clean row-by-row visibility in Spreadsheet
       const dapolinkRows = fallback.result.rows.filter((row: any) => row.data && row.data[0] && row.data[0].startsWith('dapolink_'));
       if (dapolinkRows.length > 0) {
@@ -2512,6 +2523,27 @@ export const apiClient = {
         });
       } catch (e) {
         console.error('Failed to save redundant dapodik_links row:', e);
+      }
+    }
+
+    // Save rekapSettings separately under the "rekap_settings" row for robust backup and multi-device consistency
+    if (customization && customization.rekapSettings) {
+      let targetRekapRowIndex: number | null = null;
+      if (getResRows) {
+        const rekapRow = getResRows.find((row: any) => row.data && row.data[0] === 'rekap_settings');
+        if (rekapRow && rekapRow._rowIndex) {
+          targetRekapRowIndex = Number(rekapRow._rowIndex);
+        }
+      }
+      const rekapRowData = ['rekap_settings', JSON.stringify(customization.rekapSettings)];
+      try {
+        await safeCallGAS(url, 'saveCrud', {
+          sheetName: 'Pengaturan',
+          rowData: rekapRowData,
+          rowIndex: targetRekapRowIndex !== null ? Number(targetRekapRowIndex) : null
+        });
+      } catch (e) {
+        console.error('Failed to save redundant rekap_settings row:', e);
       }
     }
 

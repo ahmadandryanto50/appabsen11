@@ -8,6 +8,7 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 
+const DEFAULT_GAS_URL = 'https://script.google.com/macros/s/AKfycbxm8xUg47SJqredqBB1koPt5lSgJqlFF3rjsKbjG-9tBQ2GLuOOJYD_iq92dsPZB5jQ/exec';
 const CONFIG_FILE = path.join(process.cwd(), '.server-config.json');
 
 // Helper to read server persistent state
@@ -15,15 +16,20 @@ function readServerData() {
   try {
     if (fs.existsSync(CONFIG_FILE)) {
       const content = fs.readFileSync(CONFIG_FILE, 'utf-8');
-      return JSON.parse(content);
+      const data = JSON.parse(content);
+      if (!data.webAppUrl) {
+        data.webAppUrl = DEFAULT_GAS_URL;
+      }
+      return data;
     }
   } catch (e) {
     console.error('Error reading server config file:', e);
   }
   return {
-    webAppUrl: '',
+    webAppUrl: DEFAULT_GAS_URL,
     customization: null,
     kioskScans: [],
+    rekapGuruSettings: null,
   };
 }
 
@@ -143,11 +149,12 @@ async function startServer() {
       status: 'success',
       webAppUrl: data.webAppUrl || '',
       customization: Object.keys(cust).length > 0 ? cust : null,
+      rekapGuruSettings: data.rekapGuruSettings || cust.rekapSettings || null,
     });
   });
 
   app.post('/api/config', (req, res) => {
-    const { webAppUrl, customization } = req.body || {};
+    const { webAppUrl, customization, rekapGuruSettings } = req.body || {};
     const data = readServerData();
 
     if (webAppUrl !== undefined) {
@@ -155,6 +162,15 @@ async function startServer() {
     }
     if (customization !== undefined) {
       data.customization = customization;
+      if (customization && customization.rekapSettings) {
+        data.rekapGuruSettings = customization.rekapSettings;
+      }
+    }
+    if (rekapGuruSettings !== undefined) {
+      data.rekapGuruSettings = rekapGuruSettings;
+      if (data.customization) {
+        data.customization.rekapSettings = rekapGuruSettings;
+      }
     }
 
     writeServerData(data);
@@ -162,6 +178,7 @@ async function startServer() {
       status: 'success',
       webAppUrl: data.webAppUrl,
       customization: data.customization,
+      rekapGuruSettings: data.rekapGuruSettings,
     });
   });
 

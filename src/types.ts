@@ -133,6 +133,15 @@ export interface ExternalAppItem {
   badge?: string;
 }
 
+export interface RekapSettings {
+  rekapGuruMonth?: string;
+  rekapGuruStartDay?: number;
+  rekapGuruTargetDays?: number;
+  rekapTendikMonth?: string;
+  rekapTendikStartDay?: number;
+  rekapTendikTargetDays?: number;
+}
+
 export interface AppCustomization {
   appName: string;
   appSubtitle: string;
@@ -147,6 +156,7 @@ export interface AppCustomization {
   batasWaktuMasuk?: string;
   externalApps?: ExternalAppItem[];
   holidays?: any[];
+  rekapSettings?: RekapSettings;
 }
 
 export interface CrudRow {

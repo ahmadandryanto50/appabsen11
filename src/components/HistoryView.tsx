@@ -197,6 +197,7 @@ interface HistoryViewProps {
   onUpdateTeacherRecord: (rowIndex: string | number, status: string, alasan: string) => Promise<void>;
   onDeleteTeacherRecord: (rowIndex: string | number) => Promise<void>;
   customization?: AppCustomization;
+  onSaveCustomization?: (newCust: Partial<AppCustomization>) => Promise<any>;
 }
 
 export function HistoryView({
@@ -211,6 +212,7 @@ export function HistoryView({
   onUpdateTeacherRecord,
   onDeleteTeacherRecord,
   customization,
+  onSaveCustomization,
 }: HistoryViewProps) {
   const isFullAccess = (currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || String(currentUser?.role || '').toLowerCase().includes('admin') || Boolean(currentUser?.username?.toLowerCase().includes('admin'));
   const isAdminUtama = currentUser?.role === 'Admin Utama' || String(currentUser?.role || '').toLowerCase() === 'admin utama' || (currentUser?.username || '').toLowerCase() === 'admin_utama';
@@ -389,11 +391,17 @@ export function HistoryView({
 
   // States for Monthly Individual Recap - GURU
   const [rekapGuruMonth, setRekapGuruMonth] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_guru_month');
+      if (saved) return saved;
+    } catch {}
+    if (customization?.rekapSettings?.rekapGuruMonth) return customization.rekapSettings.rekapGuruMonth;
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [rekapGuruNip, setRekapGuruNip] = useState<string>('');
   const [rekapGuruTargetDays, setRekapGuruTargetDays] = useState<number>(() => {
+    if (customization?.rekapSettings?.rekapGuruTargetDays) return customization.rekapSettings.rekapGuruTargetDays;
     try {
       const saved = localStorage.getItem('absensi_rekap_guru_target_days');
       return saved ? parseInt(saved, 10) : 22;
@@ -402,6 +410,7 @@ export function HistoryView({
     }
   });
   const [rekapGuruStartDay, setRekapGuruStartDay] = useState<number>(() => {
+    if (customization?.rekapSettings?.rekapGuruStartDay) return customization.rekapSettings.rekapGuruStartDay;
     try {
       const saved = localStorage.getItem('absensi_rekap_guru_start_day');
       return saved ? parseInt(saved, 10) : 1;
@@ -412,11 +421,17 @@ export function HistoryView({
 
   // States for Monthly Individual Recap - TENDIK
   const [rekapTendikMonth, setRekapTendikMonth] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('absensi_rekap_tendik_month');
+      if (saved) return saved;
+    } catch {}
+    if (customization?.rekapSettings?.rekapTendikMonth) return customization.rekapSettings.rekapTendikMonth;
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
   const [rekapTendikNip, setRekapTendikNip] = useState<string>('');
   const [rekapTendikTargetDays, setRekapTendikTargetDays] = useState<number>(() => {
+    if (customization?.rekapSettings?.rekapTendikTargetDays) return customization.rekapSettings.rekapTendikTargetDays;
     try {
       const saved = localStorage.getItem('absensi_rekap_tendik_target_days');
       return saved ? parseInt(saved, 10) : 22;
@@ -425,6 +440,7 @@ export function HistoryView({
     }
   });
   const [rekapTendikStartDay, setRekapTendikStartDay] = useState<number>(() => {
+    if (customization?.rekapSettings?.rekapTendikStartDay) return customization.rekapSettings.rekapTendikStartDay;
     try {
       const saved = localStorage.getItem('absensi_rekap_tendik_start_day');
       return saved ? parseInt(saved, 10) : 1;
@@ -432,6 +448,53 @@ export function HistoryView({
       return 1;
     }
   });
+
+  // Sync rekapSettings state when customization prop updates
+  useEffect(() => {
+    if (customization?.rekapSettings) {
+      const r = customization.rekapSettings;
+      if (r.rekapGuruMonth) setRekapGuruMonth(r.rekapGuruMonth);
+      if (r.rekapGuruStartDay !== undefined) setRekapGuruStartDay(r.rekapGuruStartDay);
+      if (r.rekapGuruTargetDays !== undefined) setRekapGuruTargetDays(r.rekapGuruTargetDays);
+      if (r.rekapTendikMonth) setRekapTendikMonth(r.rekapTendikMonth);
+      if (r.rekapTendikStartDay !== undefined) setRekapTendikStartDay(r.rekapTendikStartDay);
+      if (r.rekapTendikTargetDays !== undefined) setRekapTendikTargetDays(r.rekapTendikTargetDays);
+    }
+  }, [customization?.rekapSettings]);
+
+  // Helper to sync rekap settings to LocalStorage and Google Sheets Cloud
+  const handleSyncRekapSettings = async (overrides?: any) => {
+    const currentGMonth = overrides?.rekapGuruMonth !== undefined ? overrides.rekapGuruMonth : rekapGuruMonth;
+    const currentGStart = overrides?.rekapGuruStartDay !== undefined ? overrides.rekapGuruStartDay : rekapGuruStartDay;
+    const currentGTarget = overrides?.rekapGuruTargetDays !== undefined ? overrides.rekapGuruTargetDays : rekapGuruTargetDays;
+    const currentTMonth = overrides?.rekapTendikMonth !== undefined ? overrides.rekapTendikMonth : rekapTendikMonth;
+    const currentTStart = overrides?.rekapTendikStartDay !== undefined ? overrides.rekapTendikStartDay : rekapTendikStartDay;
+    const currentTTarget = overrides?.rekapTendikTargetDays !== undefined ? overrides.rekapTendikTargetDays : rekapTendikTargetDays;
+
+    if (currentGMonth) localStorage.setItem('absensi_rekap_guru_month', currentGMonth);
+    if (currentGStart !== undefined) localStorage.setItem('absensi_rekap_guru_start_day', String(currentGStart));
+    if (currentGTarget !== undefined) localStorage.setItem('absensi_rekap_guru_target_days', String(currentGTarget));
+    if (currentTMonth) localStorage.setItem('absensi_rekap_tendik_month', currentTMonth);
+    if (currentTStart !== undefined) localStorage.setItem('absensi_rekap_tendik_start_day', String(currentTStart));
+    if (currentTTarget !== undefined) localStorage.setItem('absensi_rekap_tendik_target_days', String(currentTTarget));
+
+    if (onSaveCustomization) {
+      try {
+        await onSaveCustomization({
+          rekapSettings: {
+            rekapGuruMonth: currentGMonth,
+            rekapGuruStartDay: currentGStart,
+            rekapGuruTargetDays: currentGTarget,
+            rekapTendikMonth: currentTMonth,
+            rekapTendikStartDay: currentTStart,
+            rekapTendikTargetDays: currentTTarget,
+          },
+        });
+      } catch (e) {
+        console.error('Failed to sync rekap settings to cloud:', e);
+      }
+    }
+  };
 
   const [savingRecapMsg, setSavingRecapMsg] = useState<string>('');
   const [isSavingGuruRecap, setIsSavingGuruRecap] = useState<boolean>(false);
@@ -5406,7 +5469,11 @@ export function HistoryView({
                 <input
                   type="month"
                   value={rekapGuruMonth}
-                  onChange={(e) => setRekapGuruMonth(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setRekapGuruMonth(val);
+                    handleSyncRekapSettings({ rekapGuruMonth: val });
+                  }}
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 bg-white font-semibold text-slate-800"
                 />
               </div>
@@ -5428,7 +5495,7 @@ export function HistoryView({
                   onChange={(e) => {
                     const val = parseInt(e.target.value, 10) || 1;
                     setRekapGuruStartDay(val);
-                    try { localStorage.setItem('absensi_rekap_guru_start_day', String(val)); } catch {}
+                    handleSyncRekapSettings({ rekapGuruStartDay: val });
                   }}
                   className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-semibold ${
                     !isAdminUtama ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : 'bg-white text-slate-800 border-slate-200 cursor-pointer'
@@ -5474,7 +5541,7 @@ export function HistoryView({
                   onChange={(e) => {
                     const val = parseInt(e.target.value, 10) || 22;
                     setRekapGuruTargetDays(val);
-                    try { localStorage.setItem('absensi_rekap_guru_target_days', String(val)); } catch {}
+                    handleSyncRekapSettings({ rekapGuruTargetDays: val });
                   }}
                   className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-semibold ${
                     !isAdminUtama ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : 'bg-white text-slate-800 border-slate-200'
@@ -5483,6 +5550,23 @@ export function HistoryView({
                 />
               </div>
             </div>
+
+            {isAdminUtama && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/80 px-3.5 py-2.5 rounded-2xl text-xs text-blue-900 mb-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>Pilihan Bulan & Tahun, Mulai Tanggal Hitung, dan Target Hari Kerja <strong>tersimpan & tersinkron terpusat ke Google Sheets</strong>.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSyncRekapSettings()}
+                  className="w-full sm:w-auto px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] rounded-xl shadow flex items-center justify-center gap-1.5 transition-all shrink-0 active:scale-95"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Simpan & Sync Ke Cloud
+                </button>
+              </div>
+            )}
 
             {rekapGuruStartDay > 1 && (
               <div className="flex items-center gap-2.5 bg-blue-50/70 border border-blue-200/80 px-4 py-2.5 rounded-xl text-xs text-blue-900 font-medium">
@@ -6085,7 +6169,11 @@ export function HistoryView({
                 <input
                   type="month"
                   value={rekapTendikMonth}
-                  onChange={(e) => setRekapTendikMonth(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setRekapTendikMonth(val);
+                    handleSyncRekapSettings({ rekapTendikMonth: val });
+                  }}
                   className="w-full p-2.5 rounded-xl border border-slate-200 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 bg-white font-semibold text-slate-800"
                 />
               </div>
@@ -6107,7 +6195,7 @@ export function HistoryView({
                   onChange={(e) => {
                     const val = parseInt(e.target.value, 10) || 1;
                     setRekapTendikStartDay(val);
-                    try { localStorage.setItem('absensi_rekap_tendik_start_day', String(val)); } catch {}
+                    handleSyncRekapSettings({ rekapTendikStartDay: val });
                   }}
                   className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-semibold ${
                     !isAdminUtama ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : 'bg-white text-slate-800 border-slate-200 cursor-pointer'
@@ -6153,7 +6241,7 @@ export function HistoryView({
                   onChange={(e) => {
                     const val = parseInt(e.target.value, 10) || 22;
                     setRekapTendikTargetDays(val);
-                    try { localStorage.setItem('absensi_rekap_tendik_target_days', String(val)); } catch {}
+                    handleSyncRekapSettings({ rekapTendikTargetDays: val });
                   }}
                   className={`w-full p-2.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/20 font-semibold ${
                     !isAdminUtama ? 'bg-slate-100 text-slate-400 cursor-not-allowed border-slate-200' : 'bg-white text-slate-800 border-slate-200'
@@ -6162,6 +6250,23 @@ export function HistoryView({
                 />
               </div>
             </div>
+
+            {isAdminUtama && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200/80 px-3.5 py-2.5 rounded-2xl text-xs text-emerald-900 mb-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>Pilihan Bulan & Tahun, Mulai Tanggal Hitung, dan Target Hari Kerja <strong>tersimpan & tersinkron terpusat ke Google Sheets</strong>.</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleSyncRekapSettings()}
+                  className="w-full sm:w-auto px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] rounded-xl shadow flex items-center justify-center gap-1.5 transition-all shrink-0 active:scale-95"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Simpan & Sync Ke Cloud
+                </button>
+              </div>
+            )}
 
             {rekapTendikStartDay > 1 && (
               <div className="flex items-center gap-2.5 bg-emerald-50/70 border border-emerald-200/80 px-4 py-2.5 rounded-xl text-xs text-emerald-900 font-medium">

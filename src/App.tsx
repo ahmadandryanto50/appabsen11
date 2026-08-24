@@ -475,7 +475,16 @@ export default function App() {
               ? parsed.externalApps
               : (Array.isArray(prev.externalApps) && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS),
             holidays: Array.isArray(parsed.holidays) ? parsed.holidays : (prev.holidays || []),
+            rekapSettings: parsed.rekapSettings || prev.rekapSettings,
           };
+          if (parsed.rekapSettings) {
+            if (parsed.rekapSettings.rekapGuruMonth) localStorage.setItem('absensi_rekap_guru_month', parsed.rekapSettings.rekapGuruMonth);
+            if (parsed.rekapSettings.rekapGuruStartDay) localStorage.setItem('absensi_rekap_guru_start_day', String(parsed.rekapSettings.rekapGuruStartDay));
+            if (parsed.rekapSettings.rekapGuruTargetDays) localStorage.setItem('absensi_rekap_guru_target_days', String(parsed.rekapSettings.rekapGuruTargetDays));
+            if (parsed.rekapSettings.rekapTendikMonth) localStorage.setItem('absensi_rekap_tendik_month', parsed.rekapSettings.rekapTendikMonth);
+            if (parsed.rekapSettings.rekapTendikStartDay) localStorage.setItem('absensi_rekap_tendik_start_day', String(parsed.rekapSettings.rekapTendikStartDay));
+            if (parsed.rekapSettings.rekapTendikTargetDays) localStorage.setItem('absensi_rekap_tendik_target_days', String(parsed.rekapSettings.rekapTendikTargetDays));
+          }
           return merged;
         });
       } catch (e) {
@@ -516,11 +525,20 @@ export default function App() {
             batasWaktuMasuk: c.batasWaktuMasuk?.trim() ?? prev.batasWaktuMasuk ?? '07:00',
             externalApps: externalAppsList,
             holidays: Array.isArray(c.holidays) ? c.holidays : (prev.holidays || []),
+            rekapSettings: c.rekapSettings || prev.rekapSettings,
           };
 
           localStorage.setItem('absensi_app_customization', JSON.stringify(merged));
           if (Array.isArray(c.holidays)) {
             localStorage.setItem('absensi_hari_libur', JSON.stringify(c.holidays));
+          }
+          if (c.rekapSettings) {
+            if (c.rekapSettings.rekapGuruMonth) localStorage.setItem('absensi_rekap_guru_month', c.rekapSettings.rekapGuruMonth);
+            if (c.rekapSettings.rekapGuruStartDay) localStorage.setItem('absensi_rekap_guru_start_day', String(c.rekapSettings.rekapGuruStartDay));
+            if (c.rekapSettings.rekapGuruTargetDays) localStorage.setItem('absensi_rekap_guru_target_days', String(c.rekapSettings.rekapGuruTargetDays));
+            if (c.rekapSettings.rekapTendikMonth) localStorage.setItem('absensi_rekap_tendik_month', c.rekapSettings.rekapTendikMonth);
+            if (c.rekapSettings.rekapTendikStartDay) localStorage.setItem('absensi_rekap_tendik_start_day', String(c.rekapSettings.rekapTendikStartDay));
+            if (c.rekapSettings.rekapTendikTargetDays) localStorage.setItem('absensi_rekap_tendik_target_days', String(c.rekapSettings.rekapTendikTargetDays));
           }
           return merged;
         });
@@ -1842,6 +1860,7 @@ export default function App() {
                   onUpdateTeacherRecord={handleUpdateTeacherRecord}
                   onDeleteTeacherRecord={handleDeleteTeacherRecord}
                   customization={customization}
+                  onSaveCustomization={handleSaveCustomization}
                 />
               )}
 
