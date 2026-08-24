@@ -37,6 +37,8 @@ import {
   LayoutGrid,
   List,
   ArrowLeft,
+  BarChart3,
+  CheckCircle,
 } from 'lucide-react';
 import { apiClient } from '../api';
 import { formatKeterlambatan } from '../utils/timeUtils';
@@ -262,6 +264,8 @@ export function HistoryView({
   const [filterKioskTanggalAkhir, setFilterKioskTanggalAkhir] = useState('');
   const [kioskHistory, setKioskHistory] = useState<KioskScanRecord[]>([]);
   const [isLoadingKiosk, setIsLoadingKiosk] = useState(false);
+  const [kioskViewMode, setKioskViewMode] = useState<'log' | 'rekap-kelas'>('log');
+  const [masterSiswaList, setMasterSiswaList] = useState<any[]>([]);
 
   // Filter States - Guru (Izin)
   const [filterGuruTanggal, setFilterGuruTanggal] = useState('');
@@ -509,51 +513,51 @@ export function HistoryView({
   const [tendikRekapViewMode, setTendikRekapViewMode] = useState<'cards' | 'table'>('cards');
   const [selectedTendikDetailNip, setSelectedTendikDetailNip] = useState<string | null>(null);
 
+  // List of active custom holidays from customization or localStorage
+  const holidayList = useMemo(() => {
+    let list: any[] = [];
+    if (customization?.holidays && Array.isArray(customization.holidays)) {
+      list = customization.holidays;
+    } else {
+      try {
+        const stored = localStorage.getItem('absensi_hari_libur');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) list = parsed;
+        }
+      } catch (e) {}
+    }
+    return list;
+  }, [customization?.holidays]);
+
+  // Helper to detect Tendik role
+  const isTendikRole = (roleStr: string) => {
+    const r = String(roleStr || '').toLowerCase().trim();
+    if (!r) return false;
+    return (
+      r.includes('tendik') ||
+      r.includes('tu') ||
+      r.includes('tata usaha') ||
+      r.includes('staf') ||
+      r.includes('staff') ||
+      r.includes('pegawai') ||
+      r.includes('kependidikan') ||
+      r.includes('satpam') ||
+      r.includes('penjaga') ||
+      r.includes('kebersihan') ||
+      r.includes('pustakawan') ||
+      r.includes('laboran') ||
+      r.includes('operator') ||
+      r.includes('administrasi')
+    );
+  };
+
   // List Teachers & Tendik Users - STRICTLY SORTED ALPHABETICALLY (A to Z)
   // Khusus Admin Utama dan Admin tidak diwajibkan absen dan tidak masuk rekap harian/bulanan
-  const listGuruUsers = useMemo(() => {
-    const fromMaster = masterGuruList.filter(g => {
-      if (isAdminUser(g)) return false;
-      const r = String(g.role || '').toLowerCase();
-      return r === 'guru' || (!r.includes('tendik') && !r.includes('tu') && !r.includes('tata usaha') && !r.includes('staf') && !r.includes('pegawai'));
-    });
-    const extraGuruMap = new Map<string, { nip: string; nama: string; role: string }>();
-    (guruAbsenHistory || []).forEach((log: any) => {
-      if (isAdminUser(log)) return;
-      const nama = log.namaGuru || log.nama;
-      const nip = log.nip || '';
-      if (nama && !fromMaster.some(m => matchTeacher(m.nama, nama))) {
-        extraGuruMap.set(nama.toLowerCase().trim(), { nip: nip || '-', nama: nama.trim(), role: 'Guru' });
-      }
-    });
-    (teacherHistoryList || []).forEach((log: any) => {
-      if (isAdminUser(log)) return;
-      const nama = log.namaGuru || log.nama;
-      const nip = log.nip || '';
-      if (nama && !fromMaster.some(m => matchTeacher(m.nama, nama))) {
-        extraGuruMap.set(nama.toLowerCase().trim(), { nip: nip || '-', nama: nama.trim(), role: 'Guru' });
-      }
-    });
-    (teachers || []).forEach((t: any) => {
-      if (isAdminUser(t)) return;
-      if (t.nama && !fromMaster.some(m => matchTeacher(m.nama, t.nama))) {
-        extraGuruMap.set(t.nama.toLowerCase().trim(), { nip: t.nip || '-', nama: t.nama.trim(), role: 'Guru' });
-      }
-    });
-    const combined = [...fromMaster, ...Array.from(extraGuruMap.values())].filter(item => !isAdminUser(item));
-    const base = combined.length > 0 ? combined : [
-      { nip: '19900202201502', nama: 'Budi Santoso, S.Pd.', role: 'Guru' },
-      { nip: '19920815201803', nama: 'Siti Rahma, M.Pd.', role: 'Guru' },
-      { nip: '19881112201201', nama: 'Hendra Wijaya, S.Si.', role: 'Guru' },
-    ];
-    return [...base].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id', { sensitivity: 'base' }));
-  }, [masterGuruList, guruAbsenHistory, teacherHistoryList, teachers]);
-
   const listTendikUsers = useMemo(() => {
     const fromMaster = masterGuruList.filter(g => {
       if (isAdminUser(g)) return false;
-      const r = String(g.role || '').toLowerCase();
-      return r.includes('tendik') || r.includes('tu') || r.includes('tata usaha') || r.includes('staf') || r.includes('pegawai');
+      return isTendikRole(g.role);
     });
     const extraTendikMap = new Map<string, { nip: string; nama: string; role: string }>();
     (tendikAbsenHistory || []).forEach((log: any) => {
@@ -572,13 +576,77 @@ export function HistoryView({
         extraTendikMap.set(nama.toLowerCase().trim(), { nip: nip || '-', nama: nama.trim(), role: 'Tendik' });
       }
     });
+    (teachers || []).forEach((t: any) => {
+      if (isAdminUser(t)) return;
+      if (isTendikRole(t.role)) {
+        if (t.nama && !fromMaster.some(m => matchTeacher(m.nama, t.nama))) {
+          extraTendikMap.set(t.nama.toLowerCase().trim(), { nip: t.nip || '-', nama: t.nama.trim(), role: 'Tendik' });
+        }
+      }
+    });
     const combined = [...fromMaster, ...Array.from(extraTendikMap.values())].filter(item => !isAdminUser(item));
     const base = combined.length > 0 ? combined : [
       { nip: '19950505202005', nama: 'Rina Herawati, S.Pd.I.', role: 'Tendik' },
       { nip: '19970606202206', nama: 'Doni Setiawan', role: 'Tendik' },
     ];
     return [...base].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id', { sensitivity: 'base' }));
-  }, [masterGuruList, tendikAbsenHistory, tendikIzinHistory]);
+  }, [masterGuruList, tendikAbsenHistory, tendikIzinHistory, teachers]);
+
+  const listGuruUsers = useMemo(() => {
+    const fromMaster = masterGuruList.filter(g => {
+      if (isAdminUser(g)) return false;
+      if (isTendikRole(g.role)) return false;
+      const r = String(g.role || '').toLowerCase();
+      return r === 'guru' || (!r.includes('tendik') && !r.includes('tu') && !r.includes('tata usaha') && !r.includes('staf') && !r.includes('pegawai'));
+    });
+    const extraGuruMap = new Map<string, { nip: string; nama: string; role: string }>();
+    (guruAbsenHistory || []).forEach((log: any) => {
+      if (isAdminUser(log)) return;
+      if (isTendikRole(log.role)) return;
+      const nama = log.namaGuru || log.nama;
+      const nip = log.nip || '';
+      if (nama && !fromMaster.some(m => matchTeacher(m.nama, nama))) {
+        extraGuruMap.set(nama.toLowerCase().trim(), { nip: nip || '-', nama: nama.trim(), role: 'Guru' });
+      }
+    });
+    (teacherHistoryList || []).forEach((log: any) => {
+      if (isAdminUser(log)) return;
+      if (isTendikRole(log.role)) return;
+      const nama = log.namaGuru || log.nama;
+      const nip = log.nip || '';
+      if (nama && !fromMaster.some(m => matchTeacher(m.nama, nama))) {
+        extraGuruMap.set(nama.toLowerCase().trim(), { nip: nip || '-', nama: nama.trim(), role: 'Guru' });
+      }
+    });
+    (teachers || []).forEach((t: any) => {
+      if (isAdminUser(t)) return;
+      if (isTendikRole(t.role)) return;
+      if (t.nama && !fromMaster.some(m => matchTeacher(m.nama, t.nama))) {
+        extraGuruMap.set(t.nama.toLowerCase().trim(), { nip: t.nip || '-', nama: t.nama.trim(), role: 'Guru' });
+      }
+    });
+
+    const tendikNamesAndNips = new Set<string>();
+    listTendikUsers.forEach(t => {
+      if (t.nama) tendikNamesAndNips.add(t.nama.toLowerCase().trim());
+      if (t.nip && t.nip !== '-') tendikNamesAndNips.add(t.nip.trim());
+    });
+
+    const combined = [...fromMaster, ...Array.from(extraGuruMap.values())].filter(item => {
+      if (isAdminUser(item)) return false;
+      if (isTendikRole(item.role)) return false;
+      if (item.nama && tendikNamesAndNips.has(item.nama.toLowerCase().trim())) return false;
+      if (item.nip && item.nip !== '-' && tendikNamesAndNips.has(item.nip.trim())) return false;
+      return true;
+    });
+
+    const base = combined.length > 0 ? combined : [
+      { nip: '19900202201502', nama: 'Budi Santoso, S.Pd.', role: 'Guru' },
+      { nip: '19920815201803', nama: 'Siti Rahma, M.Pd.', role: 'Guru' },
+      { nip: '19881112201201', nama: 'Hendra Wijaya, S.Si.', role: 'Guru' },
+    ];
+    return [...base].sort((a, b) => (a.nama || '').localeCompare(b.nama || '', 'id', { sensitivity: 'base' }));
+  }, [masterGuruList, guruAbsenHistory, teacherHistoryList, teachers, listTendikUsers]);
 
   useEffect(() => {
     if (!rekapGuruNip) {
@@ -650,6 +718,12 @@ export function HistoryView({
           return false;
         });
 
+        const holidayMatch = (holidayList || []).find((h: any) => {
+          if (!h || !h.tanggal) return false;
+          const hDate = getNormalizedDateStr(h.tanggal);
+          return hDate === dStr;
+        });
+
         let status = '-';
         let statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
         let jamDatang = '-';
@@ -725,15 +799,31 @@ export function HistoryView({
           status = 'Libur Akhir Pekan';
           statusBadge = 'bg-slate-100 text-slate-400 border-slate-200 font-medium';
           keterangan = 'Akhir Pekan';
+        } else if (holidayMatch) {
+          status = 'Hari Libur';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          keterangan = holidayMatch.nama || holidayMatch.kategori || 'Hari Libur';
         } else if (day < effectiveStartDay) {
           status = 'Belum Dimulai';
           statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
           keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
-        } else if (dStr <= todayStr) {
+        } else if (dStr < todayStr) {
           status = 'Alpa';
           statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
           countAlpa++;
           keterangan = 'Tanpa Keterangan';
+        } else if (dStr === todayStr) {
+          const isPastCutoff = new Date().getHours() >= 17;
+          if (isPastCutoff) {
+            status = 'Alpa';
+            statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+            countAlpa++;
+            keterangan = 'Tanpa Keterangan';
+          } else {
+            status = 'Belum Absen';
+            statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-semibold';
+            keterangan = 'Hari Ini (Dalam Proses)';
+          }
         } else {
           status = 'Belum Berlangsung';
           statusBadge = 'bg-slate-50 text-slate-400 border-slate-100';
@@ -769,7 +859,7 @@ export function HistoryView({
         dayRows,
       };
     });
-  }, [rekapGuruMonth, rekapGuruTargetDays, rekapGuruStartDay, listGuruUsers, guruAbsenHistory, teacherHistoryList]);
+  }, [rekapGuruMonth, rekapGuruTargetDays, rekapGuruStartDay, listGuruUsers, guruAbsenHistory, teacherHistoryList, holidayList]);
 
   // Compute Collective Monthly Attendance Data for ALL Tendik
   const allTendikMonthlyList = useMemo(() => {
@@ -817,6 +907,12 @@ export function HistoryView({
           return false;
         });
 
+        const holidayMatch = (holidayList || []).find((h: any) => {
+          if (!h || !h.tanggal) return false;
+          const hDate = getNormalizedDateStr(h.tanggal);
+          return hDate === dStr;
+        });
+
         let status = '-';
         let statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
         let jamDatang = '-';
@@ -892,15 +988,31 @@ export function HistoryView({
           status = 'Libur Akhir Pekan';
           statusBadge = 'bg-slate-100 text-slate-400 border-slate-200 font-medium';
           keterangan = 'Akhir Pekan';
+        } else if (holidayMatch) {
+          status = 'Hari Libur';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          keterangan = holidayMatch.nama || holidayMatch.kategori || 'Hari Libur';
         } else if (day < effectiveStartDay) {
           status = 'Belum Dimulai';
           statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
           keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
-        } else if (dStr <= todayStr) {
+        } else if (dStr < todayStr) {
           status = 'Alpa';
           statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
           countAlpa++;
           keterangan = 'Tanpa Keterangan';
+        } else if (dStr === todayStr) {
+          const isPastCutoff = new Date().getHours() >= 17;
+          if (isPastCutoff) {
+            status = 'Alpa';
+            statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+            countAlpa++;
+            keterangan = 'Tanpa Keterangan';
+          } else {
+            status = 'Belum Absen';
+            statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-semibold';
+            keterangan = 'Hari Ini (Dalam Proses)';
+          }
         } else {
           status = 'Belum Berlangsung';
           statusBadge = 'bg-slate-50 text-slate-400 border-slate-100';
@@ -936,7 +1048,7 @@ export function HistoryView({
         dayRows,
       };
     });
-  }, [rekapTendikMonth, rekapTendikTargetDays, rekapTendikStartDay, listTendikUsers, tendikAbsenHistory, tendikIzinHistory]);
+  }, [rekapTendikMonth, rekapTendikTargetDays, rekapTendikStartDay, listTendikUsers, tendikAbsenHistory, tendikIzinHistory, holidayList]);
 
   // Filtered lists for searching (alphabetical order maintained)
   const filteredAllGuruMonthlyList = useMemo(() => {
@@ -1007,6 +1119,12 @@ export function HistoryView({
         return false;
       });
 
+      const holidayMatch = (holidayList || []).find((h: any) => {
+        if (!h || !h.tanggal) return false;
+        const hDate = getNormalizedDateStr(h.tanggal);
+        return hDate === dStr;
+      });
+
       let status = '-';
       let statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
       let jamDatang = '-';
@@ -1094,15 +1212,31 @@ export function HistoryView({
         status = 'Libur Akhir Pekan';
         statusBadge = 'bg-slate-100 text-slate-400 border-slate-200';
         keterangan = 'Akhir Pekan';
+      } else if (holidayMatch) {
+        status = 'Hari Libur';
+        statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+        keterangan = holidayMatch.nama || holidayMatch.kategori || 'Hari Libur';
       } else if (day < effectiveStartDay) {
         status = 'Belum Dimulai';
         statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
         keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
-      } else if (dStr <= todayStr) {
+      } else if (dStr < todayStr) {
         status = 'Alpa';
         statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
         keterangan = 'Tanpa Keterangan';
         countAlpa++;
+      } else if (dStr === todayStr) {
+        const isPastCutoff = new Date().getHours() >= 17;
+        if (isPastCutoff) {
+          status = 'Alpa';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          keterangan = 'Tanpa Keterangan';
+          countAlpa++;
+        } else {
+          status = 'Belum Absen';
+          statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-semibold';
+          keterangan = 'Hari Ini (Dalam Proses)';
+        }
       } else {
         status = 'Belum Berlangsung';
         statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60';
@@ -1141,7 +1275,7 @@ export function HistoryView({
       totalHariKerja,
       persentase,
     };
-  }, [rekapGuruMonth, rekapGuruNip, rekapGuruTargetDays, rekapGuruStartDay, listGuruUsers, guruAbsenHistory, teacherHistoryList, currentUser]);
+  }, [rekapGuruMonth, rekapGuruNip, rekapGuruTargetDays, rekapGuruStartDay, listGuruUsers, guruAbsenHistory, teacherHistoryList, currentUser, holidayList]);
 
   // Compute Tendik Monthly Attendance Data
   const tendikMonthlyData = useMemo(() => {
@@ -1193,6 +1327,12 @@ export function HistoryView({
         return false;
       });
 
+      const holidayMatch = (holidayList || []).find((h: any) => {
+        if (!h || !h.tanggal) return false;
+        const hDate = getNormalizedDateStr(h.tanggal);
+        return hDate === dStr;
+      });
+
       let status = '-';
       let statusBadge = 'bg-slate-100 text-slate-500 border-slate-200';
       let jamDatang = '-';
@@ -1280,15 +1420,31 @@ export function HistoryView({
         status = 'Libur Akhir Pekan';
         statusBadge = 'bg-slate-100 text-slate-400 border-slate-200';
         keterangan = 'Akhir Pekan';
+      } else if (holidayMatch) {
+        status = 'Hari Libur';
+        statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+        keterangan = holidayMatch.nama || holidayMatch.kategori || 'Hari Libur';
       } else if (day < effectiveStartDay) {
         status = 'Belum Dimulai';
         statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
         keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
-      } else if (dStr <= todayStr) {
+      } else if (dStr < todayStr) {
         status = 'Alpa';
         statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
         keterangan = 'Tanpa Keterangan';
         countAlpa++;
+      } else if (dStr === todayStr) {
+        const isPastCutoff = new Date().getHours() >= 17;
+        if (isPastCutoff) {
+          status = 'Alpa';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          keterangan = 'Tanpa Keterangan';
+          countAlpa++;
+        } else {
+          status = 'Belum Absen';
+          statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-semibold';
+          keterangan = 'Hari Ini (Dalam Proses)';
+        }
       } else {
         status = 'Belum Berlangsung';
         statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60';
@@ -1327,7 +1483,7 @@ export function HistoryView({
       totalHariKerja,
       persentase,
     };
-  }, [rekapTendikMonth, rekapTendikNip, rekapTendikTargetDays, rekapTendikStartDay, listTendikUsers, tendikAbsenHistory, tendikIzinHistory, currentUser]);
+  }, [rekapTendikMonth, rekapTendikNip, rekapTendikTargetDays, rekapTendikStartDay, listTendikUsers, tendikAbsenHistory, tendikIzinHistory, currentUser, holidayList]);
 
   // Handlers for Guru Monthly
   const handleSaveGuruMonthlyToSheets = async () => {
@@ -1981,6 +2137,31 @@ export function HistoryView({
         .finally(() => setIsLoadingRoster(false));
     }
   }, [subTab, selectedGuruClass]);
+
+  // Load full Master_Siswa list when kiosk-siswa tab is active to construct roster for class summary
+  useEffect(() => {
+    if (subTab === 'kiosk-siswa' && masterSiswaList.length === 0) {
+      apiClient.getCrud('Master_Siswa').then((crudRes) => {
+        if (crudRes && crudRes.status === 'success' && Array.isArray(crudRes.rows)) {
+          const headersLower = (crudRes.headers || []).map((h) => String(h || '').toLowerCase().trim());
+          const nisnIdx = headersLower.indexOf('nisn');
+          const namaIdx = headersLower.indexOf('nama') !== -1 ? headersLower.indexOf('nama') : headersLower.indexOf('nama siswa');
+          const kelasIdx = headersLower.indexOf('kelas');
+
+          const list = crudRes.rows
+            .map((row) => ({
+              id: row.rowIndex,
+              nisn: (nisnIdx !== -1 && row.data) ? String(row.data[nisnIdx] || '').trim() : '',
+              nama: (namaIdx !== -1 && row.data) ? String(row.data[namaIdx] || '').trim() : '',
+              kelas: (kelasIdx !== -1 && row.data) ? String(row.data[kelasIdx] || '').trim() : '',
+            }))
+            .filter((s) => s.nama);
+
+          setMasterSiswaList(list);
+        }
+      }).catch(() => {});
+    }
+  }, [subTab, masterSiswaList.length]);
 
   // Matrix calculation per student
   const classStudentMatrix = useMemo(() => {
@@ -2760,6 +2941,125 @@ export function HistoryView({
     });
   }, [kioskHistory, searchKioskNama, filterKioskKelas, filterKioskPeriode, filterKioskTanggal, filterKioskTanggalAwal, filterKioskTanggalAkhir]);
 
+  // 2.5. Kiosk Class Monthly Summary (Aggregated per student per class)
+  const kioskClassMonthlySummary = useMemo(() => {
+    if (!kioskHistory) return [];
+
+    const filteredScans = kioskHistory.filter((item) => {
+      if (filterKioskKelas) {
+        const targetK = filterKioskKelas.toLowerCase().replace(/^kelas\s*/, '').trim();
+        const itemK = (item.kelas || '').toLowerCase().replace(/^kelas\s*/, '').trim();
+        if (targetK && itemK && targetK !== itemK) return false;
+      }
+      const range = getDateRangeForPeriode(filterKioskPeriode, filterKioskTanggalAwal, filterKioskTanggalAkhir);
+      if (filterKioskTanggal && filterKioskPeriode === 'kustom') {
+        return isRecordInDateRange(item.tanggal, filterKioskTanggal, filterKioskTanggal);
+      }
+      return isRecordInDateRange(item.tanggal, range.startDate, range.endDate);
+    });
+
+    const studentMap = new Map<string, {
+      nisn: string;
+      nama: string;
+      kelas: string;
+      hadirTepatWaktu: number;
+      terlambat: number;
+      totalMenitTerlambat: number;
+      totalScan: number;
+    }>();
+
+    if (masterSiswaList && masterSiswaList.length > 0) {
+      masterSiswaList.forEach((s) => {
+        if (filterKioskKelas) {
+          const targetK = filterKioskKelas.toLowerCase().replace(/^kelas\s*/, '').trim();
+          const sK = (s.kelas || '').toLowerCase().replace(/^kelas\s*/, '').trim();
+          if (targetK && sK && targetK !== sK) return;
+        }
+        const key = (s.nisn && String(s.nisn).trim()) ? String(s.nisn).trim() : String(s.nama).toLowerCase().trim();
+        if (!studentMap.has(key)) {
+          studentMap.set(key, {
+            nisn: s.nisn || '-',
+            nama: s.nama,
+            kelas: s.kelas || filterKioskKelas || '-',
+            hadirTepatWaktu: 0,
+            terlambat: 0,
+            totalMenitTerlambat: 0,
+            totalScan: 0,
+          });
+        }
+      });
+    }
+
+    filteredScans.forEach((scan) => {
+      const scanNisn = scan.nisn && String(scan.nisn).trim();
+      const scanNama = scan.nama && String(scan.nama).trim();
+      const key = scanNisn ? scanNisn : (scanNama ? scanNama.toLowerCase() : '');
+      if (!key) return;
+
+      let entry = studentMap.get(key);
+      if (!entry && scanNama) {
+        for (const e of studentMap.values()) {
+          if (e.nama.toLowerCase().trim() === scanNama.toLowerCase()) {
+            entry = e;
+            break;
+          }
+        }
+      }
+
+      if (!entry) {
+        entry = {
+          nisn: scan.nisn || '-',
+          nama: scan.nama || 'Siswa',
+          kelas: scan.kelas || filterKioskKelas || '-',
+          hadirTepatWaktu: 0,
+          terlambat: 0,
+          totalMenitTerlambat: 0,
+          totalScan: 0,
+        };
+        studentMap.set(key, entry);
+      }
+
+      const statusLower = (scan.status || '').toLowerCase();
+      const isLate = statusLower.includes('terlambat') ||
+        statusLower.includes('telat') ||
+        (scan.keterlambatan && scan.keterlambatan !== '-' && !scan.keterlambatan.toLowerCase().includes('tepat') && !scan.keterlambatan.toLowerCase().includes('0 menit')) ||
+        (typeof scan.menitTerlambat === 'number' && scan.menitTerlambat > 0);
+
+      let lateMins = 0;
+      if (typeof scan.menitTerlambat === 'number') {
+        lateMins = scan.menitTerlambat;
+      } else if (scan.keterlambatan && scan.keterlambatan !== '-') {
+        const match = String(scan.keterlambatan).match(/(\d+)/);
+        if (match) lateMins = parseInt(match[1], 10);
+      }
+
+      entry.totalScan += 1;
+      if (isLate) {
+        entry.terlambat += 1;
+        entry.totalMenitTerlambat += lateMins;
+      } else {
+        entry.hadirTepatWaktu += 1;
+      }
+    });
+
+    let result = Array.from(studentMap.values());
+    if (searchKioskNama.trim()) {
+      const q = searchKioskNama.toLowerCase().trim();
+      result = result.filter((s) =>
+        (s.nama || '').toLowerCase().includes(q) ||
+        (s.nisn || '').toLowerCase().includes(q) ||
+        (s.kelas || '').toLowerCase().includes(q)
+      );
+    }
+
+    result.sort((a, b) => {
+      if (a.kelas !== b.kelas) return a.kelas.localeCompare(b.kelas);
+      return a.nama.localeCompare(b.nama);
+    });
+
+    return result;
+  }, [kioskHistory, masterSiswaList, filterKioskKelas, filterKioskPeriode, filterKioskTanggal, filterKioskTanggalAwal, filterKioskTanggalAkhir, searchKioskNama]);
+
   // 3. Filtered Guru History
   const filteredGuruHistory = useMemo(() => {
     return teacherHistoryList.filter((item) => {
@@ -3000,6 +3300,140 @@ export function HistoryView({
     doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
 
     doc.save(`Rekap_Presensi_Masuk_Kiosk_${filterKioskPeriode}.pdf`);
+  };
+
+  // PDF Export 2.5: Rekap Bulanan Kiosk Masuk Siswa Per Kelas
+  const handleDownloadKioskRekapKelasPDF = () => {
+    if (kioskClassMonthlySummary.length === 0) return;
+
+    const doc = new jsPDF();
+    const primaryColor: [number, number, number] = [37, 99, 235];
+
+    const periodeLabel = getPeriodeLabelText(filterKioskPeriode, filterKioskTanggalAwal, filterKioskTanggalAkhir);
+
+    renderOfficialKopSurat(doc, customization);
+
+    doc.setFontSize(12);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(15, 23, 42);
+    doc.text('REKAPITULASI KETEPATAN WAKTU PRESENSI MASUK SISWA (GERBANG/KIOSK)', 105, 40, { align: 'center' });
+
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'normal');
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Periode: ${periodeLabel} | Kelas: ${filterKioskKelas || 'Semua Kelas'} | Dicetak: ${new Date().toLocaleString('id-ID')}`, 105, 45, { align: 'center' });
+
+    const totalSiswa = kioskClassMonthlySummary.length;
+    const totalPresensi = kioskClassMonthlySummary.reduce((acc, s) => acc + s.totalScan, 0);
+    const totalTepatWaktu = kioskClassMonthlySummary.reduce((acc, s) => acc + s.hadirTepatWaktu, 0);
+    const totalTerlambat = kioskClassMonthlySummary.reduce((acc, s) => acc + s.terlambat, 0);
+    const avgPunctual = totalPresensi > 0 ? Math.round((totalTepatWaktu / totalPresensi) * 100) : 0;
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(15, 49, 180, 12, 2, 2, 'F');
+    doc.setFontSize(8.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text(`Total Siswa: ${totalSiswa} | Total Scan: ${totalPresensi} | Tepat Waktu: ${totalTepatWaktu} (${avgPunctual}%) | Terlambat: ${totalTerlambat}`, 20, 56.5);
+
+    const tableHeaders = [['No', 'NISN', 'Nama Siswa', 'Kelas', 'Tepat Waktu', 'Terlambat', 'Acc. Terlambat', 'Total Scan', '% Tepat Waktu']];
+    const tableBody = kioskClassMonthlySummary.map((item, idx) => {
+      const pct = item.totalScan > 0 ? Math.round((item.hadirTepatWaktu / item.totalScan) * 100) : 0;
+      return [
+        idx + 1,
+        item.nisn || '-',
+        item.nama || '-',
+        item.kelas || '-',
+        item.hadirTepatWaktu,
+        item.terlambat,
+        item.totalMenitTerlambat > 0 ? `${item.totalMenitTerlambat} Mnt` : '-',
+        item.totalScan,
+        item.totalScan > 0 ? `${pct}%` : '0%'
+      ];
+    });
+
+    autoTable(doc, {
+      startY: 66,
+      head: tableHeaders,
+      body: tableBody,
+      theme: 'striped',
+      headStyles: {
+        fillColor: primaryColor,
+        textColor: [255, 255, 255],
+        fontSize: 8.5,
+        halign: 'center'
+      },
+      bodyStyles: {
+        fontSize: 8.5,
+        textColor: [51, 65, 85]
+      },
+      columnStyles: {
+        0: { cellWidth: 10, halign: 'center' },
+        1: { cellWidth: 24, halign: 'center' },
+        2: { cellWidth: 'auto' },
+        3: { cellWidth: 18, halign: 'center' },
+        4: { cellWidth: 22, halign: 'center' },
+        5: { cellWidth: 20, halign: 'center' },
+        6: { cellWidth: 24, halign: 'center' },
+        7: { cellWidth: 20, halign: 'center' },
+        8: { cellWidth: 22, halign: 'center' },
+      },
+      margin: { left: 15, right: 15 },
+      styles: { overflow: 'linebreak' }
+    });
+
+    let currentY = (doc as any).lastAutoTable.finalY + 15;
+    if (currentY > 230) {
+      doc.addPage();
+      currentY = 25;
+    }
+
+    doc.setFontSize(9.5);
+    doc.setFont('Helvetica', 'bold');
+    doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
+    doc.text('Mengetahui,', 140, currentY);
+    doc.text('Kepala Sekolah,', 140, currentY + 5);
+
+    doc.setFont('Helvetica', 'normal');
+    doc.text(`( ${customization?.kepalaSekolahNama || '______________________'} )`, 140, currentY + 30);
+    doc.text(`NIP. ${customization?.kepalaSekolahNip || '..................................'}`, 140, currentY + 35);
+
+    const kelasLabel = filterKioskKelas ? filterKioskKelas.replace(/\s+/g, '_') : 'Semua_Kelas';
+    doc.save(`Rekap_Bulanan_Kiosk_Siswa_${kelasLabel}_${new Date().toISOString().split('T')[0]}.pdf`);
+  };
+
+  // Excel Export 2.6: Rekap Bulanan Kiosk Masuk Siswa Per Kelas
+  const handleDownloadKioskRekapKelasExcel = () => {
+    if (kioskClassMonthlySummary.length === 0) return;
+
+    const dataForSheet = kioskClassMonthlySummary.map((item, idx) => {
+      const pct = item.totalScan > 0 ? Math.round((item.hadirTepatWaktu / item.totalScan) * 100) : 0;
+      let statusCatatan = 'Belum Ada Scan';
+      if (item.totalScan > 0) {
+        if (item.terlambat === 0) statusCatatan = 'Sangat Disiplin (100% Tepat Waktu)';
+        else if (pct >= 80) statusCatatan = 'Disiplin (Tepat Waktu)';
+        else statusCatatan = 'Perlu Pembinaan (Sering Terlambat)';
+      }
+
+      return {
+        'No': idx + 1,
+        'NISN': item.nisn || '-',
+        'Nama Siswa': item.nama,
+        'Kelas': item.kelas,
+        'Presensi Tepat Waktu (Hadir)': item.hadirTepatWaktu,
+        'Jumlah Terlambat': item.terlambat,
+        'Akumulasi Menit Terlambat': item.totalMenitTerlambat > 0 ? `${item.totalMenitTerlambat} menit` : '0 menit',
+        'Total Presensi Masuk (Gerbang)': item.totalScan,
+        'Persentase Ketepatan Waktu (%)': `${pct}%`,
+        'Catatan Kedisiplinan': statusCatatan,
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(dataForSheet);
+    const workbook = XLSX.utils.book_new();
+    const kelasLabel = filterKioskKelas ? filterKioskKelas.replace(/\s+/g, '_') : 'Semua_Kelas';
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Rekap Bulanan Kiosk');
+    XLSX.writeFile(workbook, `Rekap_Bulanan_Kiosk_Masuk_Siswa_${kelasLabel}_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   // Helper selectors
@@ -4058,64 +4492,149 @@ export function HistoryView({
         {/* SUB TAB: KIOSK PRESENSI MASUK SISWA */}
         {subTab === 'kiosk-siswa' && (
           <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
               <div>
                 <h3 className="text-lg font-bold text-slate-800 tracking-tight flex items-center gap-2">
                   <ScanLine className="w-5 h-5 text-blue-600" />
                   <span>Riwayat Presensi Masuk Siswa (Kiosk / Gerbang)</span>
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Daftar pemindaian barcode/QR presensi pagi di gerbang beserta status kehadiran dan menit keterlambatan.
+                  Daftar pemindaian barcode/QR presensi pagi di gerbang beserta rekapitulasi ketepatan waktu per kelas.
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={handleClearKioskCache}
-                disabled={isLoadingKiosk}
-                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer self-start sm:self-auto border border-slate-200"
-                title="Bersihkan cache lokal dan muat ulang langsung dari spreadsheet database"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingKiosk ? 'animate-spin' : ''}`} />
-                <span>Sync / Bersihkan Cache</span>
-              </button>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Mode Switcher */}
+                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-xl border border-slate-200/80">
+                  <button
+                    type="button"
+                    onClick={() => setKioskViewMode('log')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      kioskViewMode === 'log'
+                        ? 'bg-white text-blue-600 shadow-sm font-black'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <List className="w-3.5 h-3.5" />
+                    <span>Log Scan Harian</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setKioskViewMode('rekap-kelas')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                      kioskViewMode === 'rekap-kelas'
+                        ? 'bg-white text-blue-600 shadow-sm font-black'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    <span>Rekap Bulanan Per Kelas</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleClearKioskCache}
+                  disabled={isLoadingKiosk}
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border border-slate-200"
+                  title="Bersihkan cache lokal dan muat ulang langsung dari spreadsheet database"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingKiosk ? 'animate-spin' : ''}`} />
+                  <span className="hidden sm:inline">Sync / Clear Cache</span>
+                </button>
+              </div>
             </div>
 
             {/* Metric Summary Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-bold text-slate-500 uppercase">Total Presensi</span>
-                  <p className="text-2xl font-black text-slate-800 mt-0.5">{filteredKioskHistory.length}</p>
+            {kioskViewMode === 'log' ? (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase">Total Presensi</span>
+                    <p className="text-2xl font-black text-slate-800 mt-0.5">{filteredKioskHistory.length}</p>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                    <Users className="w-5 h-5" />
+                  </div>
                 </div>
-                <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
-                  <Users className="w-5 h-5" />
-                </div>
-              </div>
 
-              <div className="bg-emerald-50/70 border border-emerald-200/80 p-4 rounded-2xl flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-bold text-emerald-700 uppercase">Tepat Waktu (Hadir)</span>
-                  <p className="text-2xl font-black text-emerald-800 mt-0.5">
-                    {filteredKioskHistory.filter((k) => k.status === 'Hadir').length}
-                  </p>
+                <div className="bg-emerald-50/70 border border-emerald-200/80 p-4 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-emerald-700 uppercase">Tepat Waktu (Hadir)</span>
+                    <p className="text-2xl font-black text-emerald-800 mt-0.5">
+                      {filteredKioskHistory.filter((k) => k.status === 'Hadir').length}
+                    </p>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                    <CheckCheck className="w-5 h-5" />
+                  </div>
                 </div>
-                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-                  <CheckCheck className="w-5 h-5" />
-                </div>
-              </div>
 
-              <div className="bg-amber-50/70 border border-amber-200/80 p-4 rounded-2xl flex items-center justify-between">
-                <div>
-                  <span className="text-[11px] font-bold text-amber-700 uppercase">Terlambat</span>
-                  <p className="text-2xl font-black text-amber-800 mt-0.5">
-                    {filteredKioskHistory.filter((k) => k.status === 'Terlambat').length}
-                  </p>
-                </div>
-                <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
-                  <Clock className="w-5 h-5" />
+                <div className="bg-amber-50/70 border border-amber-200/80 p-4 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-amber-700 uppercase">Terlambat</span>
+                    <p className="text-2xl font-black text-amber-800 mt-0.5">
+                      {filteredKioskHistory.filter((k) => k.status === 'Terlambat').length}
+                    </p>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                    <Clock className="w-5 h-5" />
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                <div className="bg-slate-50 border border-slate-200/80 p-4 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-500 uppercase">Total Siswa Terdata</span>
+                    <p className="text-2xl font-black text-slate-800 mt-0.5">{kioskClassMonthlySummary.length}</p>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center font-bold">
+                    <GraduationCap className="w-5 h-5" />
+                  </div>
+                </div>
+
+                <div className="bg-emerald-50/70 border border-emerald-200/80 p-4 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-emerald-700 uppercase">Presensi Tepat Waktu</span>
+                    <p className="text-2xl font-black text-emerald-800 mt-0.5">
+                      {kioskClassMonthlySummary.reduce((acc, s) => acc + s.hadirTepatWaktu, 0)} <span className="text-xs font-normal">Kali</span>
+                    </p>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                    <CheckCheck className="w-5 h-5" />
+                  </div>
+                </div>
+
+                <div className="bg-amber-50/70 border border-amber-200/80 p-4 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-amber-700 uppercase">Jumlah Terlambat</span>
+                    <p className="text-2xl font-black text-amber-800 mt-0.5">
+                      {kioskClassMonthlySummary.reduce((acc, s) => acc + s.terlambat, 0)} <span className="text-xs font-normal">Kali</span>
+                    </p>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                </div>
+
+                <div className="bg-blue-50/70 border border-blue-200/80 p-4 rounded-2xl flex items-center justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-blue-700 uppercase">Rata-rata Ketepatan</span>
+                    <p className="text-2xl font-black text-blue-800 mt-0.5">
+                      {(() => {
+                        const total = kioskClassMonthlySummary.reduce((a, s) => a + s.totalScan, 0);
+                        const tepat = kioskClassMonthlySummary.reduce((a, s) => a + s.hadirTepatWaktu, 0);
+                        return total > 0 ? Math.round((tepat / total) * 100) : 0;
+                      })()}%
+                    </p>
+                  </div>
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                    <TrendingUp className="w-5 h-5" />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Filter Bar */}
             <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 border border-slate-200/60 rounded-2xl">
@@ -4201,127 +4720,282 @@ export function HistoryView({
                   {isLoadingKiosk ? <Loader2 className="w-4 h-4 animate-spin" /> : <Filter className="w-3.5 h-3.5" />}
                   <span>Filter</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={handleDownloadKioskPDF}
-                  disabled={filteredKioskHistory.length === 0}
-                  className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                  title="Unduh Rekap PDF Presensi Masuk"
-                >
-                  <Download className="w-4 h-4" />
-                  <span className="hidden sm:inline">PDF</span>
-                </button>
+
+                {kioskViewMode === 'log' ? (
+                  <button
+                    type="button"
+                    onClick={handleDownloadKioskPDF}
+                    disabled={filteredKioskHistory.length === 0}
+                    className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                    title="Unduh Rekap PDF Presensi Masuk Log Harian"
+                  >
+                    <Download className="w-4 h-4" />
+                    <span className="hidden sm:inline">PDF</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleDownloadKioskRekapKelasPDF}
+                      disabled={kioskClassMonthlySummary.length === 0}
+                      className="p-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      title="Unduh PDF Rekap Bulanan Per Kelas"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span className="hidden sm:inline">PDF</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadKioskRekapKelasExcel}
+                      disabled={kioskClassMonthlySummary.length === 0}
+                      className="p-2.5 bg-green-700 hover:bg-green-800 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                      title="Export Excel Rekap Bulanan Per Kelas"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" />
+                      <span className="hidden sm:inline">Excel</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
             {/* Table */}
-            <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
-                  <tr>
-                    <th className="p-3.5 pl-4 w-12 text-center">No</th>
-                    <th className="p-3.5 w-28">Tanggal</th>
-                    <th className="p-3.5 w-24">Waktu Scan</th>
-                    <th className="p-3.5 w-28">NISN</th>
-                    <th className="p-3.5">Nama Siswa</th>
-                    <th className="p-3.5 w-24 text-center">Kelas</th>
-                    <th className="p-3.5 w-32 text-center">Status Masuk</th>
-                    <th className="p-3.5 w-36 text-center">Keterlambatan</th>
-                    {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || isFullAccess) && <th className="p-3.5 pr-4 text-center w-20">Aksi</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredKioskHistory.length > 0 ? (
-                    filteredKioskHistory.map((item, idx) => {
-                      const dt = parseKioskDateTime(item);
-                      return (
-                        <tr key={`kiosk-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
-                          <td className="p-3.5 pl-4 text-center text-slate-400 font-bold">{idx + 1}</td>
-                          <td className="p-3.5 font-mono text-slate-700 font-semibold whitespace-nowrap">
-                            <div className="flex items-center gap-1.5">
-                              <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                              <span>{dt.tanggal}</span>
-                            </div>
-                          </td>
-                          <td className="p-3.5 font-mono font-bold text-slate-800 whitespace-nowrap">
-                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200/80 rounded-lg text-xs">
-                              <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                              <span>{dt.waktu}</span>
-                            </div>
-                          </td>
-                          <td className="p-3.5 font-mono text-slate-500 font-semibold whitespace-nowrap">{item.nisn}</td>
-                          <td className="p-3.5 font-semibold text-slate-800 text-sm whitespace-nowrap">
-                            <StudentNameBadge student={item} name={item.nama} nisn={item.nisn} />
-                          </td>
-                          <td className="p-3.5 text-center">
-                            <span className="inline-block px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold text-[11px]">
-                              {item.kelas}
-                            </span>
-                          </td>
-                          <td className="p-3.5 text-center">
-                            {(() => {
-                              const isLate = (item.status || '').toLowerCase().includes('terlambat') ||
-                                (item.status || '').toLowerCase().includes('telat') ||
-                                (item.keterlambatan && item.keterlambatan !== '-' && item.keterlambatan.toLowerCase() !== 'tepat waktu');
-                              return (
-                                <span
-                                  className={`inline-block px-3 py-1 rounded-lg text-xs font-extrabold ${
-                                    isLate
-                                      ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                                      : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                                  }`}
-                                >
-                                  {isLate ? 'Terlambat' : item.status || 'Hadir'}
-                                </span>
-                              );
-                            })()}
-                          </td>
-                          <td className="p-3.5 text-center">
-                            {(() => {
-                              const isLate = (item.status || '').toLowerCase().includes('terlambat') ||
-                                (item.status || '').toLowerCase().includes('telat') ||
-                                (item.keterlambatan && item.keterlambatan !== '-' && item.keterlambatan.toLowerCase() !== 'tepat waktu');
-                              const formattedKet = formatKeterlambatan(item.keterlambatan || item.menitTerlambat);
-                              const hasValue = formattedKet && formattedKet !== '-';
-
-                              if (isLate || hasValue) {
+            {kioskViewMode === 'log' ? (
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
+                    <tr>
+                      <th className="p-3.5 pl-4 w-12 text-center">No</th>
+                      <th className="p-3.5 w-28">Tanggal</th>
+                      <th className="p-3.5 w-24">Waktu Scan</th>
+                      <th className="p-3.5 w-28">NISN</th>
+                      <th className="p-3.5">Nama Siswa</th>
+                      <th className="p-3.5 w-24 text-center">Kelas</th>
+                      <th className="p-3.5 w-32 text-center">Status Masuk</th>
+                      <th className="p-3.5 w-36 text-center">Keterlambatan</th>
+                      {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || isFullAccess) && <th className="p-3.5 pr-4 text-center w-20">Aksi</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredKioskHistory.length > 0 ? (
+                      filteredKioskHistory.map((item, idx) => {
+                        const dt = parseKioskDateTime(item);
+                        return (
+                          <tr key={`kiosk-${item.rowIndex || 'row'}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="p-3.5 pl-4 text-center text-slate-400 font-bold">{idx + 1}</td>
+                            <td className="p-3.5 font-mono text-slate-700 font-semibold whitespace-nowrap">
+                              <div className="flex items-center gap-1.5">
+                                <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span>{dt.tanggal}</span>
+                              </div>
+                            </td>
+                            <td className="p-3.5 font-mono font-bold text-slate-800 whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200/80 rounded-lg text-xs">
+                                <Clock className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                <span>{dt.waktu}</span>
+                              </div>
+                            </td>
+                            <td className="p-3.5 font-mono text-slate-500 font-semibold whitespace-nowrap">{item.nisn}</td>
+                            <td className="p-3.5 font-semibold text-slate-800 text-sm whitespace-nowrap">
+                              <StudentNameBadge student={item} name={item.nama} nisn={item.nisn} />
+                            </td>
+                            <td className="p-3.5 text-center">
+                              <span className="inline-block px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold text-[11px]">
+                                {item.kelas}
+                              </span>
+                            </td>
+                            <td className="p-3.5 text-center">
+                              {(() => {
+                                const isLate = (item.status || '').toLowerCase().includes('terlambat') ||
+                                  (item.status || '').toLowerCase().includes('telat') ||
+                                  (item.keterlambatan && item.keterlambatan !== '-' && item.keterlambatan.toLowerCase() !== 'tepat waktu');
                                 return (
-                                  <span className="inline-block px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-black">
-                                    {hasValue ? formattedKet : 'Terlambat'}
+                                  <span
+                                    className={`inline-block px-3 py-1 rounded-lg text-xs font-extrabold ${
+                                      isLate
+                                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                        : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                    }`}
+                                  >
+                                    {isLate ? 'Terlambat' : item.status || 'Hadir'}
                                   </span>
                                 );
-                              }
-                              return <span className="text-slate-400 font-bold">Tepat Waktu</span>;
-                            })()}
-                          </td>
-                          {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || isFullAccess) && (
-                            <td className="p-3.5 pr-4 text-center">
-                              <button
-                                type="button"
-                                onClick={() => openDeleteConfirmModal(item.rowIndex || idx + 2, 'kiosk-siswa', item)}
-                                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                                title="Hapus Data Presensi"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              })()}
                             </td>
-                          )}
-                        </tr>
-                      );
-                    })
-                  ) : (
+                            <td className="p-3.5 text-center">
+                              {(() => {
+                                const isLate = (item.status || '').toLowerCase().includes('terlambat') ||
+                                  (item.status || '').toLowerCase().includes('telat') ||
+                                  (item.keterlambatan && item.keterlambatan !== '-' && item.keterlambatan.toLowerCase() !== 'tepat waktu');
+                                const formattedKet = formatKeterlambatan(item.keterlambatan || item.menitTerlambat);
+                                const hasValue = formattedKet && formattedKet !== '-';
+
+                                if (isLate || hasValue) {
+                                  return (
+                                    <span className="inline-block px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 text-xs font-black">
+                                      {hasValue ? formattedKet : 'Terlambat'}
+                                    </span>
+                                  );
+                                }
+                                return <span className="text-slate-400 font-bold">Tepat Waktu</span>;
+                              })()}
+                            </td>
+                            {((currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') || isFullAccess) && (
+                              <td className="p-3.5 pr-4 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => openDeleteConfirmModal(item.rowIndex || idx + 2, 'kiosk-siswa', item)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                  title="Hapus Data Presensi"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') ? 9 : 8} className="p-12 text-center text-slate-400">
+                          <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                          <p className="text-xs font-semibold">
+                            Tidak ada rekaman presensi masuk siswa pada filter ini.
+                          </p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              /* REKAP BULANAN PER KELAS TABLE */
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-bold uppercase border-b border-slate-200">
                     <tr>
-                      <td colSpan={(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') ? 9 : 8} className="p-12 text-center text-slate-400">
-                        <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
-                        <p className="text-xs font-semibold">
-                          Tidak ada rekaman presensi masuk siswa pada filter ini.
-                        </p>
-                      </td>
+                      <th className="p-3.5 pl-4 w-12 text-center">No</th>
+                      <th className="p-3.5 w-28">NISN</th>
+                      <th className="p-3.5">Nama Siswa</th>
+                      <th className="p-3.5 w-20 text-center">Kelas</th>
+                      <th className="p-3.5 w-28 text-center">Tepat Waktu</th>
+                      <th className="p-3.5 w-28 text-center">Terlambat</th>
+                      <th className="p-3.5 w-32 text-center">Acc. Terlambat</th>
+                      <th className="p-3.5 w-28 text-center">Total Scan</th>
+                      <th className="p-3.5 w-36 text-center">% Ketepatan</th>
+                      <th className="p-3.5 pr-4 text-center w-40">Status Kedisiplinan</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {kioskClassMonthlySummary.length > 0 ? (
+                      kioskClassMonthlySummary.map((item, idx) => {
+                        const pct = item.totalScan > 0 ? Math.round((item.hadirTepatWaktu / item.totalScan) * 100) : 0;
+                        return (
+                          <tr key={`rekap-kiosk-${item.nisn || item.nama}-${idx}`} className="hover:bg-slate-50/60 transition-colors">
+                            <td className="p-3.5 pl-4 text-center text-slate-400 font-bold">{idx + 1}</td>
+                            <td className="p-3.5 font-mono text-slate-500 font-semibold whitespace-nowrap">{item.nisn || '-'}</td>
+                            <td className="p-3.5 font-bold text-slate-800 text-sm whitespace-nowrap">
+                              <StudentNameBadge student={item} name={item.nama} nisn={item.nisn} />
+                            </td>
+                            <td className="p-3.5 text-center">
+                              <span className="inline-block px-2.5 py-0.5 rounded-md bg-blue-50 text-blue-700 font-bold text-[11px]">
+                                {item.kelas}
+                              </span>
+                            </td>
+                            <td className="p-3.5 text-center font-bold">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg text-xs">
+                                <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>{item.hadirTepatWaktu} Kali</span>
+                              </span>
+                            </td>
+                            <td className="p-3.5 text-center font-bold">
+                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs border ${
+                                item.terlambat > 0
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-slate-50 text-slate-400 border-slate-200'
+                              }`}>
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>{item.terlambat} Kali</span>
+                              </span>
+                            </td>
+                            <td className="p-3.5 text-center font-mono font-semibold text-slate-700">
+                              {item.totalMenitTerlambat > 0 ? (
+                                <span className="inline-block px-2 py-0.5 rounded bg-amber-50 text-amber-900 border border-amber-200 text-[11px] font-extrabold">
+                                  {item.totalMenitTerlambat} Mnt
+                                </span>
+                              ) : (
+                                <span className="text-slate-400 font-bold">-</span>
+                              )}
+                            </td>
+                            <td className="p-3.5 text-center font-bold">
+                              <span className="inline-block px-2.5 py-1 bg-blue-50 text-blue-800 border border-blue-200 rounded-lg text-xs">
+                                {item.totalScan} Masuk
+                              </span>
+                            </td>
+                            <td className="p-3.5 text-center">
+                              <div className="flex flex-col items-center gap-1">
+                                <span className={`font-black text-xs ${
+                                  pct >= 80 ? 'text-emerald-700' : pct >= 50 ? 'text-amber-700' : 'text-rose-700'
+                                }`}>
+                                  {pct}%
+                                </span>
+                                <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all ${
+                                      pct >= 80 ? 'bg-emerald-500' : pct >= 50 ? 'bg-amber-500' : 'bg-rose-500'
+                                    }`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-3.5 pr-4 text-center">
+                              {(() => {
+                                if (item.totalScan === 0) {
+                                  return (
+                                    <span className="inline-block px-2.5 py-1 rounded-lg bg-slate-100 text-slate-500 text-[11px] font-bold">
+                                      Belum Ada Scan
+                                    </span>
+                                  );
+                                }
+                                if (item.terlambat === 0) {
+                                  return (
+                                    <span className="inline-block px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-200 text-[11px] font-black">
+                                      Sangat Disiplin
+                                    </span>
+                                  );
+                                }
+                                if (pct >= 80) {
+                                  return (
+                                    <span className="inline-block px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[11px] font-bold">
+                                      Disiplin
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span className="inline-block px-2.5 py-1 rounded-lg bg-amber-100 text-amber-800 border border-amber-200 text-[11px] font-black">
+                                    Sering Terlambat
+                                  </span>
+                                );
+                              })()}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={10} className="p-12 text-center text-slate-400">
+                          <FolderOpen className="w-10 h-10 mx-auto mb-2 text-slate-300" />
+                          <p className="text-xs font-semibold">
+                            Tidak ada rekaman rekap bulanan presensi masuk siswa untuk kelas/filter terpilih.
+                          </p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 

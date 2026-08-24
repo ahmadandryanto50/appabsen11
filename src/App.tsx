@@ -1780,6 +1780,7 @@ export default function App() {
                   <ScannerKioskView
                     students={allStudents}
                     customization={customization}
+                    currentUser={currentUser}
                     onUpdateCustomization={handleSaveCustomization}
                   />
                 ) : (

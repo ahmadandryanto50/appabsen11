@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { CrudRow, AppCustomization, getLocalDateString } from '../types';
+import { CrudRow, AppCustomization, getLocalDateString, User } from '../types';
 import { Camera, CheckCircle, AlertCircle, Maximize, Clock, UserCheck, RotateCcw, Edit3, Check, Sparkles } from 'lucide-react';
 import { apiClient } from '../api';
 import { formatKeterlambatan } from '../utils/timeUtils';
@@ -9,6 +9,7 @@ import { StudentNameBadge, getStudentColorInfo } from '../utils/studentColor';
 interface ScannerKioskViewProps {
   students: CrudRow[];
   customization: AppCustomization;
+  currentUser?: User | null;
   onUpdateCustomization?: (newCust: AppCustomization) => Promise<any> | any;
 }
 
@@ -41,7 +42,8 @@ export function parseBatasWaktu(batasWaktuStr?: string): { hour: number; minute:
   return { hour: 7, minute: 0, formatted: '07:00' };
 }
 
-export function ScannerKioskView({ students, customization, onUpdateCustomization }: ScannerKioskViewProps) {
+export function ScannerKioskView({ students, customization, currentUser, onUpdateCustomization }: ScannerKioskViewProps) {
+  const isAdminUtama = currentUser?.role === 'Admin Utama';
   const [scanResult, setScanResult] = useState<{
     status: 'success' | 'error' | 'idle' | 'warning';
     message: string;
@@ -471,7 +473,7 @@ export function ScannerKioskView({ students, customization, onUpdateCustomizatio
   const totalHadirCount = recentScans.filter((s) => s.status === 'Hadir').length;
   const totalTerlambatCount = recentScans.filter((s) => s.status === 'Terlambat').length;
 
-  if (activeHoliday) {
+  if (activeHoliday && !isAdminUtama) {
     return (
       <div className="bg-red-50 border border-red-200/80 rounded-3xl p-8 text-center max-w-xl mx-auto my-8 space-y-4 shadow-sm animate-scale-up">
         <div className="w-16 h-16 rounded-full bg-red-100 text-red-600 mx-auto flex items-center justify-center shadow-inner">
@@ -492,6 +494,22 @@ export function ScannerKioskView({ students, customization, onUpdateCustomizatio
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      {activeHoliday && isAdminUtama && (
+        <div className="bg-amber-50 border border-amber-300 text-amber-900 p-4 rounded-2xl flex items-center gap-3 shadow-sm">
+          <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+            <AlertCircle className="w-5 h-5" />
+          </div>
+          <div className="text-xs">
+            <p className="font-bold text-amber-900">
+              Mode Khusus Admin Utama: Hari Libur Terdeteksi ("{activeHoliday.nama}" - {activeHoliday.kategori})
+            </p>
+            <p className="text-amber-700 mt-0.5">
+              Anda masuk sebagai <strong>Admin Utama</strong>. Pemindaian Kiosk Scanner tetap diizinkan dan dapat digunakan pada hari libur.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-200">
         {/* Header Bar */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4">

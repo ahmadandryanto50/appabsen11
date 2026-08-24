@@ -68,6 +68,40 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
     }
   }, []);
 
+  const [alreadyDatang, setAlreadyDatang] = useState(false);
+
+  useEffect(() => {
+    const todayStr = getLocalDateString(new Date());
+    const rawHistory = localStorage.getItem('absensi_history_guru_absen');
+    if (rawHistory && currentUser?.nip) {
+      try {
+        const list = JSON.parse(rawHistory);
+        const found = list.some((item: any) =>
+          (item.nip === currentUser.nip || item.namaGuru === currentUser.nama) &&
+          item.tanggal === todayStr &&
+          item.tipe === 'Datang'
+        );
+        setAlreadyDatang(found);
+      } catch (e) {}
+    }
+  }, [currentUser]);
+
+  const isPastCutoff = () => {
+    try {
+      const hourStr = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Makassar',
+        hour: 'numeric',
+        hour12: false,
+      }).format(new Date());
+      const hour = parseInt(hourStr, 10);
+      return hour >= 17;
+    } catch (e) {
+      return new Date().getHours() >= 17;
+    }
+  };
+
+  const isCutoffBlocked = isPastCutoff() && !alreadyDatang && currentUser?.role !== 'Admin Utama' && currentUser?.role !== 'Admin';
+
   // States for Admin features
   const [teachers, setTeachers] = useState<{ nip: string; nama: string; role: string }[]>([]);
   const [classes, setClasses] = useState<string[]>([]);
@@ -229,6 +263,11 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (isCutoffBlocked) {
+      alert('Batas waktu permohonan izin/sakit harian telah terlampaui (lewat pukul 17:00 WITA). Karena Anda belum melakukan Absen Datang hari ini, Anda dinyatakan ALPA dan formulir izin tidak dapat digunakan.');
+      return;
+    }
+
     // Validation
     if (isAdmin) {
       if (!selectedTeacherNip) {
@@ -388,6 +427,26 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
       )}
 
       <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm max-w-2xl mx-auto space-y-6">
+        {/* Status Lewat Jam 17:00 (Terlambat/Alpa) */}
+        {isCutoffBlocked && (
+          <div className="bg-rose-50 border border-rose-200/90 rounded-2xl p-4 flex items-start gap-3.5 text-rose-900 shadow-xs animate-scale-up">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5 animate-pulse" />
+            <div className="space-y-1 text-left">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-rose-950 text-xs sm:text-sm block">
+                  Batas Waktu Formulir Izin Berakhir (Lewat Pukul 17:00 WITA)
+                </span>
+                <span className="px-2 py-0.5 bg-rose-600 text-white font-black text-[10px] rounded-md uppercase tracking-wider shadow-xs">
+                  Dinyatakan ALPA
+                </span>
+              </div>
+              <p className="text-rose-800 text-[11px] sm:text-xs leading-relaxed font-medium">
+                Sistem presensi harian dan pengajuan izin otomatis ditutup pada pukul 17:00 WITA. Karena Anda <strong>belum melakukan Absen Datang</strong> hingga pukul 17:00, Anda tidak dapat lagi menggunakan formulir pengajuan izin hari ini dan sistem mencatat status Anda sebagai <strong>ALPA (Tanpa Keterangan)</strong>.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div>
           <h3 className="text-lg font-bold text-slate-800 tracking-tight flex items-center gap-2">
             <CalendarRange className="w-5.5 h-5.5 text-blue-600 animate-pulse" />
@@ -696,7 +755,7 @@ export function TeacherPermitView({ currentUser, onSubmit }: TeacherPermitViewPr
 
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || isCutoffBlocked}
               className="w-full py-3.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold rounded-xl shadow-lg shadow-blue-600/10 hover:shadow-blue-600/20 text-sm transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}

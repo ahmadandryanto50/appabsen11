@@ -55,6 +55,40 @@ export function TendikPermitView({
     }
   }, []);
 
+  const [alreadyDatang, setAlreadyDatang] = useState(false);
+
+  useEffect(() => {
+    const todayStr = getLocalDateString(new Date());
+    const rawHistory = localStorage.getItem('absensi_history_tendik_absen');
+    if (rawHistory && currentUser?.nip) {
+      try {
+        const list = JSON.parse(rawHistory);
+        const found = list.some((item: any) =>
+          (item.nip === currentUser.nip || item.namaTendik === currentUser.nama) &&
+          item.tanggal === todayStr &&
+          item.tipe === 'Datang'
+        );
+        setAlreadyDatang(found);
+      } catch (e) {}
+    }
+  }, [currentUser]);
+
+  const isPastCutoff = () => {
+    try {
+      const hourStr = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Makassar',
+        hour: 'numeric',
+        hour12: false,
+      }).format(new Date());
+      const hour = parseInt(hourStr, 10);
+      return hour >= 17;
+    } catch (e) {
+      return new Date().getHours() >= 17;
+    }
+  };
+
+  const isCutoffBlocked = isPastCutoff() && !alreadyDatang && currentUser?.role !== 'Admin Utama' && currentUser?.role !== 'Admin';
+
   // Camera Snapshot State
   const [showCameraStream, setShowCameraStream] = useState(false);
   const [cameraPhoto, setCameraPhoto] = useState<string | null>(null);
@@ -175,6 +209,12 @@ export function TendikPermitView({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isCutoffBlocked) {
+      alert('Batas waktu permohonan izin/sakit harian telah terlampaui (lewat pukul 17:00 WITA). Karena Anda belum melakukan Absen Datang hari ini, Anda dinyatakan ALPA dan formulir izin tidak dapat digunakan.');
+      return;
+    }
+
     if (!alasan.trim()) {
       alert('Silakan tulis detail alasan ketidakhadiran Anda.');
       return;
@@ -247,6 +287,26 @@ export function TendikPermitView({
       )}
 
       <form onSubmit={handleSave} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-6">
+        {/* Status Lewat Jam 17:00 (Terlambat/Alpa) */}
+        {isCutoffBlocked && (
+          <div className="bg-rose-50 border border-rose-200/90 rounded-2xl p-4 flex items-start gap-3.5 text-rose-900 shadow-xs animate-scale-up">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5 animate-pulse" />
+            <div className="space-y-1 text-left">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-rose-950 text-xs sm:text-sm block">
+                  Batas Waktu Formulir Izin Berakhir (Lewat Pukul 17:00 WITA)
+                </span>
+                <span className="px-2 py-0.5 bg-rose-600 text-white font-black text-[10px] rounded-md uppercase tracking-wider shadow-xs">
+                  Dinyatakan ALPA
+                </span>
+              </div>
+              <p className="text-rose-800 text-[11px] sm:text-xs leading-relaxed font-medium">
+                Sistem presensi harian dan pengajuan izin otomatis ditutup pada pukul 17:00 WITA. Karena Anda <strong>belum melakukan Absen Datang</strong> hingga pukul 17:00, Anda tidak dapat lagi menggunakan formulir pengajuan izin hari ini dan sistem mencatat status Anda sebagai <strong>ALPA (Tanpa Keterangan)</strong>.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="pb-4 border-b border-slate-100 flex items-center justify-between">
           <div>
             <h3 className="text-lg font-bold text-slate-800 tracking-tight flex items-center gap-2">
@@ -437,7 +497,7 @@ export function TendikPermitView({
         <div className="pt-4 border-t border-slate-100 flex justify-end">
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isCutoffBlocked}
             className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/10 transition-all flex items-center gap-2 cursor-pointer hover:scale-102"
           >
             {isSubmitting ? (

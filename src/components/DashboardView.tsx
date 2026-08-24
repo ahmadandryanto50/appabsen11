@@ -924,6 +924,20 @@ export function DashboardView({
     const targetNip = person.nip || '';
     const targetNama = person.nama || '';
 
+    // Retrieve holiday list from customization or localStorage
+    let holidayList: any[] = [];
+    if (customization?.holidays && Array.isArray(customization.holidays)) {
+      holidayList = customization.holidays;
+    } else {
+      try {
+        const stored = localStorage.getItem('absensi_hari_libur');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) holidayList = parsed;
+        }
+      } catch (e) {}
+    }
+
     const dayRows = [];
     let countHadir = 0;
     let countIzin = 0;
@@ -936,6 +950,12 @@ export function DashboardView({
       const dObj = new Date(year, month - 1, day);
       const dayName = dayNames[dObj.getDay()];
       const isWeekend = dObj.getDay() === 0 || dObj.getDay() === 6;
+
+      const holidayMatch = (holidayList || []).find((h: any) => {
+        if (!h || !h.tanggal) return false;
+        const hDate = getNormalizedDateStr(h.tanggal);
+        return hDate === dStr;
+      });
 
       const allDayPresensi = (presensiLogs || []).filter((log: any) => {
         const logDate = getNormalizedDateStr(log.tanggal || log.rawTanggal);
@@ -1032,15 +1052,31 @@ export function DashboardView({
         status = 'Libur Akhir Pekan';
         statusBadge = 'bg-slate-100 text-slate-400 border-slate-200 font-medium';
         keterangan = 'Akhir Pekan';
+      } else if (holidayMatch) {
+        status = 'Hari Libur';
+        statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+        keterangan = holidayMatch.nama || holidayMatch.kategori || 'Hari Libur';
       } else if (day < effectiveStartDay) {
         status = 'Belum Dimulai';
         statusBadge = 'bg-slate-50 text-slate-400 border-slate-200/60 font-medium';
         keterangan = `Sebelum Mulai Periode (Tgl ${effectiveStartDay})`;
-      } else if (dStr <= todayStr) {
+      } else if (dStr < todayStr) {
         status = 'Alpa';
         statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
         countAlpa++;
-        keterangan = 'Hari Kerja Belum Presensi';
+        keterangan = 'Tanpa Keterangan';
+      } else if (dStr === todayStr) {
+        const isPastCutoff = new Date().getHours() >= 17;
+        if (isPastCutoff) {
+          status = 'Alpa';
+          statusBadge = 'bg-rose-50 text-rose-700 border-rose-200 font-bold';
+          countAlpa++;
+          keterangan = 'Tanpa Keterangan';
+        } else {
+          status = 'Belum Absen';
+          statusBadge = 'bg-amber-50 text-amber-700 border-amber-200 font-semibold';
+          keterangan = 'Hari Ini (Dalam Proses)';
+        }
       } else {
         status = 'Belum Berlangsung';
         statusBadge = 'bg-slate-50 text-slate-400 border-slate-100';
