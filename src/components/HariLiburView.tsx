@@ -29,24 +29,34 @@ export function HariLiburView({ onAddToast, customization, onSaveCustomization }
 
   // Load holidays on mount and when customization changes
   useEffect(() => {
+    let rawList: Holiday[] = [];
     if (customization?.holidays && Array.isArray(customization.holidays)) {
-      setHolidays(customization.holidays);
+      rawList = customization.holidays;
     } else {
       const stored = localStorage.getItem('absensi_hari_libur');
       if (stored) {
         try {
-          setHolidays(JSON.parse(stored));
+          rawList = JSON.parse(stored);
         } catch (e) {
           console.error('Failed to parse holidays:', e);
         }
-      } else {
-        // Seed some default holidays if empty
-        const defaults: Holiday[] = [
-          { id: '1', tanggal: '2026-08-17', nama: 'Hari Kemerdekaan RI', kategori: 'Nasional' },
-          { id: '2', tanggal: '2026-12-25', nama: 'Hari Raya Natal', kategori: 'Nasional' },
-        ];
-        setHolidays(defaults);
-        localStorage.setItem('absensi_hari_libur', JSON.stringify(defaults));
+      }
+    }
+
+    // Filter out default holidays if present ("Hari Kemerdekaan RI" and "Hari Raya Natal")
+    const cleaned = rawList.filter((h) => {
+      const nameLow = (h.nama || '').toLowerCase();
+      return !nameLow.includes('kemerdekaan') && !nameLow.includes('natal');
+    });
+
+    setHolidays(cleaned);
+    if (cleaned.length !== rawList.length) {
+      localStorage.setItem('absensi_hari_libur', JSON.stringify(cleaned));
+      if (onSaveCustomization && customization) {
+        onSaveCustomization({
+          ...customization,
+          holidays: cleaned,
+        });
       }
     }
   }, [customization?.holidays]);

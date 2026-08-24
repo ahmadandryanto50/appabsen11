@@ -239,7 +239,28 @@ export function TeacherAttendanceView({
     }
   };
 
+  const isPastCutoff = () => {
+    try {
+      const hourStr = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Makassar',
+        hour: 'numeric',
+        hour12: false,
+      }).format(new Date());
+      const hour = parseInt(hourStr, 10);
+      return hour >= 17;
+    } catch (e) {
+      return new Date().getHours() >= 17;
+    }
+  };
+
+  const isCutoffBlocked = isPastCutoff() && !alreadyDatang && currentUser?.role !== 'Admin Utama';
+
   const handleSave = async () => {
+    if (isCutoffBlocked) {
+      alert('Batas waktu absensi harian telah terlampaui (lewat pukul 17:00 WITA). Karena Anda belum melakukan Absen Datang, Anda dinyatakan ALPA dan tidak dapat mengisi presensi.');
+      return;
+    }
+
     if (!cameraPhoto) {
       alert('Silakan ambil foto bukti kehadiran terlebih dahulu.');
       return;
@@ -283,7 +304,7 @@ export function TeacherAttendanceView({
     }
   };
 
-  const isSubmitDisabled = isSubmitting || !cameraPhoto || (tipeAbsen === 'Datang' && alreadyDatang) || (tipeAbsen === 'Pulang' && alreadyPulang);
+  const isSubmitDisabled = isSubmitting || !cameraPhoto || (tipeAbsen === 'Datang' && alreadyDatang) || (tipeAbsen === 'Pulang' && alreadyPulang) || isCutoffBlocked;
 
   const isBlocked = (activeHoliday || isWeekend) && currentUser?.role !== 'Admin Utama';
 
@@ -397,6 +418,26 @@ export function TeacherAttendanceView({
           </div>
         )}
 
+        {/* Status Lewat Jam 17:00 (Terlambat/Alpa) */}
+        {isCutoffBlocked && (
+          <div className="bg-rose-50 border border-rose-200/90 rounded-2xl p-4 flex items-start gap-3.5 text-rose-900 shadow-xs animate-scale-up">
+            <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5 animate-pulse" />
+            <div className="space-y-1 text-left">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-rose-950 text-xs sm:text-sm block">
+                  Batas Waktu Absensi Berakhir (Lewat Pukul 17:00 WITA)
+                </span>
+                <span className="px-2 py-0.5 bg-rose-600 text-white font-black text-[10px] rounded-md uppercase tracking-wider shadow-xs">
+                  Dinyatakan ALPA
+                </span>
+              </div>
+              <p className="text-rose-800 text-[11px] sm:text-xs leading-relaxed font-medium">
+                Sistem presensi harian otomatis ditutup pada pukul 17:00 WITA. Karena Anda <strong>belum melakukan Absen Datang</strong> hingga pukul 17:00, Anda tidak dapat lagi mengisi Absen Datang maupun Absen Pulang hari ini dan sistem mencatat status Anda sebagai <strong>ALPA (Tanpa Keterangan)</strong>.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Select Tipe Presensi (Datang / Pulang) */}
         <div className="space-y-2">
           <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
@@ -405,20 +446,20 @@ export function TeacherAttendanceView({
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
-              disabled={alreadyDatang}
+              disabled={alreadyDatang || isCutoffBlocked}
               onClick={() => setTipeAbsen('Datang')}
               className={`p-3.5 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-extrabold text-xs transition-all ${
-                alreadyDatang ? 'opacity-50 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400' : 'cursor-pointer'
+                alreadyDatang || isCutoffBlocked ? 'opacity-50 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400' : 'cursor-pointer'
               } ${
-                tipeAbsen === 'Datang' && !alreadyDatang
+                tipeAbsen === 'Datang' && !alreadyDatang && !isCutoffBlocked
                   ? 'border-emerald-500 bg-emerald-50/80 text-emerald-800 shadow-sm'
-                  : !alreadyDatang ? 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70' : ''
+                  : !alreadyDatang && !isCutoffBlocked ? 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70' : ''
               }`}
             >
               <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
-                tipeAbsen === 'Datang' && !alreadyDatang ? 'border-emerald-600 bg-emerald-600' : 'border-slate-400'
+                tipeAbsen === 'Datang' && !alreadyDatang && !isCutoffBlocked ? 'border-emerald-600 bg-emerald-600' : 'border-slate-400'
               }`}>
-                {tipeAbsen === 'Datang' && !alreadyDatang && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                {tipeAbsen === 'Datang' && !alreadyDatang && !isCutoffBlocked && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
               </div>
               <span className="text-base">☀️</span>
               <span>Absen Datang {alreadyDatang && '(Selesai)'}</span>
@@ -426,20 +467,20 @@ export function TeacherAttendanceView({
 
             <button
               type="button"
-              disabled={alreadyPulang}
+              disabled={alreadyPulang || isCutoffBlocked}
               onClick={() => setTipeAbsen('Pulang')}
               className={`p-3.5 rounded-2xl border-2 flex items-center justify-center gap-2.5 font-extrabold text-xs transition-all ${
-                alreadyPulang ? 'opacity-50 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400' : 'cursor-pointer'
+                alreadyPulang || isCutoffBlocked ? 'opacity-50 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400' : 'cursor-pointer'
               } ${
-                tipeAbsen === 'Pulang' && !alreadyPulang
+                tipeAbsen === 'Pulang' && !alreadyPulang && !isCutoffBlocked
                   ? 'border-amber-500 bg-amber-50/80 text-amber-900 shadow-sm'
-                  : !alreadyPulang ? 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70' : ''
+                  : !alreadyPulang && !isCutoffBlocked ? 'border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100/70' : ''
               }`}
             >
               <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${
-                tipeAbsen === 'Pulang' && !alreadyPulang ? 'border-amber-600 bg-amber-600' : 'border-slate-400'
+                tipeAbsen === 'Pulang' && !alreadyPulang && !isCutoffBlocked ? 'border-amber-600 bg-amber-600' : 'border-slate-400'
               }`}>
-                {tipeAbsen === 'Pulang' && !alreadyPulang && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                {tipeAbsen === 'Pulang' && !alreadyPulang && !isCutoffBlocked && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
               </div>
               <span className="text-base">🌙</span>
               <span>Absen Pulang {alreadyPulang && '(Selesai)'}</span>

@@ -150,7 +150,15 @@ export default function App() {
     holidays: (() => {
       const stored = localStorage.getItem('absensi_hari_libur');
       if (stored) {
-        try { return JSON.parse(stored); } catch (e) {}
+        try {
+          const list = JSON.parse(stored);
+          if (Array.isArray(list)) {
+            return list.filter((h: any) => {
+              const nameLow = (h?.nama || '').toLowerCase();
+              return !nameLow.includes('kemerdekaan') && !nameLow.includes('natal');
+            });
+          }
+        } catch (e) {}
       }
       return [];
     })(),
@@ -474,7 +482,10 @@ export default function App() {
             externalApps: Array.isArray(parsed.externalApps) && parsed.externalApps.length > 0
               ? parsed.externalApps
               : (Array.isArray(prev.externalApps) && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS),
-            holidays: Array.isArray(parsed.holidays) ? parsed.holidays : (prev.holidays || []),
+            holidays: (Array.isArray(parsed.holidays) ? parsed.holidays : (prev.holidays || [])).filter((h: any) => {
+              const nameLow = (h?.nama || '').toLowerCase();
+              return !nameLow.includes('kemerdekaan') && !nameLow.includes('natal');
+            }),
             rekapSettings: parsed.rekapSettings || prev.rekapSettings,
           };
           if (parsed.rekapSettings) {
@@ -524,14 +535,15 @@ export default function App() {
             kepalaSekolahNip: c.kepalaSekolahNip?.trim() ?? prev.kepalaSekolahNip ?? '',
             batasWaktuMasuk: c.batasWaktuMasuk?.trim() ?? prev.batasWaktuMasuk ?? '07:00',
             externalApps: externalAppsList,
-            holidays: Array.isArray(c.holidays) ? c.holidays : (prev.holidays || []),
+            holidays: (Array.isArray(c.holidays) ? c.holidays : (prev.holidays || [])).filter((h: any) => {
+              const nameLow = (h?.nama || '').toLowerCase();
+              return !nameLow.includes('kemerdekaan') && !nameLow.includes('natal');
+            }),
             rekapSettings: c.rekapSettings || prev.rekapSettings,
           };
 
           localStorage.setItem('absensi_app_customization', JSON.stringify(merged));
-          if (Array.isArray(c.holidays)) {
-            localStorage.setItem('absensi_hari_libur', JSON.stringify(c.holidays));
-          }
+          localStorage.setItem('absensi_hari_libur', JSON.stringify(merged.holidays));
           if (c.rekapSettings) {
             if (c.rekapSettings.rekapGuruMonth) localStorage.setItem('absensi_rekap_guru_month', c.rekapSettings.rekapGuruMonth);
             if (c.rekapSettings.rekapGuruStartDay) localStorage.setItem('absensi_rekap_guru_start_day', String(c.rekapSettings.rekapGuruStartDay));
@@ -1557,7 +1569,7 @@ export default function App() {
                 </div>
               )}
 
-              {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin' || currentUser?.role === 'Guru' || currentUser?.role === 'Tendik') && (
+              {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') && (
                 <div className="pt-2 pb-2 mt-1 border-t border-slate-800/80">
                   <p className="px-3.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">
                     Konfigurasi Sistem
