@@ -11,6 +11,7 @@ export interface User {
   role: 'Admin Utama' | 'Admin' | 'Guru' | 'Tendik';
   status?: string;
   photo?: string;
+  jabatan?: string;
 }
 
 export interface Student {

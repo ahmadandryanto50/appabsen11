@@ -474,6 +474,7 @@ export default function App() {
           const merged: AppCustomization = {
             ...prev,
             ...parsed,
+            appName: parsed.appName === 'APP_11' ? 'ABSENSI' : (parsed.appName || prev.appName),
             logoUrl: parsed.logoUrl || prev.logoUrl || '/logo_smpn11.jpg',
             userPhotos: { ...(prev.userPhotos || {}), ...(parsed.userPhotos || {}) },
             fullAccessUsernames: Array.isArray(parsed.fullAccessUsernames) && parsed.fullAccessUsernames.length > 0
@@ -523,7 +524,7 @@ export default function App() {
             : (Array.isArray(prev.externalApps) && prev.externalApps.length > 0 ? prev.externalApps : DEFAULT_APPS);
 
           const merged: AppCustomization = {
-            appName: c.appName?.trim() || prev.appName || 'E-ABSENSI',
+            appName: (c.appName?.trim() === 'APP_11' ? 'ABSENSI' : c.appName?.trim()) || (prev.appName === 'APP_11' ? 'ABSENSI' : prev.appName) || 'E-ABSENSI',
             appSubtitle: c.appSubtitle?.trim() || prev.appSubtitle || 'SMP NEGERI 11 PALU',
             logoEmoji: c.logoEmoji || prev.logoEmoji || '🎓',
             logoColor: c.logoColor || prev.logoColor || 'bg-blue-600',
@@ -1127,8 +1128,8 @@ export default function App() {
                   </div>
                 </div>
                 <div className="overflow-hidden">
-                  <h1 className="font-extrabold text-white text-sm leading-tight tracking-tight uppercase truncate max-w-[130px]" title={customization.appName || 'E-ABSENSI'}>
-                    {customization.appName || 'E-ABSENSI'}
+                  <h1 className="font-extrabold text-white text-sm leading-tight tracking-tight uppercase truncate max-w-[130px]" title={customization.appName === 'APP_11' ? 'ABSENSI' : (customization.appName || 'E-ABSENSI')}>
+                    {customization.appName === 'APP_11' ? 'ABSENSI' : (customization.appName || 'E-ABSENSI')}
                   </h1>
                   <p className="text-[10px] text-slate-400 font-bold tracking-wider uppercase truncate max-w-[130px] group-hover:text-blue-400 transition-colors">
                     {customization.appSubtitle || 'Sekolah Digital'}

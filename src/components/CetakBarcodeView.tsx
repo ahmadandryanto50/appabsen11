@@ -248,7 +248,7 @@ const StudentCardFront: React.FC<StudentCardFrontProps> = ({
             }}
           />
           <h4 className="font-black text-[9px] tracking-wider uppercase leading-tight truncate w-full text-white">
-            {customization?.appName || 'APP_11'}
+            {(!customization?.appName || customization.appName === 'APP_11') ? 'ABSENSI' : customization.appName}
           </h4>
           <p className="text-[6.5px] font-semibold opacity-90 leading-none uppercase truncate w-full mt-0.5 text-slate-200">
             {customization?.appSubtitle || 'SMP NEGERI 11 PALU'}

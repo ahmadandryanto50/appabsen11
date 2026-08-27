@@ -4,9 +4,9 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { User, AttendanceRecord, AppCustomization, getLocalDateString } from '../types';
-import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, EyeOff, ExternalLink, ClipboardList, QrCode, Scan, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
+import { CalendarRange, School, UserPen, Award, Clock, Users, GraduationCap, BarChart3, Eye, EyeOff, ExternalLink, ClipboardList, QrCode, Scan, CheckCircle2, AlertCircle, RefreshCw, X, Copy, Check, ShieldCheck, Sparkles, UserCheck, Crown, Maximize2, FileImage } from 'lucide-react';
 import { apiClient } from '../api';
 import { normalizeImageUrl, getUserPhotoUrl, handleImageFallbackError } from '../utils/imageUrl';
 
@@ -99,6 +99,9 @@ export function DashboardView({
 }: DashboardViewProps) {
   const [photoError, setPhotoError] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [copiedNip, setCopiedNip] = useState(false);
+  const [userProfileTab, setUserProfileTab] = useState<'stats' | 'foto'>('stats');
   const userPhoto = getUserPhotoUrl(customization, currentUser);
 
   // State and hook for Tendik history inside Dashboard
@@ -1167,6 +1170,13 @@ export function DashboardView({
     return idx >= 0 ? idx : 0;
   }, [listTendikUsers, activeTendikPerson]);
 
+  const activeProfileStats = useMemo(() => {
+    if (currentUser?.role === 'Tendik') {
+      return currentTendikStats;
+    }
+    return currentGuruStats;
+  }, [currentUser, currentTendikStats, currentGuruStats]);
+
   return (
     <div className="space-y-6">
       {subView === 'satu' && (
@@ -1188,15 +1198,16 @@ export function DashboardView({
         </div>
 
         {/* Animated User Profile Avatar on the right of banner */}
-        <div className="relative z-10 flex-shrink-0 self-start sm:self-center">
+        <div className="relative z-10 flex-shrink-0 flex flex-col items-center gap-1.5 self-start sm:self-center">
           <motion.div
-            animate={{ y: [0, -6, 0] }}
+            animate={{ y: [0, -5, 0] }}
             transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}
-            className="relative w-16 h-16 sm:w-20 sm:h-20 cursor-pointer active:scale-95 transition-transform"
-            title={`Profil: ${currentUser?.nama || ''}`}
+            onClick={() => setShowProfileModal(true)}
+            className="relative group w-16 h-16 sm:w-20 sm:h-20 cursor-pointer active:scale-95 transition-transform"
+            title={`Klik untuk lihat profil lengkap: ${currentUser?.nama || ''}`}
           >
             {/* Outer rotating color ring */}
-            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-white/30 via-blue-400/80 to-cyan-300 opacity-90 animate-spin [animation-duration:8s] blur-[1px]" />
+            <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-emerald-400 via-teal-300 to-cyan-300 opacity-90 animate-spin [animation-duration:8s] blur-[1px] group-hover:scale-105 transition-transform" />
             {/* Pulsing overlay shadow */}
             <div className="absolute inset-0.5 rounded-full bg-indigo-950/40 shadow-inner" />
             <div className="absolute inset-1.5 rounded-full overflow-hidden bg-white/10 backdrop-blur-md p-0.5 flex items-center justify-center shadow-lg border border-white/30">
@@ -1204,19 +1215,28 @@ export function DashboardView({
                 <img
                   src={userPhoto.trim()}
                   alt={currentUser?.nama}
-                  className="w-full h-full object-cover rounded-full"
+                  className="w-full h-full object-cover rounded-full group-hover:scale-110 transition-transform duration-300"
                   referrerPolicy="no-referrer"
                   onError={(e) => {
                     handleImageFallbackError(e, () => setPhotoError(true));
                   }}
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500 to-indigo-600 text-white font-black text-xl uppercase rounded-full">
+                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-500 to-teal-600 text-white font-black text-xl uppercase rounded-full">
                   {currentUser?.nama?.charAt(0) || '👤'}
                 </div>
               )}
             </div>
           </motion.div>
+          {/* Green Profil Label centered neatly below the photo circle */}
+          <button
+            onClick={() => setShowProfileModal(true)}
+            className="px-2.5 py-0.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-full text-[9px] font-black uppercase tracking-wider shadow-md border border-white/40 flex items-center gap-1 cursor-pointer transition-all hover:scale-105 active:scale-95"
+            title="Lihat Profil"
+          >
+            <Sparkles className="w-2.5 h-2.5 text-yellow-300 animate-pulse" />
+            <span>PROFIL</span>
+          </button>
         </div>
         <School className="w-48 h-48 text-white/5 absolute -right-6 -bottom-10 pointer-events-none transform rotate-12" />
       </div>
@@ -2457,6 +2477,402 @@ export function DashboardView({
           </div>
         </div>
       )}
+
+      {/* POPUP PROFIL KEREN & KEKINIAN */}
+      <AnimatePresence>
+        {showProfileModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+            <motion.div
+              initial={{ scale: 0.85, opacity: 0, y: 30 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.85, opacity: 0, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden border border-slate-100/80 max-h-[90vh] flex flex-col"
+            >
+              {/* Header for Admin Utama & Admin vs Regular User */}
+              {(currentUser?.role === 'Admin Utama' || currentUser?.role === 'Admin') ? (
+                <>
+                  {/* Admin Top Banner */}
+                  <div className="relative h-28 bg-gradient-to-r from-amber-600 via-indigo-800 to-slate-900 p-4 flex justify-between items-start overflow-hidden flex-shrink-0">
+                    <div className="absolute -right-10 -top-10 w-40 h-40 bg-amber-400/20 rounded-full blur-2xl pointer-events-none" />
+                    <div className="absolute -left-10 -bottom-10 w-36 h-36 bg-cyan-400/20 rounded-full blur-xl pointer-events-none" />
+
+                    <span className="relative z-10 inline-flex items-center gap-1.5 px-3 py-1 bg-amber-400/20 backdrop-blur-md rounded-full text-[11px] font-extrabold text-amber-200 tracking-wide border border-amber-300/30 shadow-sm">
+                      <Crown className="w-3.5 h-3.5 text-yellow-300" />
+                      <span>{currentUser?.role === 'Admin Utama' ? 'Admin Utama Portal' : 'Administrator Portal'}</span>
+                    </span>
+
+                    <button
+                      onClick={() => setShowProfileModal(false)}
+                      className="relative z-10 p-2 bg-white/20 hover:bg-white/30 active:scale-95 text-white rounded-full transition-all backdrop-blur-md cursor-pointer"
+                      title="Tutup"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Admin Body Content - Direct Full Photo Display (No Stats Tab) */}
+                  <div className="p-6 overflow-y-auto text-center space-y-4">
+                    <div className="space-y-4">
+                      <div className="relative w-full max-w-[260px] sm:max-w-[290px] aspect-square mx-auto rounded-3xl overflow-hidden bg-slate-950 border-4 border-amber-400/90 shadow-2xl flex items-center justify-center p-1.5">
+                        {userPhoto?.trim() && !photoError ? (
+                          <img
+                            src={userPhoto.trim()}
+                            alt={currentUser?.nama}
+                            className="w-full h-full object-contain rounded-2xl"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => handleImageFallbackError(e, () => setPhotoError(true))}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-amber-500 via-indigo-600 to-slate-900 text-white font-black text-5xl uppercase rounded-2xl p-4">
+                            <span>{currentUser?.nama?.charAt(0) || '👑'}</span>
+                            <span className="text-[10px] font-bold mt-2 text-amber-200">Foto Profil Belum Diatur</span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Name & Role */}
+                      <div>
+                        <h3 className="text-xl font-black text-slate-800 tracking-tight">
+                          {currentUser?.nama || 'Administrator'}
+                        </h3>
+                        <div className="flex items-center justify-center gap-1.5 mt-1">
+                          <span className="px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
+                            <Crown className="w-3 h-3 text-amber-600" />
+                            {currentUser?.role === 'Admin Utama' ? 'Admin Utama System' : 'Administrator'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* NIP / Username Copy Box */}
+                      {(currentUser?.nip || currentUser?.username) && (
+                        <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 font-mono shadow-inner">
+                          <span className="font-semibold text-slate-400">
+                            {currentUser?.nip ? 'NIP/NUPTK:' : 'ID Username:'}
+                          </span>
+                          <strong className="text-slate-800">{currentUser?.nip || currentUser?.username}</strong>
+                          <button
+                            onClick={() => {
+                              const textToCopy = currentUser?.nip || currentUser?.username || '';
+                              navigator.clipboard.writeText(textToCopy);
+                              setCopiedNip(true);
+                              setTimeout(() => setCopiedNip(false), 2000);
+                            }}
+                            className="ml-1 p-1 hover:bg-slate-200 rounded-md transition-colors text-slate-500 hover:text-slate-700 cursor-pointer"
+                            title="Salin ID"
+                          >
+                            {copiedNip ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Action Buttons */}
+                      <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+                        <button
+                          onClick={() => {
+                            setShowProfileModal(false);
+                            onNavigate('customization');
+                          }}
+                          className="w-full py-2.5 px-4 bg-gradient-to-r from-amber-500 to-indigo-600 hover:from-amber-600 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                        >
+                          <UserPen className="w-4 h-4" />
+                          <span>Pengaturan Aplikasi</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowProfileModal(false);
+                            onNavigate('cetak-barcode');
+                          }}
+                          className="w-full sm:w-auto py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap"
+                        >
+                          <QrCode className="w-3.5 h-3.5" />
+                          <span>Kartu</span>
+                        </button>
+                        <button
+                          onClick={() => setShowProfileModal(false)}
+                          className="w-full sm:w-auto py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                        >
+                          Tutup
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Regular User Top Banner */}
+                  <div className="relative h-28 bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 p-4 flex justify-between items-start overflow-hidden flex-shrink-0">
+                    <div className="absolute -right-10 -top-10 w-40 h-40 bg-white/10 rounded-full blur-2xl pointer-events-none" />
+                    <div className="absolute -left-10 -bottom-10 w-36 h-36 bg-cyan-400/20 rounded-full blur-xl pointer-events-none" />
+
+                    <span className="relative z-10 inline-flex items-center gap-1.5 px-3 py-1 bg-white/15 backdrop-blur-md rounded-full text-[11px] font-extrabold text-white tracking-wide border border-white/20 shadow-sm">
+                      <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-spin [animation-duration:4s]" />
+                      <span>Profil Pengguna Aktif</span>
+                    </span>
+
+                    <button
+                      onClick={() => setShowProfileModal(false)}
+                      className="relative z-10 p-2 bg-white/20 hover:bg-white/30 active:scale-95 text-white rounded-full transition-all backdrop-blur-md cursor-pointer"
+                      title="Tutup"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Tab Switcher for Guru & Tendik (Statistik Presensi vs Foto Utuh) */}
+                  <div className="flex items-center justify-center gap-1.5 p-1.5 bg-slate-100 rounded-2xl mx-6 -mt-5 relative z-20 border border-slate-200/80 shadow-md flex-shrink-0">
+                    <button
+                      onClick={() => setUserProfileTab('stats')}
+                      className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        userProfileTab === 'stats'
+                          ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <BarChart3 className="w-3.5 h-3.5" />
+                      <span>Statistik Presensi</span>
+                    </button>
+                    <button
+                      onClick={() => setUserProfileTab('foto')}
+                      className={`flex-1 py-1.5 px-3 rounded-xl text-xs font-extrabold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        userProfileTab === 'foto'
+                          ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <FileImage className="w-3.5 h-3.5" />
+                      <span>Foto Utuh</span>
+                    </button>
+                  </div>
+
+                  {/* Regular User Body Content */}
+                  <div className="p-6 overflow-y-auto text-center space-y-4">
+                    {userProfileTab === 'foto' ? (
+                      /* FULL UNCROPPED PHOTO DISPLAY FOR GURU / TENDIK */
+                      <div className="space-y-4">
+                        <div className="relative w-full max-w-[260px] sm:max-w-[290px] aspect-square mx-auto rounded-3xl overflow-hidden bg-slate-950 border-4 border-indigo-400/90 shadow-2xl flex items-center justify-center p-1.5">
+                          {userPhoto?.trim() && !photoError ? (
+                            <img
+                              src={userPhoto.trim()}
+                              alt={currentUser?.nama}
+                              className="w-full h-full object-contain rounded-2xl"
+                              referrerPolicy="no-referrer"
+                              onError={(e) => handleImageFallbackError(e, () => setPhotoError(true))}
+                            />
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-5xl uppercase rounded-2xl p-4">
+                              <span>{currentUser?.nama?.charAt(0) || '👤'}</span>
+                              <span className="text-[10px] font-bold mt-2 text-indigo-200">Foto Profil Belum Diatur</span>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Name & Role */}
+                        <div>
+                          <h3 className="text-xl font-black text-slate-800 tracking-tight">
+                            {currentUser?.nama || 'Pengguna'}
+                          </h3>
+                          <div className="flex flex-wrap items-center justify-center gap-1.5 mt-1">
+                            <span className="px-3.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm flex items-center gap-1.5">
+                              <ShieldCheck className="w-3.5 h-3.5 text-cyan-200" />
+                              {currentUser?.role === 'Tendik'
+                                ? 'Tenaga Kependidikan'
+                                : isFullAccess
+                                ? 'Guru (Akses Penuh)'
+                                : 'Guru Pengajar'}
+                            </span>
+                            {currentUser?.jabatan && (
+                              <span className="px-3 py-0.5 rounded-full text-xs font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
+                                {currentUser.jabatan}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* NIP / Username Copy Box */}
+                        {(currentUser?.nip || currentUser?.username) && (
+                          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 font-mono shadow-inner">
+                            <span className="font-semibold text-slate-400">
+                              {currentUser?.nip ? 'NIP/NUPTK:' : 'ID Username:'}
+                            </span>
+                            <strong className="text-slate-800">{currentUser?.nip || currentUser?.username}</strong>
+                            <button
+                              onClick={() => {
+                                const textToCopy = currentUser?.nip || currentUser?.username || '';
+                                navigator.clipboard.writeText(textToCopy);
+                                setCopiedNip(true);
+                                setTimeout(() => setCopiedNip(false), 2000);
+                              }}
+                              className="ml-1 p-1 hover:bg-slate-200 rounded-md transition-colors text-slate-500 hover:text-slate-700 cursor-pointer"
+                              title="Salin NIP / Username"
+                            >
+                              {copiedNip ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* Action Buttons */}
+                        <div className="pt-2 flex flex-col sm:flex-row items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setShowProfileModal(false);
+                              onNavigate('cetak-barcode');
+                            }}
+                            className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                          >
+                            <QrCode className="w-4 h-4" />
+                            <span>Kartu Presensi Digital</span>
+                          </button>
+                          <button
+                            onClick={() => setShowProfileModal(false)}
+                            className="w-full sm:w-auto py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            Tutup
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* STATS TAB FOR GURU / TENDIK */
+                      <div className="space-y-4">
+                        <div className="relative inline-block mx-auto mb-1">
+                          <div className="relative w-24 h-24 rounded-full overflow-hidden bg-white p-1 shadow-md border-2 border-slate-200">
+                            {userPhoto?.trim() && !photoError ? (
+                              <img
+                                src={userPhoto.trim()}
+                                alt={currentUser?.nama}
+                                className="w-full h-full object-cover rounded-full"
+                                referrerPolicy="no-referrer"
+                                onError={(e) => handleImageFallbackError(e, () => setPhotoError(true))}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-black text-3xl uppercase rounded-full shadow-inner">
+                                {currentUser?.nama?.charAt(0) || '👤'}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* User Name & Role */}
+                        <div>
+                          <h3 className="text-xl font-black text-slate-800 tracking-tight leading-snug">
+                            {currentUser?.nama || 'Pengguna'}
+                          </h3>
+                          <div className="flex flex-wrap items-center justify-center gap-1.5 mt-1">
+                            <span className="px-3.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm flex items-center gap-1.5">
+                              <ShieldCheck className="w-3.5 h-3.5 text-cyan-200" />
+                              {currentUser?.role === 'Tendik'
+                                ? 'Tenaga Kependidikan'
+                                : isFullAccess
+                                ? 'Guru (Akses Penuh)'
+                                : 'Guru Pengajar'}
+                            </span>
+                            {currentUser?.jabatan && (
+                              <span className="px-3 py-0.5 rounded-full text-xs font-extrabold bg-slate-100 text-slate-700 border border-slate-200">
+                                {currentUser.jabatan}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* NIP / Username Copy Box */}
+                        {(currentUser?.nip || currentUser?.username) && (
+                          <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-600 font-mono shadow-inner">
+                            <span className="font-semibold text-slate-400">
+                              {currentUser?.nip ? 'NIP/NUPTK:' : 'ID Username:'}
+                            </span>
+                            <strong className="text-slate-800">{currentUser?.nip || currentUser?.username}</strong>
+                            <button
+                              onClick={() => {
+                                const textToCopy = currentUser?.nip || currentUser?.username || '';
+                                navigator.clipboard.writeText(textToCopy);
+                                setCopiedNip(true);
+                                setTimeout(() => setCopiedNip(false), 2000);
+                              }}
+                              className="ml-1 p-1 hover:bg-slate-200 rounded-md transition-colors text-slate-500 hover:text-slate-700 cursor-pointer"
+                              title="Salin NIP / Username"
+                            >
+                              {copiedNip ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        )}
+
+                        {/* 4 Stat Summary Cards */}
+                        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 text-left">
+                          {/* Card 1: HADIR */}
+                          <div className="p-3 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl flex flex-col justify-between shadow-sm">
+                            <p className="text-[10px] sm:text-[11px] font-extrabold text-emerald-700 tracking-wider uppercase">HADIR</p>
+                            <div className="flex items-baseline gap-1 mt-1">
+                              <span className="text-xl sm:text-2xl font-black text-emerald-950">{activeProfileStats?.countHadir ?? 0}</span>
+                              <span className="text-xs font-semibold text-slate-500">Hari</span>
+                            </div>
+                            <p className="text-[9.5px] font-semibold text-slate-500 mt-1 truncate">Presensi Mandiri / Kiosk</p>
+                          </div>
+
+                          {/* Card 2: IZIN / SAKIT / CUTI */}
+                          <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-2xl flex flex-col justify-between shadow-sm">
+                            <p className="text-[10px] sm:text-[11px] font-extrabold text-amber-700 tracking-wider uppercase">IZIN / SAKIT / CUTI</p>
+                            <div className="flex items-baseline gap-1 mt-1">
+                              <span className="text-xl sm:text-2xl font-black text-amber-950">
+                                {activeProfileStats ? (activeProfileStats.countSakit + activeProfileStats.countIzin + activeProfileStats.countCutiDL) : 0}
+                              </span>
+                              <span className="text-xs font-semibold text-slate-500">Hari</span>
+                            </div>
+                            <p className="text-[9.5px] font-semibold text-slate-500 mt-1 truncate">
+                              S: {activeProfileStats?.countSakit ?? 0} | I: {activeProfileStats?.countIzin ?? 0} | DL/C: {activeProfileStats?.countCutiDL ?? 0}
+                            </p>
+                          </div>
+
+                          {/* Card 3: ALPA / TANPA KET. */}
+                          <div className="p-3 bg-rose-50/70 border border-rose-200/80 rounded-2xl flex flex-col justify-between shadow-sm">
+                            <p className="text-[10px] sm:text-[11px] font-extrabold text-rose-700 tracking-wider uppercase">ALPA / TANPA KET.</p>
+                            <div className="flex items-baseline gap-1 mt-1">
+                              <span className="text-xl sm:text-2xl font-black text-rose-950">{activeProfileStats?.countAlpa ?? 0}</span>
+                              <span className="text-xs font-semibold text-slate-500">Hari</span>
+                            </div>
+                            <p className="text-[9.5px] font-semibold text-slate-500 mt-1 truncate">Hari Kerja Belum Presensi</p>
+                          </div>
+
+                          {/* Card 4: % KEHADIRAN */}
+                          <div className="p-3 bg-indigo-50/70 border border-indigo-200/80 rounded-2xl flex flex-col justify-between shadow-sm">
+                            <p className="text-[10px] sm:text-[11px] font-extrabold text-indigo-700 tracking-wider uppercase">% KEHADIRAN</p>
+                            <div className="flex items-baseline gap-1 mt-1">
+                              <span className="text-xl sm:text-2xl font-black text-indigo-950">{activeProfileStats?.persentase ?? 0}%</span>
+                            </div>
+                            <p className="text-[9.5px] font-semibold text-slate-500 mt-1 truncate">
+                              {activeProfileStats?.countHadir ?? 0} dari {activeProfileStats?.totalHariKerja ?? 0} Hari Target
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="mt-5 flex flex-col sm:flex-row items-center gap-2.5">
+                          <button
+                            onClick={() => {
+                              setShowProfileModal(false);
+                              onNavigate('cetak-barcode');
+                            }}
+                            className="w-full py-2.5 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-extrabold shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+                          >
+                            <QrCode className="w-4 h-4" />
+                            <span>Kartu Presensi Digital</span>
+                          </button>
+
+                          <button
+                            onClick={() => setShowProfileModal(false)}
+                            className="w-full sm:w-auto py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                          >
+                            Tutup
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -168,9 +168,12 @@ export function TendikPermitView({
     setShowCameraStream(false);
   };
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (files.length === 1) {
+      const file = files[0];
       const reader = new FileReader();
       reader.onload = (event) => {
         if (event.target?.result) {
@@ -204,6 +207,70 @@ export function TendikPermitView({
         }
       };
       reader.readAsDataURL(file);
+    } else {
+      // Multi-file upload: merge images into grid canvas
+      const images: HTMLImageElement[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const dataUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (ev) => resolve((ev.target?.result as string) || '');
+          reader.readAsDataURL(file);
+        });
+        if (dataUrl) {
+          const loadedImg = await new Promise<HTMLImageElement>((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(img);
+            img.src = dataUrl;
+          });
+          if (loadedImg.width > 0 && loadedImg.height > 0) {
+            images.push(loadedImg);
+          }
+        }
+      }
+
+      if (images.length > 0) {
+        const cols = images.length === 2 ? 2 : images.length <= 4 ? 2 : 3;
+        const rows = Math.ceil(images.length / cols);
+        const cellWidth = 240;
+        const cellHeight = 180;
+
+        const canvas = document.createElement('canvas');
+        canvas.width = cols * cellWidth;
+        canvas.height = rows * cellHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (ctx) {
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          images.forEach((img, idx) => {
+            const col = idx % cols;
+            const row = Math.floor(idx / cols);
+            const x = col * cellWidth;
+            const y = row * cellHeight;
+
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x + 2, y + 2, cellWidth - 4, cellHeight - 4);
+
+            const aspectRatio = img.width / img.height;
+            let dw = cellWidth - 8;
+            let dh = (cellWidth - 8) / aspectRatio;
+            if (dh > cellHeight - 8) {
+              dh = cellHeight - 8;
+              dw = (cellHeight - 8) * aspectRatio;
+            }
+            const dx = x + (cellWidth - dw) / 2;
+            const dy = y + (cellHeight - dh) / 2;
+
+            ctx.drawImage(img, dx, dy, dw, dh);
+          });
+
+          setCameraPhoto(canvas.toDataURL('image/jpeg', 0.5));
+        }
+      }
     }
   };
 
@@ -421,12 +488,13 @@ export function TendikPermitView({
                   </button>
                   <label className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-[10px] font-bold flex items-center gap-1 border border-slate-200 cursor-pointer transition-colors">
                     <FileImage className="w-3 h-3" />
-                    <span>Pilih Berkas</span>
+                    <span>Pilih Berkas (Multi-File)</span>
                     <input
                       type="file"
                       accept="image/*"
                       onChange={handleFileUpload}
                       className="hidden"
+                      multiple
                     />
                   </label>
                 </div>
